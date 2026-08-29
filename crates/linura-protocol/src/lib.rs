@@ -41,7 +41,7 @@ pub struct ActionRequest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PlanResponse {
-    Planned(ActionPlan),
+    Planned(Box<ActionPlan>),
     Unsupported { reason: String },
     Invalid { reason: String },
 }
