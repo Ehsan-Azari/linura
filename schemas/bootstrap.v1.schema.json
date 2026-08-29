@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/bootstrap.v1.schema.json",
+  "$id": "https://linura.org/schemas/bootstrap.v1.schema.json",
   "title": "Linura bootstrap checkpoint",
   "type": "object",
   "required": ["schema_version", "install_id", "mode", "completed_stages"],

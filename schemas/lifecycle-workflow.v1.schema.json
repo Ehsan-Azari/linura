@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/lifecycle-workflow.v1.schema.json",
+  "$id": "https://linura.org/schemas/lifecycle-workflow.v1.schema.json",
   "title": "Typed Linura lifecycle workflow",
   "type": "object",
   "required": ["schema_version", "id", "event", "steps"],

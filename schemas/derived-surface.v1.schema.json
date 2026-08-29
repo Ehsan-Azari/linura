@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/derived-surface.v1.schema.json",
+  "$id": "https://linura.org/schemas/derived-surface.v1.schema.json",
   "title": "Linura Derived Surface v1",
   "type": "object",
   "additionalProperties": false,

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/hardware-fixture.v1.schema.json",
+  "$id": "https://linura.org/schemas/hardware-fixture.v1.schema.json",
   "title": "Sanitized Linura hardware fixture",
   "type": "object",
   "required": ["schema_version", "fixture_id", "profile", "components"],

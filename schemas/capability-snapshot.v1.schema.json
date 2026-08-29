@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/capability-snapshot.v1.schema.json",
+  "$id": "https://linura.org/schemas/capability-snapshot.v1.schema.json",
   "title": "Linura Capability Snapshot v1",
   "type": "object",
   "required": ["schema_version", "profile_id", "capabilities"],

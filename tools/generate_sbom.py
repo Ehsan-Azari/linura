@@ -85,7 +85,7 @@ def main() -> int:
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": f"Linura-{args.version}",
-        "documentNamespace": f"https://linura.dev/spdx/{args.version}/{args.source_sha}",
+        "documentNamespace": f"https://linura.org/spdx/{args.version}/{args.source_sha}",
         "creationInfo": {
             "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "creators": ["Tool: linura-generate-sbom-0.0.0"],

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/managed-resource.v1.schema.json",
+  "$id": "https://linura.org/schemas/managed-resource.v1.schema.json",
   "title": "Linura managed resource ownership",
   "type": "object",
   "required": ["schema_version", "resource_id", "ownership"],

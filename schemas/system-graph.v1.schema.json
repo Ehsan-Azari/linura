@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/system-graph.v1.schema.json",
+  "$id": "https://linura.org/schemas/system-graph.v1.schema.json",
   "title": "Linura System Graph v1",
   "type": "object",
   "additionalProperties": false,

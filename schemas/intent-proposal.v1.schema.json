@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://linura.dev/schemas/intent-proposal.v1.schema.json",
+  "$id": "https://linura.org/schemas/intent-proposal.v1.schema.json",
   "title": "Linura Intent Proposal v1",
   "type": "object",
   "additionalProperties": false,
