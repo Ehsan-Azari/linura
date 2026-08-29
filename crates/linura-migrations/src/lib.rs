@@ -119,7 +119,8 @@ pub enum MigrationError {
 impl Display for MigrationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidDescriptor(message) | Self::Operation(message) => f.write_str(message),
+            Self::InvalidDescriptor(message) => f.write_str(message),
+            Self::Operation(message) => f.write_str(message),
             Self::ManualRecoveryRequired(id) => {
                 write!(f, "migration {id} requires manual recovery")
             }
