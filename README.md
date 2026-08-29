@@ -1,7 +1,5 @@
-# Linura
+# Linura — The intelligent system layer for Linux.
 
-> **Linura — The intelligent system layer for Linux.**
->
 > **Tell your computer what you want it to become.**
 
 **Linura is an intent-driven, agent-native Linux system that turns human goals into declarative, policy-controlled, verified machine state.**
@@ -77,7 +75,7 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 │ Blueprints │ Composition │ Workflows │ Derived Surfaces     │
 ├─────────────────────────────────────────────────────────────┤
 │ PROVIDERS + NARROW PRIVILEGED EXECUTORS                     │
-│ systemd │ NetworkManager │ BlueZ │ PipeWire │ UDisks │ ... │
+│ systemd │ NetworkManager │ BlueZ │ PipeWire │ UDisks │ ...  │
 ├─────────────────────────────────────────────────────────────┤
 │ LINUX                                                       │
 └─────────────────────────────────────────────────────────────┘
@@ -191,4 +189,4 @@ cargo xtask image-plan
 
 The grand development foundation includes checkpointed bootstrap, migrations, coordinated updates, config ownership/drift, sanitized hardware evidence, disposable QEMU/KVM acceptance, visual-regression contracts, exact-SHA release candidate proof, build/publish separation, and independent release-asset verification.
 
-See [Development infrastructure](docs/development-infrastructure.md) and [Development lessons adopted from Omarchy](docs/omarchy-development-lessons.md). Linura adopts Omarchy's strong distro-development discipline while deliberately rejecting unsandboxed plugins, shell strings as the authority API, arbitrary privileged hooks, and model-to-root execution.
+See [Development infrastructure](docs/development-infrastructure.md) and [Development lessons adopted from Omarchy](docs/omarchy-development-lessons.md). Linura adopts [Omarchy](https://github.com/basecamp/omarchy)'s strong distro-development discipline while deliberately rejecting unsandboxed plugins, shell strings as the authority API, arbitrary privileged hooks, and model-to-root execution.
