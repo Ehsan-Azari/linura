@@ -2,7 +2,7 @@
 
 use linura_core::{ActionPlan, Capability, ResourceId};
 use linura_protocol::ActionRequest;
-use linura_provider_sdk::{Provider, ProviderError};
+use linura_provider_sdk::{Observation, Provider, ProviderError};
 
 #[derive(Clone, Debug)]
 pub struct FakeProvider {
@@ -17,19 +17,30 @@ impl Provider for FakeProvider {
     fn id(&self) -> &'static str {
         "test.fake"
     }
+
     fn capabilities(&self) -> Vec<Capability> {
         self.capabilities.clone()
     }
-    fn observe(&self, _resource: &ResourceId) -> Result<String, ProviderError> {
+
+    fn observe(&self, resource: &ResourceId) -> Result<Observation, ProviderError> {
         if self.fail_observe {
             Err(ProviderError::Unavailable(
                 "injected observe failure".into(),
             ))
         } else {
-            Ok(self.observation.clone())
+            Ok(Observation {
+                provider_id: self.id().into(),
+                resource: resource.clone(),
+                state: self.observation.clone(),
+            })
         }
     }
-    fn plan(&self, _request: &ActionRequest) -> Result<ActionPlan, ProviderError> {
+
+    fn plan(
+        &self,
+        _request: &ActionRequest,
+        _observation: &Observation,
+    ) -> Result<ActionPlan, ProviderError> {
         if self.fail_plan {
             Err(ProviderError::Unavailable("injected plan failure".into()))
         } else {
@@ -48,12 +59,14 @@ impl FailureInjector {
     pub fn never() -> Self {
         Self { fail_at_step: None }
     }
+
     #[must_use]
     pub fn at(step: usize) -> Self {
         Self {
             fail_at_step: Some(step),
         }
     }
+
     #[must_use]
     pub fn should_fail(&self, step: usize) -> bool {
         self.fail_at_step == Some(step)
@@ -63,6 +76,7 @@ impl FailureInjector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn failure_injector_is_deterministic() {
         let injector = FailureInjector::at(2);

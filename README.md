@@ -21,7 +21,7 @@ A fresh Linura installation should be able to begin with a minimal, recoverable 
 └──────────────────────────────────────────────┘
 ```
 
-The answer is **not** converted into arbitrary shell commands. Linura converts it into durable structured intent, resolves capabilities and conflicts, derives desired state, shows a deterministic plan, applies policy and approvals, executes through narrow trusted providers/executors, independently verifies the result, and records why the resulting state exists.
+The answer is **not** converted into arbitrary shell commands. Linura converts it into durable structured intent, resolves capabilities and conflicts, derives desired state, and routes every managed mutation through one canonical authority lifecycle.
 
 ```text
 Human intent / automation / imported profile
@@ -35,14 +35,15 @@ Human intent / automation / imported profile
                     │
                     ▼
           Authority/control plane
- diff → plan → policy → approval → execution
-                    │
-                    ▼
-       verification → provenance → audit
+ request/intent → observe → plan → validate
+       → authorize → prepare → execute
+       → verify → commit → audit → reconcile
                     │
                     ▼
                   Linux
 ```
+
+A provider/executor cannot shorten that path. Observation feeds planning, policy/approval produces authorization evidence, `prepare` establishes the crash-recovery boundary before effects, executor success is independently verified against authoritative post-state, and only then are Linura state/provenance committed and audited.
 
 **Agents propose. Linura decides and executes.** Agent-native never means agent-dependent: CLI, Control Center, recovery, policy evaluation, state inspection, and deterministic execution must remain usable offline with no model provider.
 
@@ -50,7 +51,7 @@ Human intent / automation / imported profile
 
 Linura deliberately combines two ideas in one repository while keeping their trust boundaries separate:
 
-1. **Authority/control plane** — typed Linux model, providers, policy, plan-before-apply, narrow privilege, verification, compensation, reconciliation, audit.
+1. **Authority/control plane** — typed Linux model, providers, canonical eleven-stage mutation lifecycle, policy/approval, narrow privilege, independent verification, crash-safe commit, reconciliation and audit.
 2. **Intent-native system** — persistent user intent, system graph, capability composition, dependency/conflict solver, semantic provenance, specialist agents, first-boot agent UX, portable machine profiles, derived workflows and UI surfaces.
 
 The control plane is reusable without AI. The intelligence plane can be replaced without changing the authority plane.
@@ -66,7 +67,8 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 │ Intent │ Context │ Agent Providers │ Specialists │ Planner  │
 ├─────────────────────────────────────────────────────────────┤
 │ AUTHORITY                                                   │
-│ Desired State │ Diff │ Policy │ Actions │ Verify │ Audit    │
+│ Observe │ Plan │ Validate │ Authorize │ Prepare │ Execute   │
+│ Verify │ Commit │ Audit │ Reconcile                           │
 ├─────────────────────────────────────────────────────────────┤
 │ SYSTEM GRAPH                                                │
 │ Resources │ Dependencies │ Conflicts │ Ownership │ Why      │
@@ -91,7 +93,10 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 - Managed state retains semantic provenance: **why it exists**, not only who mutated it.
 - Removing an intent runs dependency/shared-ownership analysis before removing derived resources.
 - Unknown/unsupported state fails closed for mutations.
-- Every mutation is planned, policy-evaluated, verified, auditable, and compensatable where possible.
+- Every successful managed mutation follows **request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile** without shortcuts.
+- Planning consumes authoritative observation; it does not assume current machine state.
+- Executor success is evidence of dispatch, not proof of resulting state; verification is a separate boundary.
+- External effects are never supported without a durable pre-execution recovery record.
 - UI contains no distro-specific backend knowledge.
 - Generated/derived UI is constrained to typed resources/actions or isolated extensions.
 - Local deterministic operation and recovery work without network/model access.
@@ -116,9 +121,10 @@ crates/
   linura-agent-runtime/        provider-neutral interpreters + specialist roles
   linura-policy/               policy/approval decisions
   linura-protocol/             versioned public contract
-  linura-provider-sdk/         Linux provider/executor contracts
+  linura-provider-sdk/         observation/planning + executor/verifier contracts
   linura-sdk/                  public non-privileged developer API facade
   linura-control/              unprivileged authority orchestration
+  linura-lifecycle/            mutation ordering + system lifecycle workflows
 capabilities/                  declarative capability blueprint examples
 workflows/                     composable workflow definitions
 surfaces/                      constrained derived UI definitions
@@ -146,18 +152,18 @@ The first supported target stays deliberately narrow: Arch Linux + systemd + Way
 
 We will prove the entire model with a narrow vertical slice before building a broad desktop:
 
-1. stable vocabulary: intent → graph → capability → desired state → plan → action → provenance;
-2. read-only observations and system graph;
-3. deterministic intent/capability planning without an LLM;
-4. one plan-only mutation;
-5. one narrow privileged executor + Polkit;
-6. execute → verify → provenance → audit;
-7. persist intents/graph/desired state and support explain/removal impact;
-8. agent interpretation to `IntentProposal` only;
-9. first-boot experience;
-10. expand system domains, Control Center, shell, workflows, derived surfaces, and enterprise/fleet.
+1. lock vocabulary, trust boundaries, the system graph and the canonical eleven-stage mutation lifecycle;
+2. implement read-only authoritative observations and the system graph;
+3. prove deterministic intent/capability/desired-state planning without an LLM;
+4. implement plan validation, policy decisions and approval requirements;
+5. implement durable `prepare`/`commit`, idempotency, recovery and append-only audit foundations;
+6. implement one narrow privileged executor + Polkit and a separate verifier;
+7. make one capability traverse all eleven stages with failure/crash/drift tests;
+8. persist full intent lifecycle and safe retirement/removal impact;
+9. add agent interpretation to `IntentProposal` only and the first-boot experience;
+10. expand system domains, Control Center, shell, workflows, derived surfaces, release hardening and optional enterprise/fleet.
 
-See [`docs/development-plan.md`](docs/development-plan.md) and [`docs/vision-coverage.md`](docs/vision-coverage.md).
+See [`docs/development-plan.md`](docs/development-plan.md), [`docs/action-lifecycle.md`](docs/action-lifecycle.md), and [`docs/vision-coverage.md`](docs/vision-coverage.md).
 
 ## Bootstrap quality gate
 

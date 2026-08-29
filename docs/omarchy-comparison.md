@@ -14,7 +14,7 @@ Linura:   user intent → structured model → personalized environment
 | Primary abstraction | opinionated distro/desktop | intent-driven operating environment |
 | Source of desired configuration | curated maintainer defaults + user config | approved persistent user intent + machine profile |
 | System contract | shell/native UI APIs/config | typed resources, capabilities, graph, desired state and actions |
-| Mutation | commands/configuration workflows | plan → policy → approval → execute → verify → provenance/audit |
+| Mutation | commands/configuration workflows | request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile |
 | Privilege | integrated sudo/pkexec/system tooling | narrow typed executors + Polkit; no generic root API |
 | Agent role | agent skills invoke system tools | untrusted interpreter producing `IntentProposal` only |
 | Dependency semantics | packages/config/application knowledge | capability solver + semantic ownership/system graph |
@@ -40,7 +40,9 @@ Linura:   user intent → structured model → personalized environment
 - user intent becomes durable declarative state;
 - the machine can explain why managed state exists;
 - capability composition resolves dependencies/conflicts before mutation;
+- every successful managed mutation follows one ordered authority lifecycle with crash-safe prepare/commit boundaries;
 - agents do not own execution authority;
+- executor success is independently verified against authoritative post-state;
 - UI is another client over the same typed system model;
 - managed intent can be retired safely with shared-resource analysis;
 - equivalent intent can be replayed on another supported machine without requiring identical packages;

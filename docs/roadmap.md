@@ -2,6 +2,7 @@
 
 ## v0.0.x — intent-native trustworthy vertical slice
 - Linura naming/product contracts;
+- canonical eleven-stage managed-mutation lifecycle contract;
 - intent + requirements + system graph;
 - capability blueprint/resolution + conflicts;
 - semantic provenance;
@@ -9,7 +10,7 @@
 - systemd/NetworkManager observation;
 - deterministic intent → desired state → plan with no LLM;
 - first privileged systemd executor;
-- execute/verify/audit/provenance vertical slice;
+- real prepare/execute/verify/commit/audit/reconcile vertical slice for one narrow capability;
 - VM integration harness.
 
 ## v0.1 — usable local Linura foundation

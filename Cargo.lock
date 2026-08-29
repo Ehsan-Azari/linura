@@ -24,6 +24,7 @@ dependencies = [
  "linura-core",
  "linura-graph",
  "linura-intent",
+ "linura-lifecycle",
  "linura-planner",
  "linura-policy",
  "linura-protocol",

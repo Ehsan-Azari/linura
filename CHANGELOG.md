@@ -11,6 +11,8 @@ All notable changes to Linura will be documented here.
 - Locked **Linura** as the only product/code namespace; "system control plane" remains architectural terminology.
 - Renamed the authority orchestration crate to `linura-control` and retired the generic runtime name.
 - Renamed planned application directories to `linura-agent-ui`, `linura-control-center`, and `linura-shell`.
+- Made authoritative observation an explicit input to provider planning.
+- Split effect execution from independent verification in the provider SDK.
 
 ### Added
 - Persistent intent and requirement model.
@@ -26,6 +28,9 @@ All notable changes to Linura will be documented here.
 - Expanded schemas, ADRs, development plan, backlog and vision coverage matrix.
 - Public non-privileged `linura-sdk` façade; `linuractl` now consumes the SDK rather than internal protocol crates directly.
 - Naming/product architecture documentation and ADR 0011.
+- Canonical eleven-stage managed-mutation lifecycle: request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile.
+- Mutation lifecycle state machine, correlated stage receipts and injectable runtime ports for later concrete approval, persistence, execution, verification, audit and reconciliation implementations.
+- ADR 0012 locking the trustworthy mutation lifecycle and its stage invariants.
 
 ## [0.0.0] - Unreleased
 - Initial control-plane architecture bootstrap.
