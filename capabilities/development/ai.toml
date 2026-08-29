@@ -1,0 +1,9 @@
+schema = 1
+id = "development.ai"
+title = "AI/ML development"
+provides = ["workload.ai-development"]
+requires = ["development.python", "compute.gpu"]
+recommends = ["containers.local"]
+optional = ["notebooks.local"]
+conflicts = []
+resources = []

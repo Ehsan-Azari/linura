@@ -1,0 +1,16 @@
+/target/
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+coverage/
+dist/
+artifacts/
+__pycache__/
+*.py[cod]
+
+.artifacts/

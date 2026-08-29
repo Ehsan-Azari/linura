@@ -1,0 +1,17 @@
+* @Ehsan-Azari
+/SECURITY.md @Ehsan-Azari
+/docs/security-model.md @Ehsan-Azari
+/docs/threat-model.md @Ehsan-Azari
+/docs/agent-architecture.md @Ehsan-Azari
+/docs/persistence-model.md @Ehsan-Azari
+/crates/linura-intent/ @Ehsan-Azari
+/crates/linura-graph/ @Ehsan-Azari
+/crates/linura-planner/ @Ehsan-Azari
+/crates/linura-policy/ @Ehsan-Azari
+/crates/linura-provenance/ @Ehsan-Azari
+/crates/linura-agent-runtime/ @Ehsan-Azari
+/executors/ @Ehsan-Azari
+/polkit/ @Ehsan-Azari
+/interfaces/ @Ehsan-Azari
+/schemas/ @Ehsan-Azari
+/.github/workflows/ @Ehsan-Azari

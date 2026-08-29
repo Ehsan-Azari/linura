@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "id": "post-update-health",
+  "event": "after_update",
+  "steps": [
+    {"capability": "system.health", "operation": "verify", "required_permissions": ["health.read"]}
+  ]
+}

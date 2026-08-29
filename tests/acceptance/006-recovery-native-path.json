@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"recovery-native-path","description":"Recovery does not require a healthy model provider or Linura UI.","requires":["recovery"],"steps":[{"name":"shell-present","command":"test -x /bin/sh"},{"name":"native-package-manager-present","command":"command -v pacman >/dev/null"}]}

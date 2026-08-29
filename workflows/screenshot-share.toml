@@ -1,0 +1,11 @@
+schema = 1
+id = "workflow.screenshot-share"
+title = "Capture, annotate and share"
+trigger = "hotkey:Super+Shift+S"
+steps = [
+  "capture.region",
+  "annotation.edit",
+  "storage.upload",
+  "clipboard.write",
+  "notification.send",
+]

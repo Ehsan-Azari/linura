@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "disk_encryption": "required_for_supported_install",
+  "firewall_inbound": "deny_by_default",
+  "ssh_initial_state": "disabled",
+  "untrusted_package_sources": "disabled",
+  "first_boot_agent": "optional_for_recovery",
+  "native_break_glass": true
+}

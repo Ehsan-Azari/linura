@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "desktop.default",
+  "lifetime": "app",
+  "restart": "never",
+  "resource_limits": {
+    "oom_policy": "systemd_user_scope",
+    "memory_max": null,
+    "cpu_weight": null
+  }
+}

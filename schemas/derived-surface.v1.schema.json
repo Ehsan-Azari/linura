@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/derived-surface.v1.schema.json",
+  "title": "Linura Derived Surface v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "title",
+    "kind",
+    "resource_query",
+    "actions"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "resource-table",
+        "resource-detail",
+        "form",
+        "status-card",
+        "dashboard"
+      ]
+    },
+    "resource_query": {
+      "type": "string"
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

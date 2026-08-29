@@ -1,0 +1,16 @@
+[package]
+name = "linura-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-core = { path = "../linura-core" }
+linura-graph = { path = "../linura-graph" }
+linura-intent = { path = "../linura-intent" }
+linura-provenance = { path = "../linura-provenance" }
+
+[lints]
+workspace = true

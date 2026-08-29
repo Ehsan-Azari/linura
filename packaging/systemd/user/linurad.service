@@ -1,0 +1,18 @@
+[Unit]
+Description=Linura Control session daemon
+After=graphical-session.target dbus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/linurad
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=default.target

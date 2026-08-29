@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/app-supervision.v1.schema.json",
+  "title": "Linura desktop application supervision contract",
+  "type": "object",
+  "required": ["schema_version", "id", "lifetime", "restart", "resource_limits"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "lifetime": {"enum": ["app", "session", "persistent"]},
+    "restart": {"enum": ["never", "on_failure", "always"]},
+    "resource_limits": {"type": "object"}
+  },
+  "additionalProperties": false
+}

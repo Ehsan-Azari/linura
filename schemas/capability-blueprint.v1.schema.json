@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/capability-blueprint.v1.schema.json",
+  "title": "Linura Capability Blueprint v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "id",
+    "title"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "provides": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommends": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "optional": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

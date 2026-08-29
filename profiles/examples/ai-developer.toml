@@ -1,0 +1,6 @@
+schema = 1
+id = "profile.ai-developer"
+name = "AI development workstation"
+intents = ["development.ai", "desktop.minimal"]
+constraints = ["network.public-services=deny", "recovery.snapshots=required"]
+hardware_hints = ["gpu.compute-preferred"]

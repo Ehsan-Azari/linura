@@ -1,0 +1,15 @@
+[package]
+name = "linura-planner"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-capability-sdk = { path = "../linura-capability-sdk" }
+linura-core = { path = "../linura-core" }
+linura-intent = { path = "../linura-intent" }
+
+[lints]
+workspace = true

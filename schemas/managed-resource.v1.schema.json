@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/managed-resource.v1.schema.json",
+  "title": "Linura managed resource ownership",
+  "type": "object",
+  "required": ["schema_version", "resource_id", "ownership"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "resource_id": {"type": "string", "minLength": 1},
+    "ownership": {"enum": ["package_owned", "user_owned", "linura_managed", "externally_managed", "generated", "ephemeral"]},
+    "desired_digest": {"type": ["string", "null"]},
+    "observed_digest": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "https://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.linura.Executor.Systemd1">
+    <method name="SetUnitEnabled">
+      <arg name="unit" type="s" direction="in"/>
+      <arg name="enabled" type="b" direction="in"/>
+      <arg name="request_id" type="s" direction="in"/>
+    </method>
+    <method name="RestartUnit">
+      <arg name="unit" type="s" direction="in"/>
+      <arg name="request_id" type="s" direction="in"/>
+    </method>
+  </interface>
+</node>

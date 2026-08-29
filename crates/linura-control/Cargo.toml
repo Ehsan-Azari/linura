@@ -1,0 +1,19 @@
+[package]
+name = "linura-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-core = { path = "../linura-core" }
+linura-graph = { path = "../linura-graph" }
+linura-intent = { path = "../linura-intent" }
+linura-planner = { path = "../linura-planner" }
+linura-policy = { path = "../linura-policy" }
+linura-protocol = { path = "../linura-protocol" }
+linura-provider-sdk = { path = "../linura-provider-sdk" }
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "evidence_tiers": ["unknown", "fixture_only", "virtual_machine", "community_hardware", "maintainer_hardware", "release_qualified"],
+  "domains": {
+    "network": "fixture_only",
+    "bluetooth": "fixture_only",
+    "audio": "fixture_only",
+    "storage": "fixture_only",
+    "display": "fixture_only",
+    "suspend_resume": "unknown",
+    "intel_gpu": "fixture_only",
+    "amd_gpu": "fixture_only",
+    "nvidia_gpu": "fixture_only"
+  },
+  "note": "Development evidence only. No physical hardware is release-qualified at bootstrap."
+}

@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"security-baseline","description":"Supported install starts from the Linura fail-closed security posture.","requires":["linura-os-image"],"steps":[{"name":"ssh-not-enabled","command":"! systemctl is-enabled sshd.service >/dev/null 2>&1"},{"name":"security-policy-present","command":"test -f /etc/linura/install-policy.json"}]}

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "fixture_id": "amd-nvidia-desktop-v1",
+  "profile": "arch-hyprland-v1",
+  "components": [
+    {"component": "cpu", "vendor": "AMD", "model": "x86_64-generic", "tier": "fixture_only"},
+    {"component": "gpu", "vendor": "NVIDIA", "model": "discrete-gpu", "tier": "fixture_only"},
+    {"component": "display", "vendor": "generic", "model": "mixed-dpi-pair", "tier": "fixture_only"}
+  ]
+}

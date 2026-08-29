@@ -1,0 +1,10 @@
+[Trigger]
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Enforcing Linura coordinated update transaction...
+When = PreTransaction
+Exec = /usr/lib/linura/linura-update-guard
+AbortOnFail

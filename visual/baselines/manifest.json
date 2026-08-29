@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "baselines": [
+    {"id": "firstboot-1280x800-1x", "surface": "linura-firstboot", "width": 1280, "height": 800, "scale": 1.0, "baseline": null},
+    {"id": "control-center-1440x900-1x", "surface": "linura-control-center", "width": 1440, "height": 900, "scale": 1.0, "baseline": null},
+    {"id": "approval-1280x800-1x", "surface": "approval-dialog", "width": 1280, "height": 800, "scale": 1.0, "baseline": null}
+  ],
+  "note": "Baseline paths remain null until the corresponding UI is implemented and reviewed."
+}

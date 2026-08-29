@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/provenance.v1.schema.json",
+  "title": "Linura Semantic Provenance v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "summary"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "user-intent",
+        "agent-interpretation",
+        "planner-derivation",
+        "policy-decision",
+        "execution",
+        "verification",
+        "reconciliation"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "intent_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "requirement_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "capability_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resource_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "parent_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

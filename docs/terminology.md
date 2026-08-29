@@ -1,0 +1,31 @@
+# Terminology
+
+- **Linura:** umbrella product/project and code namespace.
+- **Linura OS:** reserved name for the installable Linura distribution product.
+- **Linura Control:** local authority subsystem implementing the system control plane.
+- **Linura Agent:** intent-oriented conversational experience/runtime; never an authority.
+- **Linura SDK:** non-privileged developer-facing domain/protocol façade.
+- **Intent:** durable statement of what the user wants the machine to become/do.
+- **Intent proposal:** untrusted structured interpretation awaiting validation/approval.
+- **Requirement:** goal, constraint, preference or prohibition derived from approved intent.
+- **Machine profile:** portable composition of intents/constraints, not a frozen package list.
+- **Capability blueprint:** composable declaration of a feature and its relations/resources.
+- **Capability discovery:** evidence that the current platform/provider can actually support an operation.
+- **System graph:** causal graph joining intents, requirements, capabilities, workflows and concrete resources.
+- **Semantic provenance:** evidence explaining why managed state exists.
+- **Actor:** authenticated principal requesting an operation.
+- **Resource:** typed system object such as a unit, interface, device, package or disk.
+- **Observation:** provider-backed snapshot of actual current state.
+- **Desired state:** persistent intended resource state derived from approved intent/capabilities.
+- **Diff:** deterministic difference between observed and desired state.
+- **Action request:** typed request to change state.
+- **Plan:** ordered effects, preconditions, risk and verification expectations.
+- **Effect:** one concrete mutation delegated to a provider/executor.
+- **Executor:** narrow component performing privileged effects.
+- **Provider:** adapter from a Linux subsystem to Linura domain contracts.
+- **Verification:** independent post-effect observation proving expected outcome.
+- **Compensation:** explicit effect attempting to restore/mitigate after failure.
+- **Workflow:** declarative composition of typed triggers/actions.
+- **Derived surface:** constrained UI generated from typed resources/actions.
+- **Platform profile:** supported composition of distro/subsystems/providers.
+- **Grant:** scoped authority assigned to an actor, especially agents.

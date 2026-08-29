@@ -1,0 +1,12 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="org.linura.Control1">
+    <method name="GetProtocolVersion"><arg name="major" type="q" direction="out"/><arg name="product_version" type="s" direction="out"/></method>
+    <method name="GetCapabilitySnapshot"><arg name="snapshot_json" type="s" direction="out"/></method>
+    <method name="GetSystemGraph"><arg name="graph_json" type="s" direction="out"/></method>
+    <method name="ProposeIntent"><arg name="proposal_json" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
+    <method name="Plan"><arg name="request_json" type="s" direction="in"/><arg name="plan_json" type="s" direction="out"/></method>
+    <method name="Explain"><arg name="target_json" type="s" direction="in"/><arg name="explanation_json" type="s" direction="out"/></method>
+    <method name="ExportProfile"><arg name="profile_id" type="s" direction="in"/><arg name="profile_json" type="s" direction="out"/></method>
+  </interface>
+</node>

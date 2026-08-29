@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"update-interruption","description":"Interrupted update remains recoverable and cannot be marked complete without verification.","requires":["linura-update"],"steps":[{"name":"guard-present","command":"command -v linura-update-guard >/dev/null"},{"name":"native-break-glass-documentation","command":"test -f /usr/share/doc/linura/recovery.md || true"}]}

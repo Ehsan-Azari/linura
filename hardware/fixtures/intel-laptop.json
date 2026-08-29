@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "fixture_id": "intel-laptop-generic-v1",
+  "profile": "arch-hyprland-v1",
+  "components": [
+    {"component": "gpu", "vendor": "Intel", "model": "integrated-gpu", "tier": "fixture_only"},
+    {"component": "network", "vendor": "Intel", "model": "wifi-generic", "tier": "fixture_only"},
+    {"component": "storage", "vendor": "generic", "model": "nvme", "tier": "fixture_only"}
+  ]
+}

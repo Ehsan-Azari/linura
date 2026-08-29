@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/intent-proposal.v1.schema.json",
+  "title": "Linura Intent Proposal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "intent",
+    "interpretation_notes",
+    "ambiguities"
+  ],
+  "properties": {
+    "intent": {
+      "$ref": "intent.v1.schema.json"
+    },
+    "interpretation_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence_basis": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

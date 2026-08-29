@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/visual-baseline.v1.schema.json",
+  "title": "Linura visual baseline manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "baselines"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "baselines": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "note": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

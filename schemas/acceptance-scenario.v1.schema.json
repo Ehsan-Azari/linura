@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/acceptance-scenario.v1.schema.json",
+  "title": "Linura VM acceptance scenario",
+  "type": "object",
+  "required": ["schema_version", "id", "description", "requires", "steps"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "requires": {"type": "array", "items": {"type": "string"}},
+    "steps": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["name", "command"], "properties": {"name": {"type": "string"}, "command": {"type": "string"}}, "additionalProperties": false}}
+  },
+  "additionalProperties": false
+}

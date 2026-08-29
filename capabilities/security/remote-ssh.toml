@@ -1,0 +1,9 @@
+schema = 1
+id = "remote.ssh"
+title = "Secure SSH access"
+provides = ["remote.shell"]
+requires = ["network.firewall"]
+recommends = []
+optional = ["network.overlay"]
+conflicts = []
+resources = ["package:openssh", "service:sshd"]

@@ -1,0 +1,17 @@
+base
+linux
+linux-firmware
+btrfs-progs
+cryptsetup
+networkmanager
+bluez
+bluez-utils
+pipewire
+wireplumber
+udisks2
+polkit
+snapper
+sudo
+openssh
+nftables
+hyprland

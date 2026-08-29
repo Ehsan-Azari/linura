@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.dev/schemas/desired-state.v1.schema.json",
+  "title": "Linura Desired State v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "resources"
+  ],
+  "properties": {
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "object"
+          },
+          "reason": {
+            "type": "object",
+            "required": [
+              "summary"
+            ],
+            "properties": {
+              "summary": {
+                "type": "string"
+              },
+              "intent_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requirement_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "capability_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

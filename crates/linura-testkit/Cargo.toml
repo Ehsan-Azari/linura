@@ -1,0 +1,15 @@
+[package]
+name = "linura-testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-core = { path = "../linura-core" }
+linura-protocol = { path = "../linura-protocol" }
+linura-provider-sdk = { path = "../linura-provider-sdk" }
+
+[lints]
+workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "linura-update-guard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-update = { path = "../../crates/linura-update" }
+
+[lints]
+workspace = true

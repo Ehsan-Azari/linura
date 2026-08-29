@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"bootstrap-resume","description":"Interrupted bootstrap resumes from the first incomplete checkpoint.","requires":["linura-os-image"],"steps":[{"name":"show-bootstrap-state","command":"linuractl bootstrap status --json"},{"name":"verify-recovery-available","command":"test -x /usr/bin/linuractl"}]}

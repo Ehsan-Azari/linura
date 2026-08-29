@@ -1,0 +1,9 @@
+schema = 1
+id = "development.python"
+title = "Python development"
+provides = ["runtime.python", "packages.python"]
+requires = ["source-control.git"]
+recommends = ["editor.code"]
+optional = []
+conflicts = []
+resources = ["package:uv", "package:git"]

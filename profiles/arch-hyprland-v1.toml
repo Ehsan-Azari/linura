@@ -1,0 +1,52 @@
+schema_version = 1
+id = "arch-hyprland-v1"
+status = "development"
+
+[base]
+distribution = "arch"
+init = "systemd"
+session = "wayland"
+compositor = "hyprland"
+
+[providers]
+network = "networkmanager"
+bluetooth = "bluez"
+audio = "pipewire-wireplumber"
+storage = "udisks2"
+authorization = "polkit"
+filesystem = "btrfs"
+snapshots = "snapper"
+
+[requirements]
+networkmanager = ">=1"
+bluez = ">=5"
+pipewire = ">=1"
+systemd = ">=255"
+
+[features]
+local_control = true
+agent_broker = true
+remote_control = false
+fleet_management = false
+
+[installation]
+interactive = true
+non_interactive = true
+recovery_mode = true
+
+[security]
+disk_encryption = "required_for_supported_install"
+firewall_inbound = "deny_by_default"
+ssh_initial_state = "disabled"
+untrusted_package_sources = "disabled"
+
+[recovery]
+native_shell = true
+native_package_manager = true
+baseline_snapshot = "required_when_supported"
+factory_reset_semantics = true
+
+[updates]
+coordinated = true
+direct_upgrade_guard = true
+break_glass_override = "LINURA_ALLOW_DIRECT_PACMAN=1"

@@ -1,0 +1,6 @@
+schema = 1
+id = "surface.containers"
+title = "Containers"
+kind = "resource-table"
+resource_query = "container.instances"
+actions = ["container.start", "container.stop", "container.restart"]
