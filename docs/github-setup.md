@@ -17,10 +17,11 @@ Apply these settings before accepting implementation PRs.
 Target the default branch (`main`) and require:
 
 - a pull request before merge;
-- at least one approving review;
-- two approving reviews for security-sensitive or privileged-code changes once a suitable reviewer team exists;
-- dismissal of stale approvals when code changes;
+- all permanent required status checks to pass;
 - resolution of all review conversations;
+- dismissal of stale approvals when code changes once approving reviews are required;
+- at least one approving review as soon as a second trusted reviewer exists; until then, do not configure an approval count that makes the repository impossible for its maintainer to merge through the protected workflow;
+- two approving reviews for security-sensitive or privileged-code changes once a suitable reviewer team exists;
 - these exact required status-check contexts, proven by the permanent workflows:
   - `canonical-check`;
   - `dependency-audit`;
@@ -30,7 +31,7 @@ Target the default branch (`main`) and require:
 - signed commits and tags when the organization signing policy is established;
 - force-pushes and branch deletion disabled.
 
-Do not add one-time/bootstrap workflow checks to the ruleset. Required checks must be produced by permanent workflows on both pull requests and the protected branch where appropriate.
+Do not add one-time/bootstrap workflow checks to the ruleset. Required checks must be produced by permanent workflows on both pull requests and the protected branch where appropriate. Keep bypass permissions restricted to deliberate recovery/administration rather than ordinary development.
 
 Protect these paths with CODEOWNERS review once teams exist:
 
@@ -47,7 +48,7 @@ Protect these paths with CODEOWNERS review once teams exist:
 - Set workflow permissions to read-only by default; grant writes per job only when the job requires them.
 - Do not allow unreviewed forks to obtain repository or environment secrets.
 - Keep every third-party action pinned to an immutable full commit SHA. Repository validation fails if a workflow introduces a floating action ref.
-- Create an environment named `release` before publishing supported artifacts; require reviewer approval for release promotion.
+- Create an environment named `release` before publishing supported artifacts; require reviewer approval for release promotion when a second trusted reviewer exists, and otherwise use a deliberate maintainer-controlled release gate that does not expose credentials to ordinary CI.
 - Keep release credentials scoped to the `release` environment and unavailable to ordinary CI or pull-request jobs.
 
 ## Security features
@@ -75,6 +76,6 @@ Before the first supported release require:
 - independent published-asset verification;
 - immutable release-tag policy;
 - rollback/recovery acceptance testing;
-- release-environment approval.
+- release-environment approval or an equivalent deliberate maintainer-controlled gate until a second trusted reviewer exists.
 
 The repository already contains workflows and tooling for candidate construction, promotion, and independent verification. A registry or package publication must not begin until product naming/trademark clearance and the corresponding registry ownership strategy are settled.
