@@ -20,7 +20,7 @@ pub use linura_intent::{
 };
 pub use linura_protocol::{
     ActionRequest, CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand,
-    PlanResponse, PortableProfileExport, ProfileAdoptionRequest, ProfileAdoptionResponse,
-    ProtocolVersion, SystemSnapshot, PROTOCOL_MAJOR,
+    PROTOCOL_MAJOR, PlanResponse, PortableProfileExport, ProfileAdoptionRequest,
+    ProfileAdoptionResponse, ProtocolVersion, SystemSnapshot,
 };
 pub use linura_provenance::{ProvenanceKind, ProvenanceRecord, WhyChain};

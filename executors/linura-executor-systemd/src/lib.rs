@@ -18,7 +18,10 @@ impl UnitName {
         if !value.ends_with(".service") {
             return Err(UnitNameError::UnsupportedUnitType);
         }
-        if value.chars().any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\')) {
+        if value
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '/' | '\\'))
+        {
             return Err(UnitNameError::InvalidCharacter);
         }
         Ok(Self(value))
@@ -43,12 +46,21 @@ mod tests {
     #[test]
     fn only_service_units_are_accepted_initially() {
         assert!(UnitName::parse("sshd.service").is_ok());
-        assert_eq!(UnitName::parse("multi-user.target"), Err(UnitNameError::UnsupportedUnitType));
+        assert_eq!(
+            UnitName::parse("multi-user.target"),
+            Err(UnitNameError::UnsupportedUnitType)
+        );
     }
 
     #[test]
     fn suspicious_unit_names_are_rejected() {
-        assert_eq!(UnitName::parse("../../evil.service"), Err(UnitNameError::InvalidCharacter));
-        assert_eq!(UnitName::parse("bad name.service"), Err(UnitNameError::InvalidCharacter));
+        assert_eq!(
+            UnitName::parse("../../evil.service"),
+            Err(UnitNameError::InvalidCharacter)
+        );
+        assert_eq!(
+            UnitName::parse("bad name.service"),
+            Err(UnitNameError::InvalidCharacter)
+        );
     }
 }

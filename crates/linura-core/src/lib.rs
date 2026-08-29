@@ -131,7 +131,10 @@ impl SemanticReason {
         if self.summary.trim().is_empty() {
             return Err(ValidationError::Empty("semantic reason"));
         }
-        if self.intent_ids.is_empty() && self.requirement_ids.is_empty() && self.capability_ids.is_empty() {
+        if self.intent_ids.is_empty()
+            && self.requirement_ids.is_empty()
+            && self.capability_ids.is_empty()
+        {
             return Err(ValidationError::MissingSemanticOrigin);
         }
         Ok(())
@@ -181,7 +184,9 @@ impl Display for ValidationError {
             Self::Empty(label) => write!(f, "{label} cannot be empty"),
             Self::TooLong(label) => write!(f, "{label} is too long"),
             Self::ControlCharacter(label) => write!(f, "{label} contains control characters"),
-            Self::MissingSemanticOrigin => f.write_str("managed state must retain an intent, requirement, or capability origin"),
+            Self::MissingSemanticOrigin => f.write_str(
+                "managed state must retain an intent, requirement, or capability origin",
+            ),
             Self::NoEffects => f.write_str("an action plan must contain at least one effect"),
             Self::NoVerification => f.write_str("an action plan must contain verification"),
         }
@@ -195,7 +200,11 @@ mod tests {
     use super::*;
 
     fn actor() -> Actor {
-        Actor { id: "uid:1000".into(), kind: ActorKind::Human, interactive: true }
+        Actor {
+            id: "uid:1000".into(),
+            kind: ActorKind::Human,
+            interactive: true,
+        }
     }
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
@@ -230,7 +239,9 @@ mod tests {
                 arguments: vec![("unit".into(), "sshd.service".into())],
                 compensation: Compensation::None,
             }],
-            verification: vec![Verification { description: "enabled state observed".into() }],
+            verification: vec![Verification {
+                description: "enabled state observed".into(),
+            }],
         };
         assert_eq!(plan.validate(), Err(ValidationError::MissingSemanticOrigin));
     }

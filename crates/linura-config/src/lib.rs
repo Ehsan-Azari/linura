@@ -57,7 +57,8 @@ pub struct OwnershipRegistry {
 
 impl OwnershipRegistry {
     pub fn register(&mut self, resource: ManagedResource) -> Option<ManagedResource> {
-        self.resources.insert(resource.resource_id.clone(), resource)
+        self.resources
+            .insert(resource.resource_id.clone(), resource)
     }
 
     #[must_use]
@@ -73,9 +74,14 @@ mod tests {
     #[test]
     fn linura_managed_drift_is_not_silently_overwritten() {
         let resource = ManagedResource {
-            resource_id: "file:/etc/example".into(), ownership: Ownership::LinuraManaged,
-            desired_digest: Some("sha256:a".into()), observed_digest: Some("sha256:b".into()),
+            resource_id: "file:/etc/example".into(),
+            ownership: Ownership::LinuraManaged,
+            desired_digest: Some("sha256:a".into()),
+            observed_digest: Some("sha256:b".into()),
         };
-        assert_eq!(resource.drift_disposition(), DriftDisposition::RequireApproval);
+        assert_eq!(
+            resource.drift_disposition(),
+            DriftDisposition::RequireApproval
+        );
     }
 }

@@ -35,7 +35,11 @@ pub struct HardwareSnapshot {
 impl HardwareSnapshot {
     #[must_use]
     pub fn weakest_tier(&self) -> EvidenceTier {
-        self.components.iter().map(|item| item.tier).min().unwrap_or(EvidenceTier::Unknown)
+        self.components
+            .iter()
+            .map(|item| item.tier)
+            .min()
+            .unwrap_or(EvidenceTier::Unknown)
     }
 }
 
@@ -45,6 +49,9 @@ mod tests {
 
     #[test]
     fn empty_snapshot_is_unknown() {
-        assert_eq!(HardwareSnapshot::default().weakest_tier(), EvidenceTier::Unknown);
+        assert_eq!(
+            HardwareSnapshot::default().weakest_tier(),
+            EvidenceTier::Unknown
+        );
     }
 }

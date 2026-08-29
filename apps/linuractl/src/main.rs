@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use std::env;
 use linura_sdk::ProtocolVersion;
+use std::env;
 
 #[derive(Clone, Copy)]
 struct CommandInfo {
@@ -11,9 +11,21 @@ struct CommandInfo {
 }
 
 const COMMANDS: &[CommandInfo] = &[
-    CommandInfo { name: "version", summary: "Show Linura and protocol version", offline: true },
-    CommandInfo { name: "commands", summary: "List machine-readable CLI command metadata", offline: true },
-    CommandInfo { name: "help", summary: "Show CLI help", offline: true },
+    CommandInfo {
+        name: "version",
+        summary: "Show Linura and protocol version",
+        offline: true,
+    },
+    CommandInfo {
+        name: "commands",
+        summary: "List machine-readable CLI command metadata",
+        offline: true,
+    },
+    CommandInfo {
+        name: "help",
+        summary: "Show CLI help",
+        offline: true,
+    },
 ];
 
 fn main() {
@@ -22,7 +34,10 @@ fn main() {
     match command {
         "version" => {
             let version = ProtocolVersion::default();
-            println!("linuractl {} (protocol {})", version.product_version, version.major);
+            println!(
+                "linuractl {} (protocol {})",
+                version.product_version, version.major
+            );
         }
         "commands" if args.get(1).map(String::as_str) == Some("--json") => print_commands_json(),
         "commands" => print_commands(),
@@ -44,8 +59,13 @@ fn print_commands() {
 fn print_commands_json() {
     print!("[");
     for (index, command) in COMMANDS.iter().enumerate() {
-        if index > 0 { print!(","); }
-        print!("{{\"name\":\"{}\",\"summary\":\"{}\",\"offline\":{}}}", command.name, command.summary, command.offline);
+        if index > 0 {
+            print!(",");
+        }
+        print!(
+            "{{\"name\":\"{}\",\"summary\":\"{}\",\"offline\":{}}}",
+            command.name, command.summary, command.offline
+        );
     }
     println!("]");
 }
@@ -53,6 +73,8 @@ fn print_commands_json() {
 fn print_help() {
     println!("linuractl - deterministic Linura control client");
     println!("\nUSAGE:\n  linuractl version\n  linuractl commands [--json]\n  linuractl help");
-    println!("\nPlanned command families: observe, intent, plan, apply, explain, graph, profile, update, recover.");
+    println!(
+        "\nPlanned command families: observe, intent, plan, apply, explain, graph, profile, update, recover."
+    );
     println!("The CLI must remain usable without an AI/model provider.");
 }

@@ -28,9 +28,17 @@ pub struct LifecycleWorkflow {
 
 impl LifecycleWorkflow {
     pub fn validate(&self) -> Result<(), &'static str> {
-        if self.id.trim().is_empty() { return Err("workflow id cannot be empty"); }
-        if self.steps.is_empty() { return Err("lifecycle workflow must have at least one typed step"); }
-        if self.steps.iter().any(|step| step.capability.trim().is_empty() || step.operation.trim().is_empty()) {
+        if self.id.trim().is_empty() {
+            return Err("workflow id cannot be empty");
+        }
+        if self.steps.is_empty() {
+            return Err("lifecycle workflow must have at least one typed step");
+        }
+        if self
+            .steps
+            .iter()
+            .any(|step| step.capability.trim().is_empty() || step.operation.trim().is_empty())
+        {
             return Err("lifecycle steps require capability and operation");
         }
         Ok(())
@@ -43,7 +51,11 @@ mod tests {
 
     #[test]
     fn arbitrary_empty_hooks_are_not_valid_workflows() {
-        let workflow = LifecycleWorkflow { id: "hook".into(), event: LifecycleEvent::AfterUpdate, steps: vec![] };
+        let workflow = LifecycleWorkflow {
+            id: "hook".into(),
+            event: LifecycleEvent::AfterUpdate,
+            steps: vec![],
+        };
         assert!(workflow.validate().is_err());
     }
 }

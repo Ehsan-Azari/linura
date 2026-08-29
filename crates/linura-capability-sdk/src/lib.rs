@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeMap, BTreeSet};
 use linura_core::CapabilityId;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CapabilityRelationKind {
@@ -58,8 +58,12 @@ impl CapabilityCatalog {
             for relation in &blueprint.relations {
                 match relation.kind {
                     CapabilityRelationKind::Requires => pending.push(relation.capability.clone()),
-                    CapabilityRelationKind::Conflicts if result.selected.contains(&relation.capability) => {
-                        result.conflicts.push((id.clone(), relation.capability.clone()));
+                    CapabilityRelationKind::Conflicts
+                        if result.selected.contains(&relation.capability) =>
+                    {
+                        result
+                            .conflicts
+                            .push((id.clone(), relation.capability.clone()));
                     }
                     _ => {}
                 }
@@ -68,10 +72,13 @@ impl CapabilityCatalog {
         for selected in &result.selected {
             if let Some(blueprint) = self.blueprints.get(selected) {
                 for relation in &blueprint.relations {
-                    if relation.kind == CapabilityRelationKind::Conflicts && result.selected.contains(&relation.capability) {
+                    if relation.kind == CapabilityRelationKind::Conflicts
+                        && result.selected.contains(&relation.capability)
+                    {
                         let pair = (selected.clone(), relation.capability.clone());
                         let reverse = (relation.capability.clone(), selected.clone());
-                        if !result.conflicts.contains(&pair) && !result.conflicts.contains(&reverse) {
+                        if !result.conflicts.contains(&pair) && !result.conflicts.contains(&reverse)
+                        {
                             result.conflicts.push(pair);
                         }
                     }
@@ -99,10 +106,18 @@ mod tests {
         catalog.register(CapabilityBlueprint {
             id: ai.clone(),
             title: "AI development".into(),
-            relations: vec![CapabilityRelation { kind: CapabilityRelationKind::Requires, capability: python.clone() }],
+            relations: vec![CapabilityRelation {
+                kind: CapabilityRelationKind::Requires,
+                capability: python.clone(),
+            }],
             desired_resources: vec![],
         });
-        catalog.register(CapabilityBlueprint { id: python.clone(), title: "Python".into(), relations: vec![], desired_resources: vec![] });
+        catalog.register(CapabilityBlueprint {
+            id: python.clone(),
+            title: "Python".into(),
+            relations: vec![],
+            desired_resources: vec![],
+        });
         let resolution = catalog.resolve(&[ai]);
         assert!(resolution.selected.contains(&python));
         assert!(resolution.missing.is_empty());

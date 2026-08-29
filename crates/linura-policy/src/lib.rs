@@ -12,8 +12,13 @@ pub enum ApprovalClass {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PolicyDecision {
     Allow,
-    Deny { reason: String },
-    RequireApproval { class: ApprovalClass, reason: String },
+    Deny {
+        reason: String,
+    },
+    RequireApproval {
+        class: ApprovalClass,
+        reason: String,
+    },
 }
 
 pub trait PolicyEngine {
@@ -26,7 +31,9 @@ pub struct BaselinePolicy;
 impl PolicyEngine for BaselinePolicy {
     fn evaluate(&self, plan: &ActionPlan) -> PolicyDecision {
         if plan.actor.kind == ActorKind::Remote {
-            return PolicyDecision::Deny { reason: "remote actors are disabled in the initial profile".into() };
+            return PolicyDecision::Deny {
+                reason: "remote actors are disabled in the initial profile".into(),
+            };
         }
         if plan.actor.kind == ActorKind::Agent && plan.risk >= RiskClass::SystemMutation {
             return PolicyDecision::RequireApproval {
@@ -68,7 +75,11 @@ mod tests {
         ActionPlan {
             id: id(PlanId::new("plan:test")),
             request_id: id(RequestId::new("req:test")),
-            actor: Actor { id: "actor".into(), kind, interactive: kind == ActorKind::Human },
+            actor: Actor {
+                id: "actor".into(),
+                kind,
+                interactive: kind == ActorKind::Human,
+            },
             resource: id(ResourceId::new("service:test")),
             capability: id(CapabilityId::new("service.manage")),
             risk,
@@ -80,9 +91,15 @@ mod tests {
             },
             preconditions: Preconditions { statements: vec![] },
             effects: vec![Effect {
-                id: "effect".into(), executor: "test".into(), operation: "noop".into(), arguments: vec![], compensation: Compensation::None,
+                id: "effect".into(),
+                executor: "test".into(),
+                operation: "noop".into(),
+                arguments: vec![],
+                compensation: Compensation::None,
             }],
-            verification: vec![Verification { description: "verified".into() }],
+            verification: vec![Verification {
+                description: "verified".into(),
+            }],
         }
     }
 

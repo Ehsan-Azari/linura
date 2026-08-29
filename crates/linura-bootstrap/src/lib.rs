@@ -103,7 +103,10 @@ pub enum BootstrapError {
 impl Display for BootstrapError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OutOfOrder(stage) => write!(f, "bootstrap ledger contains out-of-order completed stage: {stage:?}"),
+            Self::OutOfOrder(stage) => write!(
+                f,
+                "bootstrap ledger contains out-of-order completed stage: {stage:?}"
+            ),
         }
     }
 }
@@ -137,6 +140,9 @@ mod tests {
         let mut ledger = BootstrapLedger::default();
         ledger.mark_completed(BootstrapStage::Preflight);
         ledger.mark_completed(BootstrapStage::Encryption);
-        assert_eq!(ledger.validate_prefix(), Err(BootstrapError::OutOfOrder(BootstrapStage::Encryption)));
+        assert_eq!(
+            ledger.validate_prefix(),
+            Err(BootstrapError::OutOfOrder(BootstrapStage::Encryption))
+        );
     }
 }

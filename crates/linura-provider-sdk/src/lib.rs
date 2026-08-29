@@ -17,7 +17,9 @@ pub trait Provider: Send + Sync {
     fn observe(&self, resource: &ResourceId) -> Result<String, ProviderError>;
     fn plan(&self, request: &ActionRequest) -> Result<ActionPlan, ProviderError>;
     fn supports(&self, capability: &CapabilityId) -> bool {
-        self.capabilities().iter().any(|candidate| &candidate.id == capability)
+        self.capabilities()
+            .iter()
+            .any(|candidate| &candidate.id == capability)
     }
 }
 

@@ -15,7 +15,10 @@ pub struct ProtocolVersion {
 
 impl Default for ProtocolVersion {
     fn default() -> Self {
-        Self { major: PROTOCOL_MAJOR, product_version: env!("CARGO_PKG_VERSION") }
+        Self {
+            major: PROTOCOL_MAJOR,
+            product_version: env!("CARGO_PKG_VERSION"),
+        }
     }
 }
 

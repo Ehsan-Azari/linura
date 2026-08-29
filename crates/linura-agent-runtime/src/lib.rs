@@ -29,12 +29,20 @@ pub enum AgentError {
 
 pub trait IntentInterpreter: Send + Sync {
     fn id(&self) -> &'static str;
-    fn propose(&self, context: &AgentContext, statement: &str) -> Result<IntentProposal, AgentError>;
+    fn propose(
+        &self,
+        context: &AgentContext,
+        statement: &str,
+    ) -> Result<IntentProposal, AgentError>;
 }
 
 pub trait Specialist: Send + Sync {
     fn role(&self) -> SpecialistRole;
-    fn advise(&self, context: &AgentContext, proposal: &IntentProposal) -> Result<Vec<String>, AgentError>;
+    fn advise(
+        &self,
+        context: &AgentContext,
+        proposal: &IntentProposal,
+    ) -> Result<Vec<String>, AgentError>;
 }
 
 /// Agent runtimes may propose structured intents and advice only. They receive no

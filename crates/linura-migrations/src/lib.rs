@@ -24,10 +24,14 @@ pub struct MigrationDescriptor {
 impl MigrationDescriptor {
     pub fn validate(&self) -> Result<(), MigrationError> {
         if self.id.trim().is_empty() {
-            return Err(MigrationError::InvalidDescriptor("migration id cannot be empty"));
+            return Err(MigrationError::InvalidDescriptor(
+                "migration id cannot be empty",
+            ));
         }
         if self.introduced_in.trim().is_empty() {
-            return Err(MigrationError::InvalidDescriptor("introduced_in cannot be empty"));
+            return Err(MigrationError::InvalidDescriptor(
+                "introduced_in cannot be empty",
+            ));
         }
         Ok(())
     }
@@ -39,7 +43,9 @@ pub trait Migration {
     fn apply(&self) -> Result<(), MigrationError>;
     fn verify(&self) -> Result<(), MigrationError>;
     fn rollback(&self) -> Result<(), MigrationError> {
-        Err(MigrationError::ManualRecoveryRequired(self.descriptor().id.clone()))
+        Err(MigrationError::ManualRecoveryRequired(
+            self.descriptor().id.clone(),
+        ))
     }
 }
 
@@ -114,7 +120,9 @@ impl Display for MigrationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidDescriptor(message) | Self::Operation(message) => f.write_str(message),
-            Self::ManualRecoveryRequired(id) => write!(f, "migration {id} requires manual recovery"),
+            Self::ManualRecoveryRequired(id) => {
+                write!(f, "migration {id} requires manual recovery")
+            }
         }
     }
 }
@@ -133,18 +141,30 @@ mod tests {
     }
 
     impl Migration for TestMigration {
-        fn descriptor(&self) -> &MigrationDescriptor { &self.descriptor }
-        fn precondition(&self) -> Result<bool, MigrationError> { Ok(true) }
-        fn apply(&self) -> Result<(), MigrationError> { self.applications.set(self.applications.get() + 1); Ok(()) }
-        fn verify(&self) -> Result<(), MigrationError> { Ok(()) }
+        fn descriptor(&self) -> &MigrationDescriptor {
+            &self.descriptor
+        }
+        fn precondition(&self) -> Result<bool, MigrationError> {
+            Ok(true)
+        }
+        fn apply(&self) -> Result<(), MigrationError> {
+            self.applications.set(self.applications.get() + 1);
+            Ok(())
+        }
+        fn verify(&self) -> Result<(), MigrationError> {
+            Ok(())
+        }
     }
 
     #[test]
     fn migrations_are_idempotent_through_the_ledger() {
         let migration = TestMigration {
             descriptor: MigrationDescriptor {
-                id: "0001-test".into(), introduced_in: "0.0.1".into(), scope: MigrationScope::System,
-                reversible: false, requires_snapshot: true,
+                id: "0001-test".into(),
+                introduced_in: "0.0.1".into(),
+                scope: MigrationScope::System,
+                reversible: false,
+                requires_snapshot: true,
             },
             applications: Cell::new(0),
         };

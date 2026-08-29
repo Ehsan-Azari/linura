@@ -46,7 +46,12 @@ pub struct UpdateState {
 
 impl Default for UpdateState {
     fn default() -> Self {
-        Self { stage: UpdateStage::AcquireLock, snapshot_id: None, transaction_id: None, recovery_reason: None }
+        Self {
+            stage: UpdateStage::AcquireLock,
+            snapshot_id: None,
+            transaction_id: None,
+            recovery_reason: None,
+        }
     }
 }
 
@@ -57,7 +62,10 @@ impl UpdateState {
             return Ok(());
         }
         if !valid_transition(self.stage, next) {
-            return Err(UpdateError::InvalidTransition { from: self.stage, to: next });
+            return Err(UpdateError::InvalidTransition {
+                from: self.stage,
+                to: next,
+            });
         }
         self.stage = next;
         Ok(())
@@ -93,7 +101,10 @@ pub enum NativeUpgradeDecision {
 }
 
 #[must_use]
-pub fn direct_upgrade_decision(coordinator_owned: bool, break_glass: bool) -> NativeUpgradeDecision {
+pub fn direct_upgrade_decision(
+    coordinator_owned: bool,
+    break_glass: bool,
+) -> NativeUpgradeDecision {
     if coordinator_owned {
         NativeUpgradeDecision::AllowLinuraCoordinator
     } else if break_glass {
@@ -111,7 +122,9 @@ pub enum UpdateError {
 impl Display for UpdateError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::InvalidTransition { from, to } => write!(f, "invalid update transition {from:?} -> {to:?}"),
+            Self::InvalidTransition { from, to } => {
+                write!(f, "invalid update transition {from:?} -> {to:?}")
+            }
         }
     }
 }
@@ -126,9 +139,15 @@ mod tests {
     fn update_happy_path_is_ordered() {
         let mut state = UpdateState::default();
         for stage in [
-            UpdateStage::Preflight, UpdateStage::DiskSpace, UpdateStage::Snapshot,
-            UpdateStage::PackageTransaction, UpdateStage::Migrations, UpdateStage::Reconcile,
-            UpdateStage::RestartAssessment, UpdateStage::Verify, UpdateStage::Complete,
+            UpdateStage::Preflight,
+            UpdateStage::DiskSpace,
+            UpdateStage::Snapshot,
+            UpdateStage::PackageTransaction,
+            UpdateStage::Migrations,
+            UpdateStage::Reconcile,
+            UpdateStage::RestartAssessment,
+            UpdateStage::Verify,
+            UpdateStage::Complete,
         ] {
             assert_eq!(state.transition(stage), Ok(()));
         }
@@ -137,8 +156,17 @@ mod tests {
 
     #[test]
     fn direct_upgrade_is_fail_closed_without_explicit_context() {
-        assert_eq!(direct_upgrade_decision(false, false), NativeUpgradeDecision::DenyDirectUpgrade);
-        assert_eq!(direct_upgrade_decision(true, false), NativeUpgradeDecision::AllowLinuraCoordinator);
-        assert_eq!(direct_upgrade_decision(false, true), NativeUpgradeDecision::AllowBreakGlass);
+        assert_eq!(
+            direct_upgrade_decision(false, false),
+            NativeUpgradeDecision::DenyDirectUpgrade
+        );
+        assert_eq!(
+            direct_upgrade_decision(true, false),
+            NativeUpgradeDecision::AllowLinuraCoordinator
+        );
+        assert_eq!(
+            direct_upgrade_decision(false, true),
+            NativeUpgradeDecision::AllowBreakGlass
+        );
     }
 }

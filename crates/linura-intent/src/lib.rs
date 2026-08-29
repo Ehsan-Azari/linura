@@ -72,7 +72,11 @@ mod tests {
     fn retired_intent_is_not_managed() {
         let intent = Intent {
             id: id(IntentId::new("intent:test")),
-            actor: Actor { id: "uid:1000".into(), kind: ActorKind::Human, interactive: true },
+            actor: Actor {
+                id: "uid:1000".into(),
+                kind: ActorKind::Human,
+                interactive: true,
+            },
             statement: "I no longer need Kubernetes".into(),
             status: IntentStatus::Retired,
             requirements: vec![],

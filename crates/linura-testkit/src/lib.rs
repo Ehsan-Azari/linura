@@ -14,11 +14,17 @@ pub struct FakeProvider {
 }
 
 impl Provider for FakeProvider {
-    fn id(&self) -> &'static str { "test.fake" }
-    fn capabilities(&self) -> Vec<Capability> { self.capabilities.clone() }
+    fn id(&self) -> &'static str {
+        "test.fake"
+    }
+    fn capabilities(&self) -> Vec<Capability> {
+        self.capabilities.clone()
+    }
     fn observe(&self, _resource: &ResourceId) -> Result<String, ProviderError> {
         if self.fail_observe {
-            Err(ProviderError::Unavailable("injected observe failure".into()))
+            Err(ProviderError::Unavailable(
+                "injected observe failure".into(),
+            ))
         } else {
             Ok(self.observation.clone())
         }
@@ -39,11 +45,19 @@ pub struct FailureInjector {
 
 impl FailureInjector {
     #[must_use]
-    pub fn never() -> Self { Self { fail_at_step: None } }
+    pub fn never() -> Self {
+        Self { fail_at_step: None }
+    }
     #[must_use]
-    pub fn at(step: usize) -> Self { Self { fail_at_step: Some(step) } }
+    pub fn at(step: usize) -> Self {
+        Self {
+            fail_at_step: Some(step),
+        }
+    }
     #[must_use]
-    pub fn should_fail(&self, step: usize) -> bool { self.fail_at_step == Some(step) }
+    pub fn should_fail(&self, step: usize) -> bool {
+        self.fail_at_step == Some(step)
+    }
 }
 
 #[cfg(test)]

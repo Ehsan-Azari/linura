@@ -34,6 +34,9 @@ pub struct WhyChain {
 
 impl WhyChain {
     pub fn summary(&self) -> Vec<&str> {
-        self.records.iter().map(|record| record.summary.as_str()).collect()
+        self.records
+            .iter()
+            .map(|record| record.summary.as_str())
+            .collect()
     }
 }
