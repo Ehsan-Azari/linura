@@ -84,6 +84,6 @@ impl<P: PolicyEngine> ControlPlane<P> {
         }
 
         let decision = self.policy.evaluate(&plan);
-        Ok((PlanResponse::Planned(plan), Some(decision)))
+        Ok((PlanResponse::Planned(Box::new(plan)), Some(decision)))
     }
 }
