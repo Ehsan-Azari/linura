@@ -1,0 +1,44 @@
+name: Verify published release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  attestations: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$EVENT_TAG}"
+          test -n "$tag"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+      - name: Download published assets
+        run: gh release download "${{ steps.tag.outputs.tag }}" --dir published
+      - name: Verify published digests
+        run: python3 tools/release_verify.py published
+      - name: Verify GitHub build provenance
+        run: |
+          set -euo pipefail
+          for file in published/linurad published/linuractl published/linura-firstboot published/linura-update-guard published/linura-executor-systemd; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+          done

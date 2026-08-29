@@ -1,0 +1,54 @@
+name: Disposable VM acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_url:
+        description: HTTPS URL of qcow2 image produced by trusted build infrastructure
+        required: true
+        type: string
+      expected_sha256:
+        description: Expected SHA-256 of qcow2 image
+        required: true
+        type: string
+      scenario:
+        description: Acceptance scenario ID
+        required: true
+        default: security-baseline
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  vm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install VM dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 openssh-client
+      - name: Download and verify image
+        env:
+          IMAGE_URL: ${{ inputs.image_url }}
+          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        run: |
+          set -euo pipefail
+          case "$IMAGE_URL" in https://*) ;; *) echo "image_url must use HTTPS" >&2; exit 2;; esac
+          curl --fail --location --proto '=https' --tlsv1.2 "$IMAGE_URL" --output linura.qcow2
+          printf '%s  %s\n' "$EXPECTED_SHA256" linura.qcow2 | sha256sum --check --strict
+      - name: Start disposable VM
+        run: |
+          set -euo pipefail
+          python3 tools/vm.py start --image linura.qcow2 --ssh-port 2222 >vm.log 2>&1 &
+          echo $! > vm.pid
+          for _ in $(seq 1 60); do
+            if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 -p 2222 linura@127.0.0.1 true; then exit 0; fi
+            sleep 2
+          done
+          cat vm.log >&2
+          exit 1
+      - name: Run repository acceptance scenario
+        run: python3 tools/acceptance.py run "${{ inputs.scenario }}" --host 127.0.0.1 --port 2222 --user linura
+      - name: Stop VM
+        if: always()
+        run: test ! -f vm.pid || kill "$(cat vm.pid)" || true

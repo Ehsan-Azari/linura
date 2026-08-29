@@ -1,0 +1,61 @@
+name: Trusted release candidate
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Require tag commit on main history
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+      - run: rustup default 1.98.0
+      - name: Run canonical validation
+        run: cargo xtask check
+      - name: Build exact-source release binaries
+        run: cargo build --workspace --release --locked
+      - name: Assemble candidate
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          install -m 0755 target/release/linurad dist/linurad
+          install -m 0755 target/release/linuractl dist/linuractl
+          install -m 0755 target/release/linura-firstboot dist/linura-firstboot
+          install -m 0755 target/release/linura-update-guard dist/linura-update-guard
+          install -m 0755 target/release/linura-executor-systemd dist/linura-executor-systemd
+          printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_SHA
+          printf '%s\n' "$RELEASE_TAG" > dist/RELEASE_TAG
+          python3 tools/generate_sbom.py dist/linura.spdx.json \
+            dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd \
+            --version "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
+          python3 tools/make_checksums.py dist/SHA256SUMS \
+            dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd \
+            dist/linura.spdx.json dist/SOURCE_SHA dist/RELEASE_TAG
+          python3 tools/release_verify.py dist
+      - name: Attest candidate artifacts
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: "dist/*"
+      - name: Upload exact candidate proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linura-release-candidate
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
