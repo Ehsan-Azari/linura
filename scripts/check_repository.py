@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import re
+import subprocess
 import sys
 import tomllib
 import xml.etree.ElementTree as ET
-import re
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -40,6 +41,52 @@ FORBIDDEN_SNIPPETS = ["sudo bash -c", "chmod 777"]
 LEGACY_BRANDS = ["sys" + "plane", "luna" + "rchy"]
 LEGACY_COMPONENTS = ["linura-runtime", "linura_runtime", "apps/control-center", "apps/agent-ui", "apps/shell"]
 TEXT_SUFFIXES = {".md", ".rs", ".toml", ".py", ".yml", ".yaml", ".xml", ".json", ".service", ".policy", ".hook", ".sh", ".conf"}
+GENERATED_DIRS = {
+    ".cache",
+    ".direnv",
+    ".git",
+    ".mypy_cache",
+    ".nox",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "target",
+    "venv",
+}
+
+
+def repository_files() -> list[Path]:
+    """Return repository-owned files, excluding generated build/cache content.
+
+    A Git checkout provides the strongest definition of repository ownership:
+    tracked files. Source archives may not contain ``.git``, so they fall back
+    to a filesystem walk with a conservative generated-directory exclusion.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "ls-files", "-z"],
+            check=False,
+            capture_output=True,
+        )
+    except OSError:
+        result = None
+
+    if result is not None and result.returncode == 0:
+        return [
+            ROOT / entry.decode("utf-8")
+            for entry in result.stdout.split(b"\0")
+            if entry
+        ]
+
+    return [
+        path
+        for path in ROOT.rglob("*")
+        if path.is_file()
+        and not any(part in GENERATED_DIRS for part in path.relative_to(ROOT).parts)
+    ]
 
 
 def main() -> int:
@@ -48,8 +95,10 @@ def main() -> int:
         if not (ROOT / rel).is_file():
             failures.append(f"missing required file: {rel}")
 
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or ".git" in path.parts or path == Path(__file__).resolve():
+    owned_files = repository_files()
+
+    for path in owned_files:
+        if path == Path(__file__).resolve():
             continue
         if path.suffix not in TEXT_SUFFIXES and path.name not in {"Makefile", "Cargo.lock"}:
             continue
@@ -89,7 +138,8 @@ def main() -> int:
         elif not (ROOT / member).is_dir():
             failures.append(f"workspace member missing directory: {member}")
 
-    for manifest in ROOT.rglob("Cargo.toml"):
+    manifests = [path for path in owned_files if path.name == "Cargo.toml"]
+    for manifest in manifests:
         data = tomllib.loads(manifest.read_text(encoding="utf-8"))
         for section in ("dependencies", "dev-dependencies", "build-dependencies"):
             for name, spec in data.get(section, {}).items():
@@ -167,9 +217,7 @@ def main() -> int:
 
     # Check ordinary relative Markdown links. Fragments and external links are excluded.
     link_pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
-    for markdown in ROOT.rglob("*.md"):
-        if ".git" in markdown.parts:
-            continue
+    for markdown in (path for path in owned_files if path.suffix == ".md"):
         text = markdown.read_text(encoding="utf-8")
         for target in link_pattern.findall(text):
             target = target.strip().split("#", 1)[0]
@@ -186,6 +234,7 @@ def main() -> int:
 
     print("repository checks passed")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
