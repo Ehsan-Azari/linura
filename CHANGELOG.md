@@ -4,6 +4,10 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.0.0] - 2026-08-30
+
+Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md`](docs/releases/v0.0.0.md).
+
 ### Changed
 - Renamed the project from the bootstrap working name to **Linura**.
 - Promoted Linura from a control-plane-with-agent-client concept to an intent-driven, agent-native Linux umbrella architecture.
@@ -15,6 +19,7 @@ All notable changes to Linura will be documented here. Version entries stay conc
 - Made portable machine-profile exports self-contained by carrying referenced setup and intent definitions.
 - Adopted version-scoped milestone/release contracts with explicit claim classes, PR/full-SHA commit traceability, and exact-source acceptance boundaries.
 - Release promotion now publishes the frozen repository release contract as the GitHub Release body rather than generating an independent narrative.
+- Aligned the release lifecycle to a proof-first/tag-last model with exact-main gate observation, build-once attested payloads, proof-only promotion, final publication authority, and independent verification of publication metadata and evidence.
 
 ### Added
 - Persistent intent and requirement model.
@@ -41,10 +46,6 @@ All notable changes to Linura will be documented here. Version entries stay conc
 - ADR 0014 defining version-scoped release contracts and machine-readable release evidence.
 - `RELEASE-EVIDENCE.json` generation/verification binding claim metadata, frozen notes, PR/commit traceability and candidate artifact digests.
 - v0.0.1 milestone contract for authenticated authoritative read-only observation and the first real observed system graph.
-
-## [0.0.0] - Unreleased
-
-Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md`](docs/releases/v0.0.0.md).
 
 ### Grand development-foundation update
 
