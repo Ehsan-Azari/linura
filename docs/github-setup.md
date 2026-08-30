@@ -71,15 +71,21 @@ Treat findings as gates for supported releases. Do not weaken a failing security
 
 ## Releases
 
-Before the first supported release require:
+Before any public Linura release:
 
-- trusted candidate proof on the exact commit SHA;
-- SBOM generation;
-- checksums;
-- artifact signing or provenance attestation;
-- independent published-asset verification;
-- immutable release-tag policy;
-- rollback/recovery acceptance testing;
-- release-environment approval or an equivalent deliberate maintainer-controlled gate until a second trusted reviewer exists.
+- in repository **Settings**, scroll to **Releases** and select **Enable release immutability**; this is a repository/organization administration prerequisite and GitHub applies it only to releases published after the setting is enabled;
+- confirm the release workflow uses the draft-first publication pattern so all sealed assets are uploaded and verified before the draft is published and becomes immutable;
+- trusted candidate proof must succeed on the exact commit SHA;
+- SBOM generation must succeed;
+- checksums must cover the sealed payload;
+- artifact signing or provenance attestation must succeed;
+- independent published-asset verification must succeed;
+- `gh release verify` must prove the GitHub Release is immutable and its release attestation is valid;
+- each downloaded asset must pass `gh release verify-asset` in addition to Linura's own checksum/evidence and build-provenance checks;
+- the release tag must remain bound to the verified candidate source;
+- rollback/recovery acceptance testing must satisfy the version's declared claim class;
+- release-environment approval or an equivalent deliberate maintainer-controlled gate must be configured until a second trusted reviewer exists.
+
+Do not treat successful upload/publication as release completion. If GitHub reports the published release as non-immutable, or independent verification does not complete successfully, the version has not satisfied Linura's publication contract.
 
 The repository already contains workflows and tooling for candidate construction, promotion, and independent verification. A registry or package publication must not begin until product naming/trademark clearance and the corresponding registry ownership strategy are settled.
