@@ -17,11 +17,6 @@ on:
         description: Exact successful Trusted Release Proof run ID
         required: true
         type: string
-      prerelease:
-        description: Mark the GitHub Release as prerelease
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -208,7 +203,6 @@ jobs:
       RELEASE_TAG: v${{ inputs.version }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       PROOF_RUN_ID: ${{ inputs.proof_run_id }}
-      PRERELEASE: ${{ inputs.prerelease }}
       PROOF_DIR: ${{ runner.temp }}/linura-proof
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -274,7 +268,9 @@ jobs:
           tag = os.environ["RELEASE_TAG"]
           sha = os.environ["SOURCE_SHA"]
           token = os.environ["GH_TOKEN"]
-          prerelease = os.environ["PRERELEASE"].lower() == "true"
+          version = os.environ["RELEASE_VERSION"]
+          version_without_build = version.split("+", 1)[0]
+          prerelease = "-" in version_without_build
           payload_dir = pathlib.Path(os.environ["PROOF_DIR"]) / "release-payload"
           notes = (payload_dir / "RELEASE_NOTES.md").read_text(encoding="utf-8")
           release_name = f"Linura {tag}"
