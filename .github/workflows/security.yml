@@ -36,4 +36,6 @@ jobs:
           test -x "$HOME/.cargo/bin/cargo-audit"
           "$HOME/.cargo/bin/cargo-audit" --version | grep -F " $CARGO_AUDIT_VERSION"
       - name: Audit Rust dependencies
-        run: "$HOME/.cargo/bin/cargo-audit" audit
+        run: |
+          set -euo pipefail
+          "$HOME/.cargo/bin/cargo-audit" audit
