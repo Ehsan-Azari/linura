@@ -37,7 +37,7 @@ The reusable builder:
 - constructs the release payload once, seals it with checksums and release evidence, and creates GitHub/Sigstore build-provenance attestations;
 - asserts the source tree remains unchanged throughout the build.
 
-Using a reusable workflow for the trusted build and generating artifact attestations follows GitHub's recommended isolation model for strengthening SLSA v1 build provenance. Linura treats this as SLSA-3-style build isolation; it does not claim independent SLSA certification merely because the workflow exists.
+This is **repository-owned reusable-workflow provenance hardening**, not SLSA Build Level 3 isolation. The reusable workflow is loaded from the same reviewed source revision as the release candidate, so the candidate can change both product code and build instructions together. Linura therefore makes no SLSA Level 3 claim from this boundary alone. Reaching that stronger trust model would require a separately governed builder definition referenced immutably, in addition to the evidence already collected here.
 
 ## Independent reproducibility check
 
