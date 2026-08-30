@@ -60,9 +60,11 @@ jobs:
               handle.write(f"version={match.group('tag')[1:]}\n")
               handle.write(f"theme={match.group('theme')}\n")
           PY
+          tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
+          test -n "$tag"
           python3 tools/release_contract.py validate \
-            --tag "${{ steps.release.outputs.tag }}" \
-            --notes "docs/releases/${{ steps.release.outputs.tag }}.md" \
+            --tag "$tag" \
+            --notes "docs/releases/${tag}.md" \
             --require-workspace-version
 
       - name: Verify permanent exact-SHA gates
