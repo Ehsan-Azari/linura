@@ -2,22 +2,24 @@
 
 Linura separates release authorization from the build instructions that produce promotable bytes.
 
+See [ADR 0015 — Isolated and independently reproducible release builds](adr/0015-isolated-reproducible-release-build.md) for the durable trust-boundary decision, alternatives, failure behavior and rollback requirements.
+
 ## Deterministic stage graph
 
-The release control plane uses explicit, authenticated workflow dispatches between automated stages:
+The release control plane uses one observation boundary followed by explicit, authenticated release-stage dispatches:
 
 ```text
 protected main release intent
   -> exact-SHA CI / Security / CodeQL
-  -> Release Proof Dispatch
-  -> Trusted Release Proof
-  -> Reusable Trusted Release Build
-  -> Release Promotion
-  -> Release
-  -> Verify published release
+  -> Release Proof Dispatch              # workflow_run observer only
+  -> Trusted Release Proof               # explicit workflow_dispatch
+  -> Reusable Trusted Release Build      # typed workflow_call
+  -> Release Promotion                   # explicit workflow_dispatch
+  -> Release                             # explicit workflow_dispatch
+  -> Verify published release            # explicit workflow_dispatch
 ```
 
-`workflow_run` is not used as an implicit message bus between release stages. Every receiver independently validates the source SHA, parent run identity, release contract and current repository state before granting the next capability.
+`workflow_run` is used only to observe independently completed permanent gates (`CI`, `Security`, `CodeQL`) and wake `Release Proof Dispatch`. It is not used as an implicit message bus between release-authority stages. After proof authorization begins, each receiver gets an explicit typed handoff and independently validates the source SHA, parent run identity, release contract and current repository state before granting the next capability.
 
 ## Reusable trusted builder
 
