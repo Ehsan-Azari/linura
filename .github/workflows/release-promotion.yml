@@ -1,85 +1,114 @@
-name: Promote verified release candidate
+name: Release Promotion
+
+run-name: Release Promotion — ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
 
 on:
   workflow_run:
-    workflows: ["Trusted release candidate"]
+    workflows: ["Trusted Release Proof"]
     types: [completed]
   workflow_dispatch:
     inputs:
-      candidate_run_id:
-        description: Successful Trusted release candidate workflow run ID
+      source_sha:
+        description: Exact current-main SHA with a completed successful Trusted Release Proof
         required: true
         type: string
-      expected_sha:
-        description: Exact source commit SHA expected in the candidate
-        required: true
-        type: string
-      tag:
-        description: Existing immutable release tag, for example v0.1.0
+      proof_run_id:
+        description: Exact successful Trusted Release Proof run ID
         required: true
         type: string
 
 permissions:
   actions: write
-  contents: write
+  contents: read
 
 concurrency:
-  group: release-promotion-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_sha }}
-  cancel-in-progress: false
+  group: release-promotion-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+  cancel-in-progress: true
 
 jobs:
   promote:
-    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.event == 'push')) || github.event_name == 'workflow_dispatch' }}
+    name: promote proven source
+    if: "${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success') || github.event_name == 'workflow_dispatch' }}"
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      CANDIDATE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.candidate_run_id }}
-      EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_sha }}
-      INPUT_TAG: ${{ inputs.tag }}
+      SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+      PROOF_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.proof_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_sha }}
+          persist-credentials: false
           fetch-depth: 0
-      - name: Verify candidate workflow identity and success
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
+
+      - name: Verify exact proof and dispatch Release
         run: |
           set -euo pipefail
-          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" --jq .conclusion)"
-          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" --jq .head_sha)"
-          workflow_name="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID" --jq .name)"
-          test "$conclusion" = success
-          test "$head_sha" = "$EXPECTED_SHA"
-          test "$workflow_name" = "Trusted release candidate"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - name: Download exact candidate artifact
-        run: gh run download "$CANDIDATE_RUN_ID" --name linura-release-candidate --dir candidate
-      - name: Resolve tag and verify candidate contents
-        run: |
-          set -euo pipefail
-          release_tag="$(cat candidate/RELEASE_TAG)"
-          test -n "$release_tag"
-          if [[ -n "$INPUT_TAG" ]]; then
-            test "$release_tag" = "$INPUT_TAG"
+
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
+          test "$(jq -r .name <<<"$run")" = "Trusted Release Proof"
+          test "$(jq -r .event <<<"$run")" = "workflow_dispatch"
+          test "$(jq -r .status <<<"$run")" = "completed"
+          test "$(jq -r .conclusion <<<"$run")" = "success"
+          test "$(jq -r .head_sha <<<"$run")" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$main_sha" != "$SOURCE_SHA" ]]; then
+            echo "stale successful proof ignored: current main is $main_sha, proof source was $SOURCE_SHA"
+            exit 0
           fi
-          printf 'RELEASE_TAG=%s\n' "$release_tag" >> "$GITHUB_ENV"
-          test "$(cat candidate/SOURCE_SHA)" = "$EXPECTED_SHA"
-          git fetch --tags --force origin
-          test "$(git rev-list -n1 "$release_tag")" = "$EXPECTED_SHA"
-          python3 tools/release_contract.py verify --directory candidate --tag "$release_tag" --source-sha "$EXPECTED_SHA"
-          python3 tools/release_verify.py candidate
-      - name: Publish verified bytes and frozen notes
-        run: |
-          set -euo pipefail
-          expected_title="Linura $RELEASE_TAG"
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            actual_title="$(gh release view "$RELEASE_TAG" --json name --jq .name)"
-            test "$actual_title" = "$expected_title"
-            echo "release already exists with canonical title; preserving published object"
-          else
-            gh release create "$RELEASE_TAG" candidate/* \
-              --verify-tag \
-              --title "$expected_title" \
-              --notes-file candidate/RELEASE_NOTES.md
+
+          subject="$(git log -1 --pretty=%s)"
+          python3 - "$subject" "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+
+          subject, output_path = sys.argv[1], sys.argv[2]
+          match = re.fullmatch(
+              r"release: (?P<tag>v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) — (?P<theme>\S.*)",
+              subject,
+          )
+          if match is None:
+              raise SystemExit(f"invalid release-intent subject: {subject!r}")
+          tag = match.group("tag")
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"tag={tag}\n")
+              handle.write(f"version={tag[1:]}\n")
+          PY
+
+          tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
+          version="$(sed -n 's/^version=//p' "$GITHUB_OUTPUT" | tail -1)"
+          python3 tools/release_contract.py validate \
+            --tag "$tag" \
+            --notes "docs/releases/${tag}.md" \
+            --require-workspace-version
+
+          if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>/dev/null)"; then
+            tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
+            test "$tag_sha" = "$SOURCE_SHA"
           fi
-      - name: Dispatch independent publication verification
-        run: gh workflow run release-verification.yml --ref main -f tag="$RELEASE_TAG"
+
+          release_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?head_sha=$SOURCE_SHA&event=workflow_dispatch&per_page=100")"
+          active="$(jq -r '[.workflow_runs[] | select(.head_sha == env.SOURCE_SHA and .event == "workflow_dispatch" and (.status == "queued" or .status == "in_progress" or .status == "pending" or .status == "waiting" or .status == "requested"))] | .[0].id // empty' <<<"$release_runs")"
+          if [[ -n "$active" ]]; then
+            echo "active Release run already exists for $SOURCE_SHA: $active"
+            exit 0
+          fi
+
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            echo "main moved before Release dispatch: $current != $SOURCE_SHA; no dispatch"
+            exit 0
+          fi
+
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+
+          gh workflow run release.yml \
+            --ref main \
+            -f version="$version" \
+            -f source_sha="$SOURCE_SHA" \
+            -f proof_run_id="$PROOF_RUN_ID" \
+            -f prerelease="$prerelease"
+          echo "dispatched Release for $tag from exact proven source $SOURCE_SHA"
