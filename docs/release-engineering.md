@@ -12,6 +12,16 @@ Before tagging, the implementation closes into a frozen release contract at `doc
 
 The GitHub Release body is not independently generated. Promotion publishes the exact candidate `RELEASE_NOTES.md`, which is copied from the frozen repository release contract.
 
+### Release presentation convention
+
+Linura follows one stable presentation contract across Git, GitHub Releases and frozen release notes:
+
+- Git tag: `vX.Y.Z`.
+- GitHub Release title: `Linura vX.Y.Z`.
+- Frozen release-note first heading: `# vX.Y.Z — <implementation theme>`.
+
+The Git tag deliberately stays product-name-free for SemVer-compatible tooling. The product name belongs in the GitHub Release title, while the frozen note heading carries the version plus a concise implementation theme. GitHub has no separate release subtitle field, so the first Markdown heading is the canonical subtitle-like presentation and is verified as part of the frozen release body.
+
 ## Candidate
 
 The tag-triggered **Trusted release candidate** workflow:
