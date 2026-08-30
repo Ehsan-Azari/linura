@@ -3,17 +3,56 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use linura_sdk::LocalControlClient;
+use linura_sdk::{LocalControlClient, ProtocolVersion};
 
-const COMMANDS: &[&str] = &[
-    "version",
-    "commands",
-    "whoami",
-    "capabilities",
-    "observe",
-    "graph",
-    "explain",
-    "help",
+#[derive(Clone, Copy)]
+struct CommandInfo {
+    name: &'static str,
+    summary: &'static str,
+    offline: bool,
+}
+
+const COMMANDS: &[CommandInfo] = &[
+    CommandInfo {
+        name: "version",
+        summary: "Show Linura and protocol version",
+        offline: true,
+    },
+    CommandInfo {
+        name: "commands",
+        summary: "List machine-readable CLI command metadata",
+        offline: true,
+    },
+    CommandInfo {
+        name: "whoami",
+        summary: "Show the authenticated local D-Bus caller identity",
+        offline: false,
+    },
+    CommandInfo {
+        name: "capabilities",
+        summary: "List observation providers, health, and capabilities",
+        offline: false,
+    },
+    CommandInfo {
+        name: "observe",
+        summary: "Read authoritative current state for one resource",
+        offline: false,
+    },
+    CommandInfo {
+        name: "graph",
+        summary: "Show the current observed causal system graph",
+        offline: false,
+    },
+    CommandInfo {
+        name: "explain",
+        summary: "Explain the authoritative evidence for one resource",
+        offline: false,
+    },
+    CommandInfo {
+        name: "help",
+        summary: "Show CLI help",
+        offline: true,
+    },
 ];
 
 fn main() {
@@ -27,12 +66,20 @@ fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("version") => {
-            println!("linuractl {}", env!("CARGO_PKG_VERSION"));
+            require_arity(&args, 1, "version")?;
+            let version = ProtocolVersion::default();
+            println!(
+                "linuractl {} (protocol {})",
+                version.product_version, version.major
+            );
+        }
+        Some("commands") if args.get(1).map(String::as_str) == Some("--json") => {
+            require_arity(&args, 2, "commands [--json]")?;
+            println!("{}", commands_json());
         }
         Some("commands") => {
-            for command in COMMANDS {
-                println!("{command}");
-            }
+            require_arity(&args, 1, "commands [--json]")?;
+            print_commands();
         }
         Some("whoami") => {
             require_arity(&args, 1, "whoami")?;
@@ -126,7 +173,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             field("evidence_id", &evidence_id);
             field("authority", &authority);
         }
-        Some("help") | None => print_help(),
+        Some("help") | Some("--help") | Some("-h") | None => print_help(),
         Some(other) => {
             return Err(Box::new(CliError(format!(
                 "unknown command {other:?}; run `linuractl help`"
@@ -173,6 +220,54 @@ fn require_arity(args: &[String], expected: usize, usage: &str) -> Result<(), Bo
     }
 }
 
+fn print_commands() {
+    for command in COMMANDS {
+        println!("{:<14} {}", command.name, command.summary);
+    }
+}
+
+fn commands_json() -> String {
+    let mut output = String::from("[");
+    for (index, command) in COMMANDS.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str("{\"name\":");
+        output.push_str(&json_string(command.name));
+        output.push_str(",\"summary\":");
+        output.push_str(&json_string(command.summary));
+        output.push_str(",\"offline\":");
+        output.push_str(if command.offline { "true" } else { "false" });
+        output.push('}');
+    }
+    output.push(']');
+    output
+}
+
+fn json_string(value: &str) -> String {
+    let mut output = String::with_capacity(value.len() + 2);
+    output.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => output.push_str("\\\""),
+            '\\' => output.push_str("\\\\"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0c}' => output.push_str("\\f"),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            character if character <= '\u{1f}' => {
+                use std::fmt::Write as _;
+                write!(&mut output, "\\u{:04x}", u32::from(character))
+                    .unwrap_or_else(|_| unreachable!("writing to String cannot fail"));
+            }
+            other => output.push(other),
+        }
+    }
+    output.push('"');
+    output
+}
+
 fn field(key: &str, value: &str) {
     println!("{}={}", escaped(key), escaped(value));
 }
@@ -197,7 +292,7 @@ fn print_help() {
     println!();
     println!("Commands:");
     println!("  version");
-    println!("  commands");
+    println!("  commands [--json]");
     println!("  whoami");
     println!("  capabilities");
     println!("  observe <resource>");
@@ -220,6 +315,8 @@ impl Error for CliError {}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     #[test]
@@ -238,5 +335,26 @@ mod tests {
     #[test]
     fn output_escaping_is_line_safe() {
         assert_eq!(escaped("a\nb\\c\t"), "a\\nb\\\\c\\t");
+    }
+
+    #[test]
+    fn command_catalog_is_unique_and_keeps_json_introspection() {
+        let names: BTreeSet<_> = COMMANDS.iter().map(|command| command.name).collect();
+        assert_eq!(names.len(), COMMANDS.len());
+        assert!(names.contains("commands"));
+        assert!(names.contains("observe"));
+
+        let json = commands_json();
+        assert!(json.starts_with('['));
+        assert!(json.ends_with(']'));
+        assert!(json.contains("\"name\":\"commands\""));
+        assert!(json.contains("\"name\":\"observe\""));
+        assert!(json.contains("\"offline\":true"));
+        assert!(json.contains("\"offline\":false"));
+    }
+
+    #[test]
+    fn json_strings_escape_control_characters() {
+        assert_eq!(json_string("a\n\"b\\c\t"), "\"a\\n\\\"b\\\\c\\t\"");
     }
 }
