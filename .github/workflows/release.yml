@@ -348,6 +348,8 @@ jobs:
                       raise SystemExit("published release title differs from canonical title")
                   if release.get("body") != notes:
                       raise SystemExit("published release body differs from frozen notes")
+                  if bool(release.get("prerelease")) != prerelease:
+                      raise SystemExit("published release classification differs from canonical SemVer classification")
                   assets = {asset["name"]: asset for asset in release.get("assets", [])}
                   if set(assets) != set(expected):
                       raise SystemExit("published release asset set differs from sealed payload")
