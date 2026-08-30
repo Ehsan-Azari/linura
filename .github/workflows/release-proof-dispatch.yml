@@ -112,5 +112,5 @@ jobs:
             exit 0
           fi
 
-          gh workflow run trusted-release-proof.yml --ref main
+          gh workflow run trusted-release-proof.yml --repo "$GITHUB_REPOSITORY" --ref main
           echo "dispatched Trusted Release Proof for exact main $SOURCE_SHA"
