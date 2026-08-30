@@ -1,6 +1,6 @@
 # Release engineering
 
-Linura separates **what a version claims**, **how exact candidate bytes are constructed**, **how those bytes are promoted**, and **how publication is independently verified**.
+Linura separates **what a version claims**, **which exact reviewed source becomes that version**, **how exact candidate bytes are constructed**, **how those bytes are promoted**, and **how publication is independently verified**.
 
 See [Release contracts, claims and evidence](release-contracts.md) for the version-scoped documentation/evidence model.
 
@@ -22,37 +22,27 @@ Linura follows one stable presentation contract across Git, GitHub Releases and 
 
 The Git tag deliberately stays product-name-free for SemVer-compatible tooling. The product name belongs in the GitHub Release title, while the frozen note heading carries the version plus a concise implementation theme. GitHub has no separate release subtitle field, so the first Markdown heading is the canonical subtitle-like presentation and is verified as part of the frozen release body.
 
-## Protected release intent
+## Release-source selection
 
-The normal release path begins with a commit merged into protected `main` whose subject is:
+The irreversible choice of which commit becomes `vX.Y.Z` is explicit rather than delegated to a background race-prone dispatcher.
 
-```text
-release: vX.Y.Z — <implementation theme>
-```
+Before the immutable version tag is created:
 
-That commit becomes the immutable **release snapshot** for the version. The release system does not treat the moving `main` ref as a lock: `main` may legitimately advance after the snapshot has been established. What must remain invariant is the exact release source SHA, its membership in protected `main` history, its exact-source permanent evidence, and the immutable version-tag binding.
+1. the release changes and frozen release contract are merged through the protected pull-request path;
+2. configured automated review has completed and every blocking review thread has been addressed;
+3. the chosen exact `main` SHA has successful `CI`, `Security` and `CodeQL` push runs;
+4. the release operator confirms that exact SHA is the intended source for the version;
+5. `refs/tags/vX.Y.Z` is created once at that exact SHA.
 
-The **Release proof dispatch** workflow runs only for completed `CI`, `Security` or `CodeQL` workflow runs on `main`, and only when the exact source commit has that release-intent subject. It then:
+There is no automatic workflow that chooses between multiple same-version release snapshots or creates the immutable version tag in response to asynchronous gate completions. This deliberately removes cross-ref and supersession races from the release authority boundary.
 
-1. proves the exact source SHA is still contained in protected `main` history;
-2. validates the versioned frozen release contract against the workspace version;
-3. requires successful exact-source push runs for `CI`, `Security` and `CodeQL`;
-4. re-proves source ancestry immediately before tag creation;
-5. creates `refs/tags/vX.Y.Z` only if the name is unused, or proves an existing tag points to the same source SHA;
-6. avoids duplicate candidate dispatches for the same tag/source;
-7. dispatches the trusted candidate workflow at the immutable tag.
+If a release attempt needs correction before tagging, merge the correction, let the new exact `main` SHA complete review and permanent gates, and tag only that corrected SHA. Older untagged attempts have no publication authority. Once `vX.Y.Z` exists, that version identity is consumed and must never be retargeted.
 
-This snapshot invariant deliberately avoids claiming an atomic compare-and-swap against the moving `main` ref. GitHub's refs API does not provide a transaction that conditionally creates one ref based on the unchanged value of another ref, and a normal no-op `git push --atomic` is not a reliable substitute because unchanged refs may be omitted from the update transaction. Linura therefore makes the stronger relevant release guarantee explicit: published bytes are bound to one exact, permanently gated source commit in protected `main` history.
-
-If a release-intent snapshot must be superseded before its version tag is created, a corrected release-intent commit should be merged and the older release attempt must not be promoted. Once the immutable version tag exists, that version identity is consumed and must never be retargeted.
-
-The dispatcher has no product/runtime authority. Its write authority is narrowly limited to release-control operations after permanent exact-source gates succeed.
-
-A manually created valid tag remains supported: tag pushes still invoke the same candidate workflow. `workflow_dispatch` exists as a recovery/retry path, but cannot create a valid candidate from a non-tag ref.
+Tag creation is therefore a narrow explicit release-authority operation. All subsequent stages are evidence-driven and exact-source bound.
 
 ## Candidate
 
-The tag-bound **Trusted release candidate** workflow:
+The tag-bound **Trusted release candidate** workflow runs on a `v*` tag push and also exposes `workflow_dispatch` as a recovery/retry path. It:
 
 1. verifies the tag commit belongs to `main` history;
 2. requires `docs/releases/<tag>.md`;
