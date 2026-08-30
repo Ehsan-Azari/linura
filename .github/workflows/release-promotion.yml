@@ -51,7 +51,7 @@ jobs:
           # the proof workflow's narrow dispatch job is still finishing, so wait
           # for the parent proof run to reach its terminal state before trusting it.
           run=""
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
             status="$(jq -r .status <<<"$run")"
             if [[ "$status" == "completed" ]]; then
