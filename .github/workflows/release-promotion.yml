@@ -121,6 +121,7 @@ jobs:
           fi
 
           gh workflow run release.yml \
+            --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f version="$version" \
             -f source_sha="$SOURCE_SHA" \
