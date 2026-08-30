@@ -336,12 +336,13 @@ impl<P: PolicyEngine> ControlPlane<P> {
         };
 
         advance(&mut progress, MutationStage::Observe)?;
-        let pre_observation = provider.observe(&request.resource).map_err(|error| {
-            MutationError::Provider {
-                stage: MutationStage::Observe,
-                error,
-            }
-        })?;
+        let pre_observation =
+            provider
+                .observe(&request.resource)
+                .map_err(|error| MutationError::Provider {
+                    stage: MutationStage::Observe,
+                    error,
+                })?;
         validate_observation(provider, request, &pre_observation).map_err(|error| {
             MutationError::Provider {
                 stage: MutationStage::Observe,
@@ -350,12 +351,13 @@ impl<P: PolicyEngine> ControlPlane<P> {
         })?;
 
         advance(&mut progress, MutationStage::Plan)?;
-        let plan = provider
-            .plan(request, &pre_observation)
-            .map_err(|error| MutationError::Provider {
-                stage: MutationStage::Plan,
-                error,
-            })?;
+        let plan =
+            provider
+                .plan(request, &pre_observation)
+                .map_err(|error| MutationError::Provider {
+                    stage: MutationStage::Plan,
+                    error,
+                })?;
 
         advance(&mut progress, MutationStage::Validate)?;
         plan.validate().map_err(|error| MutationError::Invalid {
@@ -385,33 +387,44 @@ impl<P: PolicyEngine> ControlPlane<P> {
         validate_authorization(&authorization)?;
 
         advance(&mut progress, MutationStage::Prepare)?;
-        let prepared = runtime
-            .prepare(&plan, &authorization)
-            .map_err(|error| MutationError::Runtime {
-                stage: MutationStage::Prepare,
-                error,
-            })?;
+        let prepared =
+            runtime
+                .prepare(&plan, &authorization)
+                .map_err(|error| MutationError::Runtime {
+                    stage: MutationStage::Prepare,
+                    error,
+                })?;
         validate_plan_ref(MutationStage::Prepare, &plan.id, &prepared.plan_id)?;
         validate_durable_ref(MutationStage::Prepare, &prepared.durable_ref)?;
 
         advance(&mut progress, MutationStage::Execute)?;
-        let execution = runtime
-            .execute(&plan, &prepared)
-            .map_err(|error| MutationError::Runtime {
-                stage: MutationStage::Execute,
-                error,
-            })?;
+        let execution =
+            runtime
+                .execute(&plan, &prepared)
+                .map_err(|error| MutationError::Runtime {
+                    stage: MutationStage::Execute,
+                    error,
+                })?;
         validate_plan_ref(MutationStage::Execute, &plan.id, &execution.plan_id)?;
-        validate_nonempty(MutationStage::Execute, "executor id", &execution.executor_id)?;
-        validate_nonempty(MutationStage::Execute, "execution summary", &execution.summary)?;
+        validate_nonempty(
+            MutationStage::Execute,
+            "executor id",
+            &execution.executor_id,
+        )?;
+        validate_nonempty(
+            MutationStage::Execute,
+            "execution summary",
+            &execution.summary,
+        )?;
 
         advance(&mut progress, MutationStage::Verify)?;
-        let post_observation = provider.observe(&request.resource).map_err(|error| {
-            MutationError::Provider {
-                stage: MutationStage::Verify,
-                error,
-            }
-        })?;
+        let post_observation =
+            provider
+                .observe(&request.resource)
+                .map_err(|error| MutationError::Provider {
+                    stage: MutationStage::Verify,
+                    error,
+                })?;
         validate_observation(provider, request, &post_observation).map_err(|error| {
             MutationError::Provider {
                 stage: MutationStage::Verify,
@@ -425,8 +438,16 @@ impl<P: PolicyEngine> ControlPlane<P> {
                 error,
             })?;
         validate_plan_ref(MutationStage::Verify, &plan.id, &verification.plan_id)?;
-        validate_nonempty(MutationStage::Verify, "verifier id", &verification.verifier_id)?;
-        validate_nonempty(MutationStage::Verify, "verification evidence", &verification.evidence)?;
+        validate_nonempty(
+            MutationStage::Verify,
+            "verifier id",
+            &verification.verifier_id,
+        )?;
+        validate_nonempty(
+            MutationStage::Verify,
+            "verification evidence",
+            &verification.evidence,
+        )?;
 
         advance(&mut progress, MutationStage::Commit)?;
         let commit = runtime
@@ -456,17 +477,14 @@ impl<P: PolicyEngine> ControlPlane<P> {
         validate_durable_ref(MutationStage::Audit, &audit.durable_ref)?;
 
         advance(&mut progress, MutationStage::Reconcile)?;
-        let reconciliation = runtime
-            .reconcile(&plan, &commit)
-            .map_err(|error| MutationError::Runtime {
-                stage: MutationStage::Reconcile,
-                error,
-            })?;
-        validate_plan_ref(
-            MutationStage::Reconcile,
-            &plan.id,
-            &reconciliation.plan_id,
-        )?;
+        let reconciliation =
+            runtime
+                .reconcile(&plan, &commit)
+                .map_err(|error| MutationError::Runtime {
+                    stage: MutationStage::Reconcile,
+                    error,
+                })?;
+        validate_plan_ref(MutationStage::Reconcile, &plan.id, &reconciliation.plan_id)?;
         validate_durable_ref(MutationStage::Reconcile, &reconciliation.durable_ref)?;
 
         Ok(MutationOutcome {
