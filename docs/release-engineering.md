@@ -24,22 +24,29 @@ The Git tag deliberately stays product-name-free for SemVer-compatible tooling. 
 
 ## Protected release intent
 
-The normal release path begins with an exact `main` commit whose subject is:
+The normal release path begins with a commit merged into protected `main` whose subject is:
 
 ```text
 release: vX.Y.Z — <implementation theme>
 ```
 
+That commit becomes the immutable **release snapshot** for the version. The release system does not treat the moving `main` ref as a lock: `main` may legitimately advance after the snapshot has been established. What must remain invariant is the exact release source SHA, its membership in protected `main` history, its exact-source permanent evidence, and the immutable version-tag binding.
+
 The **Release proof dispatch** workflow runs only for completed `CI`, `Security` or `CodeQL` workflow runs on `main`, and only when the exact source commit has that release-intent subject. It then:
 
-1. proves the source SHA is still the current `main` head;
+1. proves the exact source SHA is still contained in protected `main` history;
 2. validates the versioned frozen release contract against the workspace version;
-3. requires successful exact-SHA push runs for `CI`, `Security` and `CodeQL`;
-4. creates `refs/tags/vX.Y.Z` only if the name is unused, or proves an existing tag points to the same source SHA;
-5. avoids duplicate candidate dispatches for the same tag/source;
-6. dispatches the trusted candidate workflow at the immutable tag.
+3. requires successful exact-source push runs for `CI`, `Security` and `CodeQL`;
+4. re-proves source ancestry immediately before tag creation;
+5. creates `refs/tags/vX.Y.Z` only if the name is unused, or proves an existing tag points to the same source SHA;
+6. avoids duplicate candidate dispatches for the same tag/source;
+7. dispatches the trusted candidate workflow at the immutable tag.
 
-The dispatcher has no product/runtime authority. Its write authority is narrowly limited to release-control operations after permanent exact-main gates succeed.
+This snapshot invariant deliberately avoids claiming an atomic compare-and-swap against the moving `main` ref. GitHub's refs API does not provide a transaction that conditionally creates one ref based on the unchanged value of another ref, and a normal no-op `git push --atomic` is not a reliable substitute because unchanged refs may be omitted from the update transaction. Linura therefore makes the stronger relevant release guarantee explicit: published bytes are bound to one exact, permanently gated source commit in protected `main` history.
+
+If a release-intent snapshot must be superseded before its version tag is created, a corrected release-intent commit should be merged and the older release attempt must not be promoted. Once the immutable version tag exists, that version identity is consumed and must never be retargeted.
+
+The dispatcher has no product/runtime authority. Its write authority is narrowly limited to release-control operations after permanent exact-source gates succeed.
 
 A manually created valid tag remains supported: tag pushes still invoke the same candidate workflow. `workflow_dispatch` exists as a recovery/retry path, but cannot create a valid candidate from a non-tag ref.
 
