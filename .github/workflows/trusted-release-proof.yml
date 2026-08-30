@@ -23,8 +23,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: ${{ github.sha }}
-      PROOF_ROOT: ${{ runner.temp }}/linura-release-proof
-      PAYLOAD_DIR: ${{ runner.temp }}/linura-release-proof/release-payload
+      PROOF_ROOT: /tmp/linura-release-proof
+      PAYLOAD_DIR: /tmp/linura-release-proof/release-payload
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -190,12 +190,12 @@ jobs:
       - name: Attest sealed release payload
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: "${{ runner.temp }}/linura-release-proof/release-payload/*"
+          subject-path: "/tmp/linura-release-proof/release-payload/*"
 
       - name: Upload exact-source proof and payload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linura-trusted-release-proof-${{ github.sha }}
-          path: ${{ runner.temp }}/linura-release-proof/
+          path: /tmp/linura-release-proof/
           if-no-files-found: error
           retention-days: 30
