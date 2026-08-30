@@ -42,7 +42,9 @@ jobs:
             proof:
               runs-on: ubuntu-latest
               env:
-                PROOF_DIR: ${{ runner.temp }}/proof
+          YAML
+          printf '      PROOF_DIR: $%s runner.temp }}/proof\n' '{{' >> "$regression"
+          cat >> "$regression" <<'YAML'
               steps:
                 - run: echo unreachable
           YAML
