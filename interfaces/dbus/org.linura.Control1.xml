@@ -1,12 +1,53 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
   <interface name="org.linura.Control1">
-    <method name="GetProtocolVersion"><arg name="major" type="q" direction="out"/><arg name="product_version" type="s" direction="out"/></method>
-    <method name="GetCapabilitySnapshot"><arg name="snapshot_json" type="s" direction="out"/></method>
-    <method name="GetSystemGraph"><arg name="graph_json" type="s" direction="out"/></method>
-    <method name="ProposeIntent"><arg name="proposal_json" type="s" direction="in"/><arg name="result_json" type="s" direction="out"/></method>
-    <method name="Plan"><arg name="request_json" type="s" direction="in"/><arg name="plan_json" type="s" direction="out"/></method>
-    <method name="Explain"><arg name="target_json" type="s" direction="in"/><arg name="explanation_json" type="s" direction="out"/></method>
-    <method name="ExportProfile"><arg name="profile_id" type="s" direction="in"/><arg name="profile_json" type="s" direction="out"/></method>
+    <!-- Caller identity is derived from authenticated D-Bus/OS credentials. -->
+    <method name="WhoAmI">
+      <arg name="actor_id" type="s" direction="out"/>
+      <arg name="actor_kind" type="s" direction="out"/>
+      <arg name="interactive" type="b" direction="out"/>
+      <arg name="uid" type="u" direction="out"/>
+      <arg name="pid" type="u" direction="out"/>
+      <arg name="dbus_sender" type="s" direction="out"/>
+    </method>
+
+    <!-- Provider health plus declared observation capabilities. -->
+    <method name="Capabilities">
+      <arg name="providers" type="a(sss)" direction="out"/>
+      <arg name="capabilities" type="a(ssss)" direction="out"/>
+    </method>
+
+    <!-- Authoritative, read-only observation through a named provider capability. -->
+    <method name="Observe">
+      <arg name="provider" type="s" direction="in"/>
+      <arg name="resource" type="s" direction="in"/>
+      <arg name="capability" type="s" direction="in"/>
+      <arg name="observed_provider" type="s" direction="out"/>
+      <arg name="observed_resource" type="s" direction="out"/>
+      <arg name="observed_capability" type="s" direction="out"/>
+      <arg name="authority" type="s" direction="out"/>
+      <arg name="freshness" type="s" direction="out"/>
+      <arg name="observed_at_unix_ms" type="t" direction="out"/>
+      <arg name="valid_for_ms" type="t" direction="out"/>
+      <arg name="sequence" type="t" direction="out"/>
+      <arg name="attributes" type="a(ss)" direction="out"/>
+    </method>
+
+    <!-- Current causal graph populated from accepted authoritative evidence. -->
+    <method name="Graph">
+      <arg name="nodes" type="a(sa(ss))" direction="out"/>
+      <arg name="edges" type="a(ssss)" direction="out"/>
+    </method>
+
+    <!-- Evidence-only explanation; this interface performs no mutation. -->
+    <method name="Explain">
+      <arg name="resource" type="s" direction="in"/>
+      <arg name="explained_resource" type="s" direction="out"/>
+      <arg name="provider" type="s" direction="out"/>
+      <arg name="capability" type="s" direction="out"/>
+      <arg name="freshness" type="s" direction="out"/>
+      <arg name="evidence_id" type="s" direction="out"/>
+      <arg name="authority" type="s" direction="out"/>
+    </method>
   </interface>
 </node>
