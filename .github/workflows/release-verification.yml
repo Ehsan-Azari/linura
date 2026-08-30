@@ -56,7 +56,8 @@ jobs:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" --json name,body,isPrerelease > release.json
+          gh release view "$RELEASE_TAG" --json name,body,isDraft,isPrerelease > release.json
+          test "$(jq -r .isDraft release.json)" = "false"
           test "$(jq -r .name release.json)" = "Linura $RELEASE_TAG"
           jq -r .body release.json > release-body.md
           python3 tools/release_contract.py compare-body --notes published/RELEASE_NOTES.md --body release-body.md
