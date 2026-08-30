@@ -88,4 +88,6 @@ Before any public Linura release:
 
 Do not treat successful upload/publication as release completion. If GitHub reports the published release as non-immutable, or independent verification does not complete successfully, the version has not satisfied Linura's publication contract.
 
+If a **non-immutable, non-qualified** publication must be requalified under the same version before that version is accepted, enable release immutability first, then deliberately remove both the superseded GitHub Release and its Git tag, verify that neither identity remains, and only then merge a fresh release-intent commit. This exception applies only to a publication that never satisfied Linura's immutable-release contract. Never attempt to reuse a tag that belonged to an immutable GitHub Release; GitHub permanently prevents reuse of such tag names after immutable publication.
+
 The repository already contains workflows and tooling for candidate construction, promotion, and independent verification. A registry or package publication must not begin until product naming/trademark clearance and the corresponding registry ownership strategy are settled.
