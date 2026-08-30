@@ -116,6 +116,7 @@ jobs:
             exit 0
           fi
           gh workflow run release-promotion.yml \
+            --repo "$GITHUB_REPOSITORY" \
             --ref main \
             -f source_sha="$SOURCE_SHA" \
             -f proof_run_id="$PROOF_RUN_ID"
