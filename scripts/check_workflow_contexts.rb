@@ -5,7 +5,16 @@ require "psych"
 
 ROOT = File.expand_path("..", __dir__)
 WORKFLOW_DIR = File.join(ROOT, ".github", "workflows")
-RUNNER_ROOT = /(?<![A-Za-z0-9_.])runner(?![A-Za-z0-9_])/
+RUNNER_ROOT = /(?<![A-Za-z0-9_.])runner(?![A-Za-z0-9_])/i
+
+# Targeted regression guard for GitHub Actions context availability.
+#
+# GitHub does not expose the `runner` context in workflow-level `env` or
+# `jobs.<job_id>.env`, because both are evaluated before a runner is available.
+# GitHub does expose `runner` in step env, step with, container env, and service
+# env. This checker therefore validates only the two schema positions where the
+# original Linura release workflows failed; it is intentionally not a complete
+# GitHub Actions schema validator.
 
 
 def expression_bodies(text)
@@ -15,24 +24,24 @@ def expression_bodies(text)
   while (start_index = text.index("${{", cursor))
     index = start_index + 3
     body_start = index
-    quote = nil
+    in_string = false
     closed = false
 
     while index < text.length
       char = text[index]
 
-      if quote
-        if quote == "'" && char == "'" && text[index + 1] == "'"
+      if in_string
+        if char == "'" && text[index + 1] == "'"
           index += 2
           next
         end
-        quote = nil if char == quote
+        in_string = false if char == "'"
         index += 1
         next
       end
 
-      if char == "'" || char == '"'
-        quote = char
+      if char == "'"
+        in_string = true
         index += 1
         next
       end
@@ -54,28 +63,28 @@ def expression_bodies(text)
 end
 
 
-def strip_quoted_literals(expression)
+def strip_expression_strings(expression)
   result = +""
   index = 0
-  quote = nil
+  in_string = false
 
   while index < expression.length
     char = expression[index]
 
-    if quote
-      if quote == "'" && char == "'" && expression[index + 1] == "'"
+    if in_string
+      if char == "'" && expression[index + 1] == "'"
         result << "  "
         index += 2
         next
       end
-      quote = nil if char == quote
+      in_string = false if char == "'"
       result << " "
       index += 1
       next
     end
 
-    if char == "'" || char == '"'
-      quote = char
+    if char == "'"
+      in_string = true
       result << " "
     else
       result << char
@@ -87,39 +96,47 @@ def strip_quoted_literals(expression)
 end
 
 
-def contains_runner?(value)
+def contains_runner_reference?(value)
   case value
   when String
     expression_bodies(value).any? do |expression|
-      RUNNER_ROOT.match?(strip_quoted_literals(expression))
+      RUNNER_ROOT.match?(strip_expression_strings(expression))
     end
   when Array
-    value.any? { |item| contains_runner?(item) }
+    value.any? { |item| contains_runner_reference?(item) }
   when Hash
-    value.any? { |key, item| contains_runner?(key) || contains_runner?(item) }
+    value.any? do |key, item|
+      contains_runner_reference?(key) || contains_runner_reference?(item)
+    end
   else
     false
   end
 end
 
 
-def find_env_runner_paths(value, path = [], findings = [])
-  case value
-  when Hash
-    value.each do |key, item|
-      key_text = key.to_s
-      current_path = path + [key_text]
-      if key_text == "env" && contains_runner?(item)
-        findings << current_path.join(".")
-      end
-      find_env_runner_paths(item, current_path, findings)
-    end
-  when Array
-    value.each_with_index do |item, index|
-      find_env_runner_paths(item, path + [index.to_s], findings)
+def restricted_env_mappings(document)
+  return [] unless document.is_a?(Hash)
+
+  mappings = []
+  mappings << ["env", document["env"]] if document.key?("env")
+
+  jobs = document["jobs"]
+  if jobs.is_a?(Hash)
+    jobs.each do |job_id, job|
+      next unless job.is_a?(Hash) && job.key?("env")
+
+      mappings << ["jobs.#{job_id}.env", job["env"]]
     end
   end
-  findings
+
+  mappings
+end
+
+
+def find_invalid_runner_paths(document)
+  restricted_env_mappings(document).filter_map do |path, env_mapping|
+    path if contains_runner_reference?(env_mapping)
+  end
 end
 
 
@@ -130,85 +147,124 @@ rescue Psych::SyntaxError => error
 end
 
 
+def assert_rejected!(yaml, label)
+  findings = find_invalid_runner_paths(parse_yaml(yaml, label))
+  raise "self-test failed to reject #{label}" if findings.empty?
+end
+
+
+def assert_accepted!(yaml, label)
+  findings = find_invalid_runner_paths(parse_yaml(yaml, label))
+  return if findings.empty?
+
+  raise "self-test falsely rejected #{label}: #{findings.join(', ')}"
+end
+
+
 def assert_self_tests!
-  rejected = [
-    <<~YAML,
+  rejected = {
+    "workflow-env-dot" => <<~YAML,
+      env:
+        PROOF_DIR: "${{ runner.temp }}/proof"
+      jobs:
+        test:
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
+    YAML
+    "job-env-spaced-key" => <<~YAML,
       jobs:
         test:
           env : { PROOF_DIR: "${{ runner.temp }}/proof" }
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
     YAML
-    <<~YAML,
+    "job-env-quoted-key" => <<~YAML,
       jobs:
         test:
           "env": { PROOF_DIR: "${{ runner.temp }}/proof" }
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
     YAML
-    <<~YAML,
+    "job-env-alias" => <<~YAML,
       shared: &shared
         PROOF_DIR: "${{ runner.temp }}/proof"
       jobs:
         test:
           env: *shared
-    YAML
-    <<~YAML,
-      jobs:
-        test:
+          runs-on: ubuntu-latest
           steps:
-            - env:
-                PROOF_DIR: "${{ runner.temp }}/proof"
-              run: echo ok
+            - run: echo ok
     YAML
-    <<~YAML,
+    "job-env-index" => <<~YAML,
       jobs:
         test:
           env:
             PROOF_DIR: "${{ runner['temp'] }}/proof"
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
     YAML
-    <<~YAML,
-      jobs:
-        test:
-          env:
-            PROOF_DIR: '${{ runner["temp"] }}/proof'
-    YAML
-    <<~YAML,
+    "job-env-spaced-index" => <<~YAML,
       jobs:
         test:
           env:
             PROOF_DIR: "${{ runner [ 'temp' ] }}/proof"
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
     YAML
-    <<~YAML,
+    "job-env-bare-runner" => <<~YAML,
       jobs:
         test:
           env:
             RUNNER_JSON: "${{ toJson(runner) }}"
+          runs-on: ubuntu-latest
+          steps:
+            - run: echo ok
     YAML
-  ]
-
-  rejected.each_with_index do |yaml, index|
-    findings = find_env_runner_paths(parse_yaml(yaml, "self-test-rejected-#{index + 1}"))
-    raise "self-test failed to reject env runner expression #{index + 1}" if findings.empty?
-  end
+  }
+  rejected.each { |label, yaml| assert_rejected!(yaml, label) }
 
   accepted = <<~YAML
+    env:
+      LITERAL_AFTER_EXPRESSION: "${{ github.ref }} runner.temp"
+      STRING_LITERAL_IN_EXPRESSION: "${{ contains(github.ref, 'runner.temp') }}"
+      INDEX_LITERAL_IN_EXPRESSION: "${{ github['runner'] }}"
     jobs:
       test:
         env:
-          LITERAL_AFTER_EXPRESSION: "${{ github.ref }} runner.temp"
-          STRING_LITERAL_IN_EXPRESSION: "${{ contains(github.ref, 'runner.temp') }}"
-          INDEX_LITERAL_IN_EXPRESSION: "${{ github['runner'] }}"
+          VALID_JOB_VALUE: "${{ github.ref }}"
+        runs-on: ubuntu-latest
+        container:
+          image: ruby:3.4
+          env:
+            CONTAINER_TMP: "${{ runner.temp }}/container"
+        services:
+          db:
+            image: postgres:18
+            env:
+              SERVICE_ARCH: "${{ runner.arch }}"
         steps:
-          - name: Generate config
+          - name: Runner is valid in step env
+            env:
+              STEP_TMP: "${{ runner.temp }}/step"
+            run: echo "$STEP_TMP"
+          - name: Action input named env is not workflow env
+            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+            with:
+              env: "${{ runner.temp }}/input"
+              path: "${{ runner['temp'] }}/proof"
+          - name: Env-like text inside a run scalar is not workflow structure
             run: |
               cat > config.yml <<'EOF'
               env:
                 FOO: "${{ runner.temp }}/proof"
               EOF
-          - name: Valid non-env runner context
-            uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-            with:
-              path: "${{ runner['temp'] }}/proof"
   YAML
-  findings = find_env_runner_paths(parse_yaml(accepted, "self-test-accepted"))
-  raise "self-test falsely rejected scalar/non-env runner expression: #{findings.join(', ')}" unless findings.empty?
+  assert_accepted!(accepted, "runner-aware-valid-schema-positions")
 end
 
 
@@ -220,8 +276,8 @@ def main
     relative = workflow.delete_prefix("#{ROOT}/")
     begin
       document = parse_yaml(File.read(workflow, encoding: "UTF-8"), relative)
-      find_env_runner_paths(document).each do |path|
-        failures << "runner context is forbidden in env mapping: #{relative}:#{path}"
+      find_invalid_runner_paths(document).each do |path|
+        failures << "runner context is unavailable at #{relative}:#{path}"
       end
     rescue StandardError => error
       failures << error.message
