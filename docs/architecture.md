@@ -15,13 +15,13 @@ Linura separates **experience**, **intelligence**, and **authority**. Only the a
                                │
                   ┌────────────▼────────────┐
                   │        linurad          │
-                  │ unprivileged authority │
+                  │ unprivileged authority  │
                   ├─────────────────────────┤
-                  │ intents/setups/graph   │
-                  │ desired/observed state │
-                  │ planner / diff         │
-                  │ policy / approvals     │
-                  │ verification / audit   │
+                  │ intents/setups/graph    │
+                  │ desired/observed state  │
+                  │ planner / diff          │
+                  │ policy / approvals      │
+                  │ verification / audit    │
                   └────────────┬────────────┘
                                │
                    explicit privileged effect
@@ -29,8 +29,8 @@ Linura separates **experience**, **intelligence**, and **authority**. Only the a
                             Polkit
                                │
               ┌────────────────▼────────────────┐
-              │ narrow privileged executors    │
-              │ package/systemd/firewall/...   │
+              │ narrow privileged executors     │
+              │ package/systemd/firewall/...    │
               └────────────────┬────────────────┘
                                │
           systemd / NM / UDisks / nftables / package APIs
