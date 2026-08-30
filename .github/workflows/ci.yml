@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Validate GitHub workflow expression contexts
-        run: python3 scripts/check_workflow_contexts.py
+        run: ruby scripts/check_workflow_contexts.rb
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
       - name: Use pinned Rust toolchain
