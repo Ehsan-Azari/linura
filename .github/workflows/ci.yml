@@ -59,6 +59,11 @@ jobs:
         run: rustup default 1.98.0
       - name: Run canonical Linura checks
         run: cargo xtask check
+      - name: Verify canonical checks are non-mutating
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- .
+          git diff --cached --exit-code -- .
       - name: Validate Python tooling syntax
         run: python3 -m compileall -q scripts tools
       - name: Validate shell syntax
