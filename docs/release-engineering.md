@@ -2,7 +2,7 @@
 
 Linura separates **what a version claims**, **which exact reviewed source is proven**, **how candidate bytes are constructed**, **how that proof is promoted**, **when the immutable version tag is created**, and **how publication is independently verified**.
 
-See [Release contracts, claims and evidence](release-contracts.md) for the version-scoped documentation/evidence model.
+See [Release contracts, claims and evidence](release-contracts.md) for the version-scoped documentation/evidence model and [Trusted release build boundary](release-build-trust.md) / [ADR 0015](adr/0015-isolated-reproducible-release-build.md) for the builder trust boundary and reproducibility model.
 
 The release control plane is implemented inside Linura. The mature ProdKit release lifecycle is used as a reference design, but Linura does not require `prodkit-workflows` or another repository at release time.
 
@@ -44,30 +44,30 @@ That commit does **not** create a tag. It expresses an unpublished release inten
 6. rechecks current `main` immediately before dispatch;
 7. dispatches `Trusted Release Proof` at `main`.
 
-If `main` advances before proof dispatch, the stale observer run exits without release authority. A later exact-main gate completion evaluates the new state.
+This gate observer is the only release-control edge that uses `workflow_run`: it observes independently completed permanent push gates. If `main` advances before proof dispatch, the stale observer run exits without release authority. A later exact-main gate completion evaluates the new state.
 
 ## Trusted Release Proof
 
-`Trusted Release Proof` is `workflow_dispatch`-only and starts with `github.sha` as the candidate source. The proof job has no repository-content write authority. It:
+`Trusted Release Proof` is `workflow_dispatch`-only and starts with `github.sha` as the candidate source. Its authorization job has no repository-content write authority. It:
 
 1. proves checkout `HEAD`, `github.sha` and `origin/main` are the same exact SHA;
 2. validates the `release: vX.Y.Z — …` subject and frozen release contract;
 3. re-verifies successful exact-SHA `CI`, `Security` and `CodeQL` runs;
-4. runs canonical `cargo xtask check` and requires canonical validation to leave tracked source unchanged;
-5. builds the release binaries once with locked dependencies;
-6. constructs `SOURCE_SHA`, `RELEASE_TAG`, frozen `RELEASE_NOTES.md`, SPDX SBOM and `RELEASE-EVIDENCE.json`;
-7. seals the payload with `SHA256SUMS` and verifies the complete contract locally;
-8. records a machine-readable proof receipt that binds repository, source SHA, tag, version, workflow run and every payload digest;
-9. creates GitHub/Sigstore build-provenance attestations for every promotable payload file;
-10. uploads one exact-source proof artifact.
+4. delegates construction to the repository-owned reusable trusted builder with only the exact source SHA, tag and version;
+5. requires that builder to run canonical validation without mutating tracked source;
+6. requires the builder to construct the release binaries once with locked dependencies inside the pinned deterministic build envelope;
+7. requires the builder to construct `SOURCE_SHA`, `RELEASE_TAG`, frozen `RELEASE_NOTES.md`, `BUILD-ENVIRONMENT.json`, SPDX SBOM and `RELEASE-EVIDENCE.json`;
+8. requires the builder to seal the payload with `SHA256SUMS`, generate the machine-readable proof receipt, verify the complete contract and create GitHub/Sigstore build-provenance attestations;
+9. requires a separate fresh runner to rebuild the same exact source and reproduce all distributable binaries byte-for-byte;
+10. accepts the proof artifact only if construction, source immutability, provenance and independent reproduction all succeed.
 
-The promotable bytes are therefore produced during proof. Later stages consume those same bytes rather than rebuilding them.
+`.github/workflows/reusable-release-build.yml` is therefore a distinct least-privilege build capability, not a publication capability. It cannot write repository contents, create tags, or publish a GitHub Release. The promotable bytes are produced exactly once inside that trusted build and later stages consume those same sealed bytes rather than rebuilding them.
 
-After the proof job succeeds, a separate narrow `dispatch-promotion` job receives only `actions: write` and `contents: read`. It rechecks that the proven SHA is still current `main` and explicitly dispatches `Release Promotion` with the exact source SHA and Trusted Release Proof run ID. This explicit `workflow_dispatch` handoff is intentional: GitHub suppresses recursive workflow triggers for many events created by `GITHUB_TOKEN`, while `workflow_dispatch` is a documented exception. The proof job itself retains no tag or Release publication authority.
+After the trusted build/reproduction proof succeeds, a separate narrow `dispatch-promotion` job receives only `actions: write` and `contents: read`. It rechecks that the proven SHA is still current `main` and explicitly dispatches `Release Promotion` with the exact source SHA and Trusted Release Proof run ID. The job sets explicit GitHub CLI repository context and does not rely on a checkout to infer the repository. This `workflow_dispatch` handoff is intentional: GitHub suppresses recursive workflow triggers for many events created by `GITHUB_TOKEN`, while `workflow_dispatch` is a documented exception.
 
 ## Release Promotion
 
-A successful `Trusted Release Proof` explicitly dispatches `Release Promotion`. The legacy `workflow_run` trigger remains a safe redundant signal, but release correctness does not depend on it. Promotion has `contents: read` and `actions: write`; it cannot create a tag or GitHub Release.
+A successful `Trusted Release Proof` explicitly dispatches `Release Promotion`. Promotion is `workflow_dispatch`-only; release correctness does not depend on recursive `workflow_run` propagation. Promotion has `contents: read` and `actions: write`; it cannot create a tag or GitHub Release.
 
 Because the explicit dispatch can start while the proof workflow's narrow dispatch job is finishing, Promotion first waits a bounded interval for the referenced proof run to reach a terminal state. It then requires that run to be `completed/success` before any release handoff.
 

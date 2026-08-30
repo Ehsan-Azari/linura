@@ -21,9 +21,10 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Resolve tag
         id: tag
@@ -68,6 +69,15 @@ jobs:
             expected_prerelease=true
           fi
           test "$(jq -r .isPrerelease release.json)" = "$expected_prerelease"
+      - name: Verify immutable GitHub Release and release attestation
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release verify "$RELEASE_TAG"
+          while IFS= read -r -d '' file; do
+            gh release verify-asset "$RELEASE_TAG" "$file"
+          done < <(find published -maxdepth 1 -type f -print0)
       - name: Verify GitHub build provenance for every published candidate asset
         run: |
           set -euo pipefail
