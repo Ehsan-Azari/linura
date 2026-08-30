@@ -112,9 +112,13 @@ def validate_contract(notes: Path, tag: str, *, require_workspace_version: bool 
     if not notes.is_file():
         raise ContractError(f"release contract does not exist: {notes}")
     text = notes.read_text(encoding="utf-8")
-    expected_title = f"# Linura {tag} "
-    if not text.startswith(expected_title):
-        raise ContractError(f"release contract title must start with {expected_title!r}")
+    first_line = text.splitlines()[0] if text else ""
+    expected_title_prefix = f"# {tag} — "
+    if not first_line.startswith(expected_title_prefix):
+        raise ContractError(f"release contract title must start with {expected_title_prefix!r}")
+    release_theme = first_line[len(expected_title_prefix) :].strip()
+    if not release_theme:
+        raise ContractError("release contract title must include a non-empty implementation theme")
     positions: list[int] = []
     for heading in REQUIRED_HEADINGS:
         position = text.find(heading)
