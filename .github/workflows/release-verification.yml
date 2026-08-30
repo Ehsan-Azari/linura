@@ -51,13 +51,22 @@ jobs:
           test "$(cat published/RELEASE_TAG)" = "$RELEASE_TAG"
           python3 tools/release_contract.py verify --directory published --tag "$RELEASE_TAG" --source-sha "$source_sha"
           python3 tools/release_verify.py published
-      - name: Verify GitHub Release body equals frozen notes
+      - name: Verify GitHub Release metadata equals canonical contract
         env:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" --json body --jq .body > release-body.md
+          gh release view "$RELEASE_TAG" --json name,body,isPrerelease > release.json
+          test "$(jq -r .name release.json)" = "Linura $RELEASE_TAG"
+          jq -r .body release.json > release-body.md
           python3 tools/release_contract.py compare-body --notes published/RELEASE_NOTES.md --body release-body.md
+          version="${RELEASE_TAG#v}"
+          version_without_build="${version%%+*}"
+          expected_prerelease=false
+          if [[ "$version_without_build" == *-* ]]; then
+            expected_prerelease=true
+          fi
+          test "$(jq -r .isPrerelease release.json)" = "$expected_prerelease"
       - name: Verify GitHub build provenance for every published candidate asset
         run: |
           set -euo pipefail
