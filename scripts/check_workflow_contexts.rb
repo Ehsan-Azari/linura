@@ -5,7 +5,7 @@ require "psych"
 
 ROOT = File.expand_path("..", __dir__)
 WORKFLOW_DIR = File.join(ROOT, ".github", "workflows")
-RUNNER_EXPRESSION = /\$\{\{\s*runner\./
+RUNNER_EXPRESSION = /\$\{\{.*?\brunner\s*(?:\.|\[\s*["'])/m
 
 
 def contains_runner?(value)
@@ -76,6 +76,24 @@ def assert_self_tests!
                 PROOF_DIR: "${{ runner.temp }}/proof"
               run: echo ok
     YAML
+    <<~YAML,
+      jobs:
+        test:
+          env:
+            PROOF_DIR: "${{ runner['temp'] }}/proof"
+    YAML
+    <<~YAML,
+      jobs:
+        test:
+          env:
+            PROOF_DIR: '${{ runner["temp"] }}/proof'
+    YAML
+    <<~YAML,
+      jobs:
+        test:
+          env:
+            PROOF_DIR: "${{ runner [ 'temp' ] }}/proof"
+    YAML
   ]
 
   rejected.each_with_index do |yaml, index|
@@ -96,7 +114,7 @@ def assert_self_tests!
           - name: Valid non-env runner context
             uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
             with:
-              path: "${{ runner.temp }}/proof"
+              path: "${{ runner['temp'] }}/proof"
   YAML
   findings = find_env_runner_paths(parse_yaml(accepted, "self-test-accepted"))
   raise "self-test falsely rejected scalar/non-env runner expression: #{findings.join(', ')}" unless findings.empty?
