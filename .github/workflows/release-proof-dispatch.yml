@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   dispatch:
-    if: ${{ github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_commit.message, 'release: v') }}
+    if: "${{ github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_commit.message, 'release: v') }}"
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -80,6 +80,14 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
+
+          # Fail closed if main advanced while permanent gates were being observed.
+          # This check is intentionally adjacent to the tag mutation so a stale
+          # release-intent SHA cannot be promoted merely because it was current
+          # when this workflow started.
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$main_sha" = "$SOURCE_SHA"
+
           if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null)"; then
             tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
             test "$tag_sha" = "$SOURCE_SHA"
