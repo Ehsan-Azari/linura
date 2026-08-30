@@ -30,6 +30,7 @@ jobs:
     name: promote proven source
     if: "${{ (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.conclusion == 'success') || github.event_name == 'workflow_dispatch' }}"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.source_sha }}
@@ -45,7 +46,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
+          # Explicit workflow_dispatch is the reliable handoff when the proof
+          # itself was started with GITHUB_TOKEN. That dispatch can begin while
+          # the proof workflow's narrow dispatch job is still finishing, so wait
+          # for the parent proof run to reach its terminal state before trusting it.
+          run=""
+          for _ in $(seq 1 30); do
+            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
+            status="$(jq -r .status <<<"$run")"
+            if [[ "$status" == "completed" ]]; then
+              break
+            fi
+            case "$status" in
+              queued|in_progress|pending|waiting|requested)
+                sleep 2
+                ;;
+              *)
+                echo "unexpected Trusted Release Proof status: $status" >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          test -n "$run"
           test "$(jq -r .name <<<"$run")" = "Trusted Release Proof"
           test "$(jq -r .event <<<"$run")" = "workflow_dispatch"
           test "$(jq -r .status <<<"$run")" = "completed"
