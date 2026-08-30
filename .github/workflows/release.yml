@@ -431,4 +431,4 @@ jobs:
       RELEASE_TAG: v${{ inputs.version }}
     steps:
       - name: Dispatch verification
-        run: gh workflow run release-verification.yml --ref main -f tag="$RELEASE_TAG"
+        run: gh workflow run release-verification.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$RELEASE_TAG"
