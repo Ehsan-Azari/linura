@@ -38,6 +38,8 @@ There is no automatic workflow that chooses between multiple same-version releas
 
 If a release attempt needs correction before tagging, merge the correction, let the new exact `main` SHA complete review and permanent gates, and tag only that corrected SHA. Older untagged attempts have no publication authority. Once `vX.Y.Z` exists, that version identity is consumed and must never be retargeted.
 
+The release operator must perform the source-selection and tag-binding operation as one deliberate release action: read the current protected `main` SHA after review/gates, decide that SHA is the version source, and create the immutable tag at that exact SHA. If `main` changes before the tag is created, restart the source-selection check rather than tagging a previously observed head implicitly.
+
 Tag creation is therefore a narrow explicit release-authority operation. All subsequent stages are evidence-driven and exact-source bound.
 
 ## Candidate
