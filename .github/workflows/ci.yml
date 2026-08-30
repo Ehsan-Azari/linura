@@ -20,7 +20,17 @@ jobs:
       - name: Load repository toolchain contract
         run: |
           set -euo pipefail
-          cat tools/codex/versions.env >> "$GITHUB_ENV"
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          {
+            printf 'RUST_VERSION=%s\n' "$RUST_VERSION"
+            printf 'CARGO_AUDIT_VERSION=%s\n' "$CARGO_AUDIT_VERSION"
+            printf 'ACTIONLINT_VERSION=%s\n' "$ACTIONLINT_VERSION"
+            printf 'ACTIONLINT_SHA256=%s\n' "$ACTIONLINT_SHA256"
+            printf 'PYTHON_MAJOR_MINOR=%s\n' "$PYTHON_MAJOR_MINOR"
+            printf 'HOST_OS=%s\n' "$HOST_OS"
+            printf 'HOST_ARCH=%s\n' "$HOST_ARCH"
+          } >> "$GITHUB_ENV"
       - name: Verify canonical host contract
         run: |
           set -euo pipefail
