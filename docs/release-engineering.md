@@ -48,12 +48,12 @@ If `main` advances before proof dispatch, the stale observer run exits without r
 
 ## Trusted Release Proof
 
-`Trusted Release Proof` is `workflow_dispatch`-only and starts with `github.sha` as the candidate source. It has no repository-content write authority. It:
+`Trusted Release Proof` is `workflow_dispatch`-only and starts with `github.sha` as the candidate source. The proof job has no repository-content write authority. It:
 
 1. proves checkout `HEAD`, `github.sha` and `origin/main` are the same exact SHA;
 2. validates the `release: vX.Y.Z — …` subject and frozen release contract;
 3. re-verifies successful exact-SHA `CI`, `Security` and `CodeQL` runs;
-4. runs canonical `cargo xtask check`;
+4. runs canonical `cargo xtask check` and requires canonical validation to leave tracked source unchanged;
 5. builds the release binaries once with locked dependencies;
 6. constructs `SOURCE_SHA`, `RELEASE_TAG`, frozen `RELEASE_NOTES.md`, SPDX SBOM and `RELEASE-EVIDENCE.json`;
 7. seals the payload with `SHA256SUMS` and verifies the complete contract locally;
@@ -63,19 +63,23 @@ If `main` advances before proof dispatch, the stale observer run exits without r
 
 The promotable bytes are therefore produced during proof. Later stages consume those same bytes rather than rebuilding them.
 
+After the proof job succeeds, a separate narrow `dispatch-promotion` job receives only `actions: write` and `contents: read`. It rechecks that the proven SHA is still current `main` and explicitly dispatches `Release Promotion` with the exact source SHA and Trusted Release Proof run ID. This explicit `workflow_dispatch` handoff is intentional: GitHub suppresses recursive workflow triggers for many events created by `GITHUB_TOKEN`, while `workflow_dispatch` is a documented exception. The proof job itself retains no tag or Release publication authority.
+
 ## Release Promotion
 
-A successful `Trusted Release Proof` triggers `Release Promotion`. Promotion has `contents: read` and `actions: write`; it cannot create a tag or GitHub Release.
+A successful `Trusted Release Proof` explicitly dispatches `Release Promotion`. The legacy `workflow_run` trigger remains a safe redundant signal, but release correctness does not depend on it. Promotion has `contents: read` and `actions: write`; it cannot create a tag or GitHub Release.
+
+Because the explicit dispatch can start while the proof workflow's narrow dispatch job is finishing, Promotion first waits a bounded interval for the referenced proof run to reach a terminal state. It then requires that run to be `completed/success` before any release handoff.
 
 Promotion:
 
-1. verifies the exact proof run identity, event, conclusion and source SHA;
+1. verifies the exact proof run identity, event, terminal status, conclusion and source SHA;
 2. requires the proven SHA to still be current `main`;
 3. validates the version/frozen contract again;
 4. refuses a version tag already bound to another source;
 5. avoids duplicate active Release runs;
 6. rechecks current `main` immediately before handoff;
-7. dispatches `Release` on `main` with the exact source SHA, proof run ID, version and prerelease state.
+7. dispatches `Release` on `main` with the exact source SHA, proof run ID and version.
 
 The final Release request itself verifies that its `github.sha` equals the exact promoted source. If `main` changes while the handoff is being resolved, the Release request fails closed rather than silently selecting a different commit.
 
