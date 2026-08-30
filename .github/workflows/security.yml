@@ -15,10 +15,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Load repository toolchain contract
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          : "${CARGO_AUDIT_VERSION:?}"
+          {
+            printf 'RUST_VERSION=%s\n' "$RUST_VERSION"
+            printf 'CARGO_AUDIT_VERSION=%s\n' "$CARGO_AUDIT_VERSION"
+          } >> "$GITHUB_ENV"
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.0 --profile minimal
-      - run: rustup default 1.98.0
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal
+      - run: rustup default "$RUST_VERSION"
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --version 0.22.2
+        run: cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
       - name: Audit Rust dependencies
         run: cargo audit
