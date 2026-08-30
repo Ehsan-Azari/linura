@@ -6,6 +6,7 @@
 - user data, credentials and secret references;
 - network/security configuration;
 - approved intent and desired state;
+- reusable Setup/Profile definitions and Library history;
 - system graph and semantic provenance;
 - audit/policy/grant state;
 - update/release trust roots;
@@ -21,7 +22,7 @@
 - unprivileged local user on multi-user machine;
 - remote attacker against an intentionally exposed service;
 - accidental administrator/model/automation mistakes;
-- malicious or malformed imported machine profile.
+- malicious or malformed imported/synchronized Setup or MachineProfile.
 
 ## Primary threats and mitigations
 
@@ -40,24 +41,41 @@ External content manipulates an agent into dangerous proposals.
 - context/source provenance and user-visible material effects;
 - negative tests for escalation attempts.
 
+### Malicious reusable setup/profile
+An imported or synchronized artifact attempts to smuggle commands, unsafe state, authority or credentials onto the target machine.
+- setup/profile formats are declarative and contain no executor command transcript;
+- imported artifacts carry no grants/approvals;
+- schema/composition/cycle validation before adoption;
+- secret values prohibited; only secret refs are portable;
+- fresh target observation + capability resolution + plan/policy/approval;
+- unsupported/ambiguous requirements fail closed;
+- provenance distinguishes imported definitions from locally approved/adopted lineage.
+
+### Secret leakage through portability/sync
+A setup/profile export or Library sync accidentally contains credentials.
+- portable domain types expose secret-reference fields only;
+- export validation/redaction tests;
+- secret stores remain local/provider-specific;
+- synchronized artifacts are treated as potentially public/untrusted unless explicitly protected by a future storage provider.
+
 ### Semantic-provenance spoofing
 A client invents a false "why" chain to make dangerous state look legitimate.
 - provenance creation is authority-owned;
-- lineage links approved intent/plan/effect IDs;
+- lineage links approved intent/setup/plan/effect IDs;
 - clients cannot rewrite history;
-- imported intent/profile provenance remains distinguishable from locally approved lineage.
+- imported setup/profile provenance remains distinguishable from locally approved lineage.
 
-### Unsafe intent retirement
-Removing one goal breaks another because resources are shared.
+### Unsafe intent/setup retirement
+Removing one goal or reusable setup breaks another because resources are shared.
 - system-graph ownership/dependency analysis;
 - removal impact plan;
 - shared resources retained;
 - verification and rollback/snapshot where applicable.
 
-### Dependency/conflict solver manipulation
-Malformed capability definitions cause cycles, hidden conflicts or unsafe alternatives.
+### Dependency/conflict/setup composition manipulation
+Malformed capability/setup definitions cause cycles, hidden conflicts or unsafe alternatives.
 - schema validation;
-- deterministic solver;
+- deterministic solver/composition resolution;
 - explicit unsatisfied/conflict results;
 - bounded resource usage/cycle detection;
 - signed/trusted catalogs before supported third-party distribution.
@@ -71,7 +89,8 @@ Malformed capability definitions cause cycles, hidden conflicts or unsafe altern
 ### TOCTOU/stale plan
 - observed-state freshness and preconditions;
 - revalidation immediately before high-risk effects;
-- plan expiry/replan rules.
+- plan expiry/replan rules;
+- setup/profile adoption always plans against current target state.
 
 ### Approval fatigue/deception
 - aggregate material effect summary;
@@ -79,9 +98,10 @@ Malformed capability definitions cause cycles, hidden conflicts or unsafe altern
 - no model-generated UI allowed to disguise authoritative approval controls;
 - policy can require step-up authentication.
 
-### Tampered releases/extensions
+### Tampered releases/extensions/library catalogs
 - protected release pipeline, immutable tags, SBOM, signing/attestation and asset verification before supported releases;
-- extension capability expansion requires approval.
+- extension capability expansion requires approval;
+- future shared catalogs need content identity/signature policy before being considered trusted distribution channels.
 
 ### Audit/provenance tampering
 - append-only design;
@@ -90,4 +110,4 @@ Malformed capability definitions cause cycles, hidden conflicts or unsafe altern
 
 ## Deferred threats
 
-Fleet/remote orchestration receives a dedicated threat model before any network control plane is enabled.
+Fleet/remote orchestration and hosted/shared Library services receive dedicated threat-model extensions before any network control plane or trusted shared catalog is enabled.

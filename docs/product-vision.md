@@ -33,19 +33,30 @@ The first-boot experience can start from a recoverable base rather than a fully 
 
 The result is not a bag of packages. Linura retains the causal graph explaining why each managed resource exists.
 
+## Save what works and reuse it
+
+Useful configurations can be preserved as reusable **Setups** in the local-first **Linura Library**. A setup is a versioned composition of portable intent and constraints, such as `rust-development`, `travel-security` or `postgresql-development`.
+
+Setups can be reused later on the same device or adopted on another supported device. Adoption always re-observes the target machine and generates a fresh plan; it never replays opaque command history.
+
+Machine profiles compose setups into whole-machine personalities. Portable setup/profile exports carry the intent definitions needed to understand them elsewhere while excluding secret values and machine-specific runtime state.
+
+Exact filesystem/system snapshots remain a separate recovery mechanism.
+
 ## Agent-native, not agent-dependent
 
 Model providers are optional adapters. A Linura machine remains inspectable, controllable, explainable, and recoverable through deterministic clients without network/model access.
 
 ## Product surfaces
 
-- Linura First Boot: establish initial intents/profile.
-- Linura Agent: conversationally propose/change/retire intent.
-- Linura Control Center: inspect current/desired state, approvals, drift, graph, and provenance.
+- Linura First Boot: establish initial intents/profile or adopt saved setups/profiles.
+- Linura Agent: conversationally propose/change/retire intent and save/reuse setups.
+- Linura Library: local-first catalog for reusable setups/profiles and future reusable declarative artifacts.
+- Linura Control Center: inspect current/desired state, approvals, drift, graph, provenance and reusable configurations.
 - Linura Shell: cohesive desktop surfaces consuming the same APIs.
 - CLI/Linura SDK: deterministic automation, integrations and recovery.
 - Enterprise/Fleet: optional remote policy/orchestration built on the same local authority model.
 
 ## Product hierarchy
 
-Linura is the umbrella. **Linura OS** is the installable distribution when that product exists; **Linura Control** is the local authority subsystem; **Linura Agent** is the intent experience; **Linura Shell** and **Linura Control Center** are graphical clients; **Linura SDK** and `linuractl` are deterministic developer/automation surfaces. All use the Linura namespace and the same authority model.
+Linura is the umbrella. **Linura OS** is the installable distribution when that product exists; **Linura Control** is the local authority subsystem; **Linura Agent** is the intent experience; **Linura Library** is the reusable declarative catalog; **Linura Shell** and **Linura Control Center** are graphical clients; **Linura SDK** and `linuractl` are deterministic developer/automation surfaces. All use the Linura namespace and the same authority model.

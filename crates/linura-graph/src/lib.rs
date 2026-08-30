@@ -1,11 +1,12 @@
 #![forbid(unsafe_code)]
 
-use linura_core::{CapabilityId, IntentId, RequirementId, ResourceId};
+use linura_core::{CapabilityId, IntentId, RequirementId, ResourceId, SetupId};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NodeId {
     Intent(IntentId),
+    Setup(SetupId),
     Requirement(RequirementId),
     Capability(CapabilityId),
     Resource(ResourceId),
@@ -149,5 +150,20 @@ mod tests {
         let impact = graph.removal_impact(&ai);
         assert!(impact.retained_shared.contains(&driver));
         assert!(!impact.removable.contains(&driver));
+    }
+
+    #[test]
+    fn setup_can_be_a_causal_origin() {
+        let setup = NodeId::Setup(id(SetupId::new("setup:rust-development")));
+        let intent = NodeId::Intent(id(IntentId::new("intent:rust-development")));
+        let mut graph = SystemGraph::default();
+        graph.add_edge(Edge {
+            from: setup.clone(),
+            to: intent.clone(),
+            kind: EdgeKind::DerivedFrom,
+            reason: "intent adopted from reusable setup".into(),
+        });
+        assert_eq!(graph.reasons_for(&intent).len(), 1);
+        assert_eq!(graph.reasons_for(&intent)[0].from, setup);
     }
 }

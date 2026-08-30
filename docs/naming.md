@@ -12,6 +12,7 @@ The name is inspired by **Linux + aura**: Linux underneath, with a coherent, int
 | Installable distribution | **Linura OS** | reserved until an installable supported OS product exists |
 | Local authority subsystem | **Linura Control** | `linura-control`, `linurad`, `org.linura.Control1` |
 | Agent experience/runtime | **Linura Agent** | `linura-agent-runtime`, `apps/linura-agent-ui` |
+| Reusable setup/profile catalog | **Linura Library** | domain/protocol concept now; concrete app/storage surface later |
 | Desktop shell | **Linura Shell** | `apps/linura-shell` |
 | Graphical management client | **Linura Control Center** | `apps/linura-control-center` |
 | First-boot experience | **Linura First Boot** | `linura-firstboot` |
@@ -27,12 +28,14 @@ Do not introduce a second proper-noun infrastructure brand for the control plane
 
 > `linura-control` implements Linura's local system control plane.
 
+The word **Library** refers to the user-facing reusable configuration catalog/storage abstraction. It is not an authority plane and must not become a separate product architecture with its own execution semantics.
+
 ## Product boundary
 
 Linura may support two deployment forms without changing its core model:
 
 1. **Linura OS** — an installable, opinionated distribution/profile with Linura integrated from first boot.
-2. **Linura on another Linux platform** — Linura Control, Agent, Control Center, SDK, and supported providers installed on a compatible Linux profile.
+2. **Linura on another Linux platform** — Linura Control, Agent, Library, Control Center, SDK, and supported providers installed on a compatible Linux profile.
 
 The first supported platform remains Arch/Hyprland, but the Linura brand and control-plane contracts must not encode Arch as a permanent assumption.
 

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = [
     "README.md", "SECURITY.md", "AGENTS.md", "CONTRIBUTING.md", "Cargo.toml", "rust-toolchain.toml",
     "docs/product-vision.md", "docs/vision-coverage.md", "docs/architecture.md", "docs/naming.md", "docs/sdk.md", "docs/intent-model.md",
-    "docs/system-graph.md", "docs/capability-composition.md", "docs/semantic-provenance.md",
+    "docs/system-graph.md", "docs/capability-composition.md", "docs/semantic-provenance.md", "docs/reusable-setups.md",
     "docs/agent-architecture.md", "docs/first-boot.md", "docs/machine-profiles.md", "docs/workflow-model.md",
     "docs/derived-surfaces.md", "docs/bootstrap-recovery.md", "docs/security-model.md", "docs/threat-model.md",
     "docs/development-plan.md", "docs/development-infrastructure.md", "docs/installer-bootstrap.md",
@@ -31,7 +31,8 @@ REQUIRED = [
     "interfaces/dbus/org.linura.Control1.xml", ".cargo/config.toml",
     "scripts/validate_assets.py", "tools/acceptance.py", "tools/vm.py", "tools/image.py", "tools/visual.py",
     "hardware/support-matrix.json", "packaging/arch/archiso/profiledef.sh", "packaging/arch/hooks/95-linura-update-guard.hook",
-    "schemas/intent.v1.schema.json", "schemas/intent-proposal.v1.schema.json", "schemas/desired-state.v1.schema.json", "schemas/system-graph.v1.schema.json", "schemas/capability-blueprint.v1.schema.json",
+    "schemas/intent.v1.schema.json", "schemas/intent-proposal.v1.schema.json", "schemas/setup.v1.schema.json", "schemas/portable-profile.v1.schema.json",
+    "schemas/desired-state.v1.schema.json", "schemas/system-graph.v1.schema.json", "schemas/capability-blueprint.v1.schema.json",
     "schemas/bootstrap.v1.schema.json", "schemas/migration.v1.schema.json", "schemas/update-plan.v1.schema.json",
     "schemas/managed-resource.v1.schema.json", "schemas/hardware-fixture.v1.schema.json", "schemas/acceptance-scenario.v1.schema.json",
     "schemas/visual-baseline.v1.schema.json", "schemas/lifecycle-workflow.v1.schema.json", "schemas/app-supervision.v1.schema.json",

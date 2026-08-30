@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
-use linura_core::{ActionPlan, Actor, Capability, CapabilityId, IntentId, RequestId, ResourceId};
+use linura_core::{
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, RequestId, ResourceId, SetupId,
+};
 use linura_graph::{RemovalImpact, SystemGraph};
-use linura_intent::{Intent, IntentProposal, MachineProfile};
+use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
 use linura_provenance::WhyChain;
 
 pub const PROTOCOL_MAJOR: u16 = 1;
@@ -58,6 +60,7 @@ pub enum IntentCommand {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplainTarget {
     Intent(IntentId),
+    Setup(SetupId),
     Resource(ResourceId),
     Capability(CapabilityId),
 }
@@ -75,22 +78,55 @@ pub struct SystemSnapshot {
     pub active_intents: Vec<Intent>,
 }
 
+/// Self-contained portable setup bundle. It carries the reusable setup graph and
+/// the intent definitions needed to adopt it on the same or another machine.
+/// Secret values are never embedded; setup definitions carry only secret refs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PortableSetupExport {
+    pub root_setup_id: SetupId,
+    pub setups: Vec<Setup>,
+    pub intents: Vec<Intent>,
+    pub format_version: u16,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetupAdoptionRequest {
+    pub actor: Actor,
+    pub bundle: PortableSetupExport,
+    pub dry_run: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SetupAdoptionResponse {
+    pub imported_setup_ids: Vec<SetupId>,
+    pub imported_intent_ids: Vec<IntentId>,
+    pub missing_secret_refs: Vec<String>,
+    pub warnings: Vec<String>,
+    pub requires_plan: bool,
+}
+
+/// A portable machine profile export is self-contained: the profile references
+/// setup/intent IDs while this bundle carries those definitions for replay.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableProfileExport {
     pub profile: MachineProfile,
+    pub setups: Vec<Setup>,
+    pub intents: Vec<Intent>,
     pub format_version: u16,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileAdoptionRequest {
     pub actor: Actor,
-    pub profile: MachineProfile,
+    pub bundle: PortableProfileExport,
     pub dry_run: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileAdoptionResponse {
+    pub imported_setup_ids: Vec<SetupId>,
     pub imported_intent_ids: Vec<IntentId>,
+    pub missing_secret_refs: Vec<String>,
     pub warnings: Vec<String>,
     pub requires_plan: bool,
 }

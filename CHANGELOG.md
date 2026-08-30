@@ -11,11 +11,17 @@ All notable changes to Linura will be documented here.
 - Locked **Linura** as the only product/code namespace; "system control plane" remains architectural terminology.
 - Renamed the authority orchestration crate to `linura-control` and retired the generic runtime name.
 - Renamed planned application directories to `linura-agent-ui`, `linura-control-center`, and `linura-shell`.
-- Made authoritative observation an explicit input to provider planning.
-- Split effect execution from independent verification in the provider SDK.
+- Locked the canonical managed-mutation lifecycle as request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile.
+- Made portable machine-profile exports self-contained by carrying referenced setup and intent definitions.
 
 ### Added
 - Persistent intent and requirement model.
+- Reusable, revisioned `Setup` domain model between individual intents and whole-machine profiles.
+- Local-first **Linura Library** architecture for storing/cataloging reusable setups/profiles with optional future sync providers.
+- Self-contained portable setup export/adoption protocol with missing-secret-reference reporting.
+- Setup nodes in the causal system graph so adopted configurations retain setup provenance.
+- Secret-free portability rule: setup/profile exports carry credential references only, never credential values.
+- Explicit distinction between portable declarative setups/profiles and exact machine recovery snapshots.
 - Full causal system graph with dependency/conflict/shared-ownership relations.
 - Capability blueprint/composition and deterministic resolution contracts.
 - Semantic provenance/why-chain distinct from mutation audit.
@@ -28,9 +34,8 @@ All notable changes to Linura will be documented here.
 - Expanded schemas, ADRs, development plan, backlog and vision coverage matrix.
 - Public non-privileged `linura-sdk` façade; `linuractl` now consumes the SDK rather than internal protocol crates directly.
 - Naming/product architecture documentation and ADR 0011.
-- Canonical eleven-stage managed-mutation lifecycle: request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile.
-- Mutation lifecycle state machine, correlated stage receipts and injectable runtime ports for later concrete approval, persistence, execution, verification, audit and reconciliation implementations.
-- ADR 0012 locking the trustworthy mutation lifecycle and its stage invariants.
+- ADR 0012 defining the canonical trustworthy mutation lifecycle.
+- ADR 0013 defining reusable setups and the local-first Linura Library.
 
 ## [0.0.0] - Unreleased
 - Initial control-plane architecture bootstrap.

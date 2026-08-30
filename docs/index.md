@@ -16,6 +16,7 @@
 - [Solver design](solver-design.md)
 - [Semantic provenance](semantic-provenance.md)
 - [Explainability](explainability.md)
+- [Reusable setups and Linura Library](reusable-setups.md)
 - [Machine profiles](machine-profiles.md)
 - [Workflow model](workflow-model.md)
 - [Derived surfaces](derived-surfaces.md)

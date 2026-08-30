@@ -1,42 +1,77 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://linura.org/schemas/portable-profile.v1.schema.json",
-  "title": "Linura Portable Machine Profile v1",
+  "title": "Linura Portable Machine Profile Export v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
-    "id",
-    "name",
-    "intents",
-    "constraints"
+    "profile",
+    "setups",
+    "intents"
   ],
   "properties": {
     "schema": {
       "const": 1
     },
-    "id": {
-      "type": "string"
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "setups",
+        "intents",
+        "constraints",
+        "hardware_hints"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "setups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hardware_hints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     },
-    "name": {
-      "type": "string"
+    "setups": {
+      "type": "array",
+      "items": {
+        "$ref": "https://linura.org/schemas/setup.v1.schema.json"
+      }
     },
     "intents": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
-    },
-    "constraints": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
-    "hardware_hints": {
-      "type": "array",
-      "items": {
-        "type": "string"
+        "$ref": "https://linura.org/schemas/intent.v1.schema.json"
       }
     }
   }

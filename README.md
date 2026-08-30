@@ -24,7 +24,7 @@ A fresh Linura installation should be able to begin with a minimal, recoverable 
 The answer is **not** converted into arbitrary shell commands. Linura converts it into durable structured intent, resolves capabilities and conflicts, derives desired state, and routes every managed mutation through one canonical authority lifecycle.
 
 ```text
-Human intent / automation / imported profile
+Human intent / automation / saved setup / imported profile
                     │
                     ▼
           Intelligence plane
@@ -45,14 +45,49 @@ Human intent / automation / imported profile
 
 A provider/executor cannot shorten that path. Observation feeds planning, policy/approval produces authorization evidence, `prepare` establishes the crash-recovery boundary before effects, executor success is independently verified against authoritative post-state, and only then are Linura state/provenance committed and audited.
 
-**Agents propose. Linura decides and executes.** Agent-native never means agent-dependent: CLI, Control Center, recovery, policy evaluation, state inspection, and deterministic execution must remain usable offline with no model provider.
+**Agents propose. Linura decides and executes.** Agent-native never means agent-dependent: CLI, Control Center, Library, recovery, policy evaluation, state inspection, and deterministic execution must remain usable offline with no model provider.
+
+## Save what works: reusable setups
+
+Linura users should be able to preserve useful configurations and reuse them later on the same device or another supported device.
+
+```text
+Intent
+  one goal
+     ↓
+Setup
+  reusable versioned slice
+     ↓
+Machine Profile
+  whole-machine composition
+```
+
+Examples of setups include `rust-development`, `postgresql-development`, `travel-security`, or `gpu-compute`. Setups are stored/cataloged through the local-first **Linura Library**.
+
+A setup stores portable intent, composition and constraints—not shell history, package-manager transactions or a filesystem snapshot. Portable exports contain required intent/setup definitions and secret **references**, never secret values.
+
+Reusing a setup always means:
+
+```text
+load/validate setup
+→ observe target machine
+→ resolve target capabilities
+→ derive desired state
+→ generate fresh plan
+→ policy/approval
+→ canonical mutation lifecycle
+```
+
+It never means replaying the commands that happened to work on another machine. Exact snapshots remain a separate machine-specific rollback/recovery mechanism.
+
+See [`docs/reusable-setups.md`](docs/reusable-setups.md) and [`docs/machine-profiles.md`](docs/machine-profiles.md).
 
 ## Two core ideas, one architecture
 
 Linura deliberately combines two ideas in one repository while keeping their trust boundaries separate:
 
 1. **Authority/control plane** — typed Linux model, providers, canonical eleven-stage mutation lifecycle, policy/approval, narrow privilege, independent verification, crash-safe commit, reconciliation and audit.
-2. **Intent-native system** — persistent user intent, system graph, capability composition, dependency/conflict solver, semantic provenance, specialist agents, first-boot agent UX, portable machine profiles, derived workflows and UI surfaces.
+2. **Intent-native system** — persistent user intent, reusable setups/Library, system graph, capability composition, dependency/conflict solver, semantic provenance, specialist agents, first-boot agent UX, portable machine profiles, derived workflows and UI surfaces.
 
 The control plane is reusable without AI. The intelligence plane can be replaced without changing the authority plane.
 
@@ -61,17 +96,18 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ EXPERIENCE                                                  │
-│ First Boot │ Agent UI │ Control Center │ Shell │ CLI        │
+│ First Boot │ Agent UI │ Library │ Control Center │ CLI     │
 ├─────────────────────────────────────────────────────────────┤
 │ INTELLIGENCE                                                │
-│ Intent │ Context │ Agent Providers │ Specialists │ Planner  │
+│ Intent │ Setups │ Profiles │ Context │ Specialists │ Planner│
 ├─────────────────────────────────────────────────────────────┤
 │ AUTHORITY                                                   │
 │ Observe │ Plan │ Validate │ Authorize │ Prepare │ Execute   │
 │ Verify │ Commit │ Audit │ Reconcile                           │
 ├─────────────────────────────────────────────────────────────┤
 │ SYSTEM GRAPH                                                │
-│ Resources │ Dependencies │ Conflicts │ Ownership │ Why      │
+│ Setups │ Resources │ Dependencies │ Conflicts │ Ownership  │
+│ Why                                                         │
 ├─────────────────────────────────────────────────────────────┤
 │ CAPABILITIES                                                │
 │ Blueprints │ Composition │ Workflows │ Derived Surfaces     │
@@ -97,9 +133,12 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 - Planning consumes authoritative observation; it does not assume current machine state.
 - Executor success is evidence of dispatch, not proof of resulting state; verification is a separate boundary.
 - External effects are never supported without a durable pre-execution recovery record.
+- Reusable setups/profiles contain no secret values and carry no authority grants.
+- Imported/synced setup data is untrusted and must be locally re-observed/replanned before mutation.
+- Portable declarative configuration and exact recovery snapshots remain separate concepts.
 - UI contains no distro-specific backend knowledge.
 - Generated/derived UI is constrained to typed resources/actions or isolated extensions.
-- Local deterministic operation and recovery work without network/model access.
+- Local deterministic operation, Library use and recovery work without network/model access.
 
 ## Repository layout
 
@@ -113,14 +152,14 @@ apps/
   linura-shell/                planned desktop shell
 crates/
   linura-core/                 IDs, actions, semantic reasons, invariants
-  linura-intent/               persistent intents, requirements, machine profiles
-  linura-graph/                full system graph + removal/shared ownership analysis
+  linura-intent/               intents, reusable setups, machine profiles
+  linura-graph/                causal graph + removal/shared ownership analysis
   linura-capability-sdk/       composable capability blueprints and resolution
   linura-planner/              intent/capabilities → desired-state planning
   linura-provenance/           semantic "why" chain
   linura-agent-runtime/        provider-neutral interpreters + specialist roles
   linura-policy/               policy/approval decisions
-  linura-protocol/             versioned public contract
+  linura-protocol/             versioned public + setup/profile portability contracts
   linura-provider-sdk/         observation/planning + executor/verifier contracts
   linura-sdk/                  public non-privileged developer API facade
   linura-control/              unprivileged authority orchestration
@@ -131,7 +170,7 @@ surfaces/                      constrained derived UI definitions
 agents/                        agent provider/specialist contracts and manifests
 executors/                     narrow privileged effectors
 interfaces/                    local D-Bus contracts
-schemas/                       machine-readable contracts
+schemas/                       machine-readable contracts, including setups/profiles
 profiles/                      platform and portable machine profiles
 bootstrap/                     installer/first-boot/recovery architecture
 packaging/                     system integration assets
@@ -140,7 +179,7 @@ docs/                          product, architecture, security, ADRs, operations
 
 ## Product and namespace naming
 
-**Linura** is the umbrella brand and code namespace. **Linura OS** is reserved for the installable distribution. **Linura Control**, **Linura Agent**, **Linura Shell**, **Linura Control Center**, **Linura First Boot**, and **Linura SDK** are product surfaces/subsystems under that umbrella. “System control plane” and “authority plane” remain architectural terms, not separate brands.
+**Linura** is the umbrella brand and code namespace. **Linura OS** is reserved for the installable distribution. **Linura Control**, **Linura Agent**, **Linura Library**, **Linura Shell**, **Linura Control Center**, **Linura First Boot**, and **Linura SDK** are product surfaces/subsystems under that umbrella. “System control plane” and “authority plane” remain architectural terms, not separate brands.
 
 The name is inspired by **Linux + aura**: Linux underneath, with a coherent, intelligent and beautiful layer around it. See [`docs/naming.md`](docs/naming.md).
 
@@ -152,16 +191,16 @@ The first supported target stays deliberately narrow: Arch Linux + systemd + Way
 
 We will prove the entire model with a narrow vertical slice before building a broad desktop:
 
-1. lock vocabulary, trust boundaries, the system graph and the canonical eleven-stage mutation lifecycle;
+1. lock vocabulary, trust boundaries, reusable setup/Library semantics, the system graph and the canonical eleven-stage mutation lifecycle;
 2. implement read-only authoritative observations and the system graph;
 3. prove deterministic intent/capability/desired-state planning without an LLM;
 4. implement plan validation, policy decisions and approval requirements;
 5. implement durable `prepare`/`commit`, idempotency, recovery and append-only audit foundations;
 6. implement one narrow privileged executor + Polkit and a separate verifier;
 7. make one capability traverse all eleven stages with failure/crash/drift tests;
-8. persist full intent lifecycle and safe retirement/removal impact;
-9. add agent interpretation to `IntentProposal` only and the first-boot experience;
-10. expand system domains, Control Center, shell, workflows, derived surfaces, release hardening and optional enterprise/fleet.
+8. persist full intent lifecycle plus local Setup/Profile Library and safe retirement/removal impact;
+9. add agent interpretation to `IntentProposal` only and the first-boot experience, including saved setup/profile adoption;
+10. expand system domains, Control Center, shell, workflows, derived surfaces, release hardening and optional sharing/enterprise/fleet.
 
 See [`docs/development-plan.md`](docs/development-plan.md), [`docs/action-lifecycle.md`](docs/action-lifecycle.md), and [`docs/vision-coverage.md`](docs/vision-coverage.md).
 

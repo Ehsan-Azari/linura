@@ -5,13 +5,16 @@
 - **Linura Control:** local authority subsystem implementing the system control plane.
 - **Linura Agent:** intent-oriented conversational experience/runtime; never an authority.
 - **Linura SDK:** non-privileged developer-facing domain/protocol façade.
+- **Linura Library:** local-first catalog/storage abstraction for reusable declarative artifacts such as setups and machine profiles; optional sync backends never become local authority.
 - **Intent:** durable statement of what the user wants the machine to become/do.
 - **Intent proposal:** untrusted structured interpretation awaiting validation/approval.
 - **Requirement:** goal, constraint, preference or prohibition derived from approved intent.
-- **Machine profile:** portable composition of intents/constraints, not a frozen package list.
+- **Setup:** versioned reusable composition of intents and other setups; portable meaning, not a command transcript or snapshot.
+- **Machine profile:** portable whole-machine composition of setups, intents and constraints, not a frozen package list.
+- **Snapshot:** exact recovery point for a concrete machine; intentionally distinct from portable setup/profile artifacts.
 - **Capability blueprint:** composable declaration of a feature and its relations/resources.
 - **Capability discovery:** evidence that the current platform/provider can actually support an operation.
-- **System graph:** causal graph joining intents, requirements, capabilities, workflows and concrete resources.
+- **System graph:** causal graph joining setups, intents, requirements, capabilities, workflows and concrete resources.
 - **Semantic provenance:** evidence explaining why managed state exists.
 - **Actor:** authenticated principal requesting an operation.
 - **Resource:** typed system object such as a unit, interface, device, package or disk.

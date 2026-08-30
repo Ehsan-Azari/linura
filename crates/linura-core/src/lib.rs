@@ -24,6 +24,7 @@ macro_rules! typed_id {
 typed_id!(RequestId, "request id");
 typed_id!(PlanId, "plan id");
 typed_id!(IntentId, "intent id");
+typed_id!(SetupId, "setup id");
 typed_id!(RequirementId, "requirement id");
 typed_id!(ResourceId, "resource id");
 typed_id!(CapabilityId, "capability id");

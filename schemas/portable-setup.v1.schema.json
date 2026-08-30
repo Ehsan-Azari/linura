@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.org/schemas/portable-setup.v1.schema.json",
+  "title": "Linura Portable Setup Export v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "root_setup_id",
+    "setups",
+    "intents"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "root_setup_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "setups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://linura.org/schemas/setup.v1.schema.json"
+      }
+    },
+    "intents": {
+      "type": "array",
+      "items": {
+        "$ref": "https://linura.org/schemas/intent.v1.schema.json"
+      }
+    }
+  }
+}

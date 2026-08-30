@@ -23,7 +23,12 @@ This matrix converts the design review into repository requirements. "First-clas
 | First-boot agent | Missing | **`linura-firstboot` + product architecture added** |
 | “What should this computer become?” workflow | Missing | **Defining product flow** |
 | Persistent intent model | Missing | **`linura-intent` added** |
-| Full system graph | Missing | **`linura-graph` added** |
+| Reusable setup abstraction | Missing | **Typed/versioned `Setup` between intent and whole-machine profile** |
+| Linura Library | Missing | **Local-first reusable artifact catalog/storage architecture added** |
+| Same-device setup reuse | Missing | **Adoption explicitly re-observes and replans instead of replaying commands** |
+| Cross-device setup reuse | Partial via profile idea | **Self-contained setup bundles + target-specific capability resolution** |
+| Secret-safe portability | Missing | **Portable artifacts carry secret refs only; values stay local** |
+| Full system graph | Missing | **`linura-graph` added; Setup is now a causal node family** |
 | Dependency solver | Insufficient | **Capability resolver + graph relations added; advanced solver remains roadmap work** |
 | Conflict analysis | Missing | **Explicit relation/result added** |
 | Capability composition | Missing | **`linura-capability-sdk` + blueprint examples added** |
@@ -32,11 +37,12 @@ This matrix converts the design review into repository requirements. "First-clas
 | Build new workflows from primitives | Missing | **Declarative workflow model + examples added** |
 | Dynamically add UI for new capabilities | Missing | **Constrained derived-surface model added** |
 | Specialist agent architecture | Missing | **Provider-neutral specialist roles added** |
-| Machine personality/profile derived from user | Missing | **MachineProfile/intents model added** |
-| Intent export/replay on another machine | Missing | **Portable profile protocol/schema added** |
+| Machine personality/profile derived from user | Missing | **MachineProfile composes setups/intents/constraints** |
+| Intent export/replay on another machine | Missing | **Self-contained portable setup/profile protocol + schema added** |
+| Snapshot vs portable configuration distinction | Ambiguous | **Locked as separate recovery vs declarative portability concepts** |
 | Minimal install/bootstrap/recovery UX | Missing | **Bootstrap/recovery and first-boot architecture added** |
 | Enterprise/fleet | Sufficient future foundation | Preserved; remains post-local-trust work |
 
 ## Gate
 
-A future architecture change may not bypass intent provenance, the authority plane, or the narrow privilege boundary simply to make agent behavior easier.
+A future architecture change may not bypass intent provenance, setup/profile adoption validation, the authority plane, or the narrow privilege boundary simply to make agent behavior or synchronization easier.

@@ -24,6 +24,7 @@
           "kind": {
             "enum": [
               "intent",
+              "setup",
               "requirement",
               "capability",
               "workflow",

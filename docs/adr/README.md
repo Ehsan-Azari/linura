@@ -14,3 +14,4 @@ Accepted ADRs are append-only historical decisions. A changed decision is supers
 - [0010 — Constrained derived UI](0010-constrained-derived-ui.md)
 - [0011 — One Linura namespace](0011-one-linura-namespace.md)
 - [0012 — Canonical trustworthy mutation lifecycle](0012-canonical-mutation-lifecycle.md)
+- [0013 — Reusable setups and local-first Linura Library](0013-reusable-setups-library.md)
