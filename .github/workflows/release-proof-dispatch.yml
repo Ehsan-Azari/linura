@@ -26,12 +26,14 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-      - name: Resolve and validate release intent
+      - name: Resolve and validate release snapshot
         id: release
         run: |
           set -euo pipefail
-          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
-          test "$main_sha" = "$SOURCE_SHA"
+          git fetch origin main --force
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
+
           subject="$(git log -1 --pretty=%s)"
           python3 - "$subject" "$GITHUB_OUTPUT" <<'PY'
           import re
@@ -50,7 +52,7 @@ jobs:
           PY
           tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
           python3 tools/release_contract.py validate --tag "$tag" --notes "docs/releases/${tag}.md" --require-workspace-version
-      - name: Require exact-main permanent gates
+      - name: Require exact-source permanent gates
         run: |
           set -euo pipefail
           workflows=(ci.yml security.yml codeql.yml)
@@ -73,7 +75,7 @@ jobs:
             fi
             sleep 10
           done
-          echo "timed out waiting for exact-main permanent gates" >&2
+          echo "timed out waiting for exact-source permanent gates" >&2
           exit 1
       - name: Create immutable tag and dispatch candidate once
         env:
@@ -81,12 +83,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fail closed if main advanced while permanent gates were being observed.
-          # This check is intentionally adjacent to the tag mutation so a stale
-          # release-intent SHA cannot be promoted merely because it was current
-          # when this workflow started.
-          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
-          test "$main_sha" = "$SOURCE_SHA"
+          # A release-intent commit is an immutable release snapshot, not a lock
+          # on the moving main branch. Re-prove that the exact source is still in
+          # protected main history immediately before binding the version tag.
+          # Main may legitimately advance after the release snapshot is proven.
+          git fetch origin main --force
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/main
 
           if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null)"; then
             tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
