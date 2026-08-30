@@ -103,7 +103,8 @@ jobs:
           fi
 
           prerelease=false
-          if [[ "$version" == *-* ]]; then prerelease=true; fi
+          version_without_build="${version%%+*}"
+          if [[ "$version_without_build" == *-* ]]; then prerelease=true; fi
 
           gh workflow run release.yml \
             --ref main \
