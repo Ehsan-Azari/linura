@@ -62,12 +62,14 @@ jobs:
         run: |
           set -euo pipefail
           source_date_epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
-          printf 'SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch" >> "$GITHUB_ENV"
-          printf 'CARGO_INCREMENTAL=0\n' >> "$GITHUB_ENV"
-          printf 'TZ=UTC\n' >> "$GITHUB_ENV"
-          printf 'LANG=C.UTF-8\n' >> "$GITHUB_ENV"
-          printf 'LC_ALL=C.UTF-8\n' >> "$GITHUB_ENV"
-          printf 'RUSTFLAGS=--remap-path-prefix=%s=/workspace\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          {
+            printf 'SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch"
+            printf 'CARGO_INCREMENTAL=0\n'
+            printf 'TZ=UTC\n'
+            printf 'LANG=C.UTF-8\n'
+            printf 'LC_ALL=C.UTF-8\n'
+            printf 'RUSTFLAGS=--remap-path-prefix=%s=/workspace\n' "$GITHUB_WORKSPACE"
+          } >> "$GITHUB_ENV"
 
       - name: Run canonical validation
         run: cargo xtask check
@@ -250,12 +252,14 @@ jobs:
         run: |
           set -euo pipefail
           source_date_epoch="$(git show -s --format=%ct "$SOURCE_SHA")"
-          printf 'SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch" >> "$GITHUB_ENV"
-          printf 'CARGO_INCREMENTAL=0\n' >> "$GITHUB_ENV"
-          printf 'TZ=UTC\n' >> "$GITHUB_ENV"
-          printf 'LANG=C.UTF-8\n' >> "$GITHUB_ENV"
-          printf 'LC_ALL=C.UTF-8\n' >> "$GITHUB_ENV"
-          printf 'RUSTFLAGS=--remap-path-prefix=%s=/workspace\n' "$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          {
+            printf 'SOURCE_DATE_EPOCH=%s\n' "$source_date_epoch"
+            printf 'CARGO_INCREMENTAL=0\n'
+            printf 'TZ=UTC\n'
+            printf 'LANG=C.UTF-8\n'
+            printf 'LC_ALL=C.UTF-8\n'
+            printf 'RUSTFLAGS=--remap-path-prefix=%s=/workspace\n' "$GITHUB_WORKSPACE"
+          } >> "$GITHUB_ENV"
 
       - name: Rebuild exact source independently
         run: cargo build --workspace --release --locked --target "$RELEASE_TARGET"
