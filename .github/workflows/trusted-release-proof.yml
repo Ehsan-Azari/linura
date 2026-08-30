@@ -1,6 +1,6 @@
 name: Trusted Release Proof
 
-run-name: Trusted Release Proof — ${{ github.sha }}
+run-name: Trusted Release Proof
 
 on:
   workflow_dispatch:
