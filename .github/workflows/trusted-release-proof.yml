@@ -199,3 +199,30 @@ jobs:
           path: /tmp/linura-release-proof/
           if-no-files-found: error
           retention-days: 30
+
+  dispatch-promotion:
+    name: dispatch release promotion
+    needs: proof
+    if: ${{ needs.proof.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.sha }}
+      PROOF_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Reassert current main and dispatch promotion
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            echo "main moved after successful proof job: $current != $SOURCE_SHA; no promotion"
+            exit 0
+          fi
+          gh workflow run release-promotion.yml \
+            --ref main \
+            -f source_sha="$SOURCE_SHA" \
+            -f proof_run_id="$PROOF_RUN_ID"
+          echo "dispatched Release Promotion for proof run $PROOF_RUN_ID at $SOURCE_SHA"
