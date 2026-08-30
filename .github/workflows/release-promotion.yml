@@ -102,14 +102,9 @@ jobs:
             exit 0
           fi
 
-          prerelease=false
-          version_without_build="${version%%+*}"
-          if [[ "$version_without_build" == *-* ]]; then prerelease=true; fi
-
           gh workflow run release.yml \
             --ref main \
             -f version="$version" \
             -f source_sha="$SOURCE_SHA" \
-            -f proof_run_id="$PROOF_RUN_ID" \
-            -f prerelease="$prerelease"
+            -f proof_run_id="$PROOF_RUN_ID"
           echo "dispatched Release for $tag from exact proven source $SOURCE_SHA"
