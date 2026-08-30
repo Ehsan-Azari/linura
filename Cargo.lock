@@ -59,6 +59,7 @@ name = "linura-graph"
 version = "0.0.0"
 dependencies = [
  "linura-core",
+ "linura-observation",
 ]
 
 [[package]]
@@ -79,6 +80,13 @@ version = "0.0.0"
 [[package]]
 name = "linura-migrations"
 version = "0.0.0"
+
+[[package]]
+name = "linura-observation"
+version = "0.0.0"
+dependencies = [
+ "linura-core",
+]
 
 [[package]]
 name = "linura-planner"
@@ -103,6 +111,7 @@ dependencies = [
  "linura-core",
  "linura-graph",
  "linura-intent",
+ "linura-observation",
  "linura-provenance",
 ]
 
@@ -118,6 +127,7 @@ name = "linura-provider-sdk"
 version = "0.0.0"
 dependencies = [
  "linura-core",
+ "linura-observation",
  "linura-protocol",
 ]
 
@@ -129,6 +139,7 @@ dependencies = [
  "linura-core",
  "linura-graph",
  "linura-intent",
+ "linura-observation",
  "linura-protocol",
  "linura-provenance",
 ]
@@ -138,6 +149,7 @@ name = "linura-testkit"
 version = "0.0.0"
 dependencies = [
  "linura-core",
+ "linura-observation",
  "linura-protocol",
  "linura-provider-sdk",
 ]

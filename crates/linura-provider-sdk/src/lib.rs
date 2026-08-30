@@ -2,7 +2,8 @@
 
 use std::fmt::{Display, Formatter};
 
-use linura_core::{ActionPlan, Capability, CapabilityId, PlanId, ResourceId};
+use linura_core::{ActionPlan, Capability, CapabilityId, PlanId, ProviderId, ResourceId};
+use linura_observation::{ObservationEnvelope, ProviderHealth};
 use linura_protocol::ActionRequest;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,12 +28,37 @@ impl Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// Authoritative observation used as an explicit input to deterministic planning.
+/// Existing planning observation contract.
+///
+/// Mutation planning continues to use this compact form until the later planning
+/// milestone is migrated onto authoritative observation envelopes end-to-end.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Observation {
     pub provider_id: String,
     pub resource: ResourceId,
     pub state: String,
+}
+
+/// Read-only authoritative observation provider.
+///
+/// This is intentionally separate from mutation planning. Implementing
+/// `Observer` does not grant or imply any effect or planning authority.
+pub trait Observer: Send + Sync {
+    fn observer_id(&self) -> ProviderId;
+    fn observation_capabilities(&self) -> Vec<Capability>;
+    fn health(&self) -> ProviderHealth;
+    fn resources(&self) -> Result<Vec<ResourceId>, ProviderError>;
+    fn observe_authoritative(
+        &self,
+        resource: &ResourceId,
+        capability: &CapabilityId,
+    ) -> Result<ObservationEnvelope, ProviderError>;
+
+    fn supports_observation(&self, capability: &CapabilityId) -> bool {
+        self.observation_capabilities()
+            .iter()
+            .any(|candidate| &candidate.id == capability)
+    }
 }
 
 /// Evidence that narrow effects were dispatched by an executor.

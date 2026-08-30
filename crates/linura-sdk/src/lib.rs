@@ -11,18 +11,25 @@ pub use linura_capability_sdk::{
 };
 pub use linura_core::{
     ActionPlan, Actor, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId, PlanId,
-    ProfileId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason, SetupId,
-    SupportLevel, ValidationError, WorkflowId,
+    ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
+    SetupId, SupportLevel, ValidationError, WorkflowId,
 };
-pub use linura_graph::{Edge, EdgeKind, NodeId, RemovalImpact, SystemGraph};
+pub use linura_graph::{
+    Edge, EdgeKind, Node, NodeId, ObservationRecordOutcome, RemovalImpact, SystemGraph,
+};
 pub use linura_intent::{
     Intent, IntentProposal, IntentStatus, MachineProfile, Requirement, RequirementKind, Setup,
     SetupValidationError,
 };
+pub use linura_observation::{
+    FreshnessState, ObservationAuthority, ObservationEnvelope, ObservationValidationError,
+    ObservedValue, ProviderAvailability, ProviderHealth,
+};
 pub use linura_protocol::{
     ActionRequest, CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand,
+    ObservationExplanation, ObservationRequest, ObservationResponse, ObservationSystemSnapshot,
     PROTOCOL_MAJOR, PlanResponse, PortableProfileExport, PortableSetupExport,
-    ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion, SetupAdoptionRequest,
-    SetupAdoptionResponse, SystemSnapshot,
+    ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion, ProviderSnapshot,
+    SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
 };
 pub use linura_provenance::{ProvenanceKind, ProvenanceRecord, WhyChain};

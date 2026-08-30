@@ -11,6 +11,7 @@ linura-capability-sdk = { path = "../linura-capability-sdk" }
 linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
 linura-intent = { path = "../linura-intent" }
+linura-observation = { path = "../linura-observation" }
 linura-protocol = { path = "../linura-protocol" }
 linura-provenance = { path = "../linura-provenance" }
 
