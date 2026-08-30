@@ -7,7 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
-ENV_HEADER = re.compile(r"^(?P<indent>\s*)env:\s*(?:#.*)?$")
+ENV_HEADER = re.compile(r"^(?P<indent>\s*)env:\s*(?P<value>.*)$")
 RUNNER_EXPRESSION = re.compile(r"\$\{\{\s*runner\.")
 
 
@@ -32,6 +32,15 @@ def main() -> int:
             if env_indent > 4:
                 continue
 
+            # Cover flow-style YAML mappings such as:
+            # env: { PROOF_DIR: "${{ runner.temp }}/proof" }
+            if RUNNER_EXPRESSION.search(match.group("value")):
+                failures.append(
+                    f"runner context is unavailable in workflow/job env: "
+                    f"{workflow.relative_to(ROOT)}:{index + 1}"
+                )
+
+            # Cover ordinary block mappings and multi-line flow mappings.
             for nested_index in range(index + 1, len(lines)):
                 nested = lines[nested_index]
                 if not nested.strip():
