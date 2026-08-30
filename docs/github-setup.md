@@ -5,7 +5,9 @@ Apply these settings before accepting implementation PRs.
 ## Repository
 
 - Default branch: `main`.
-- Canonical repository: `Ehsan-Azari/linura`; update this document if ownership moves to a dedicated Linura organization.
+- Canonical repository: `linura-org/linura`.
+- Canonical organization: `linura-org`.
+- Canonical project domain: `linura.org`.
 - Enable Issues and private vulnerability reporting.
 - Enable the dependency graph, Dependabot alerts and security updates, secret scanning, push protection, and code scanning where available.
 - Disable force-push and branch deletion on `main`.
@@ -42,6 +44,8 @@ Protect these paths with CODEOWNERS review once teams exist:
 - `docs/security-model.md`
 - `docs/threat-model.md`
 - `.github/workflows/**`
+
+Prefer organization teams as CODEOWNERS once they exist, for example `@linura-org/maintainers` for ordinary ownership and `@linura-org/security` for security-sensitive paths. Do not use the bare organization handle as a CODEOWNER.
 
 ## Actions
 
