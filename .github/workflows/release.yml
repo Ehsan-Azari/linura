@@ -29,7 +29,7 @@ concurrency:
 jobs:
   validate:
     name: validate proven release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -189,7 +189,7 @@ jobs:
   publish:
     name: publish sealed release
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release
     permissions:
@@ -421,7 +421,7 @@ jobs:
     name: dispatch independent verification
     needs: [validate, publish]
     if: ${{ needs.validate.result == 'success' && needs.publish.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
       contents: read
