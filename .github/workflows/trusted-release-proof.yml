@@ -1,0 +1,201 @@
+name: Trusted Release Proof
+
+run-name: Trusted Release Proof — ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-proof-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: exact-source proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.sha }}
+      PROOF_ROOT: ${{ runner.temp }}/linura-release-proof
+      PAYLOAD_DIR: ${{ runner.temp }}/linura-release-proof/release-payload
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Assert exact current-main candidate
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+
+      - name: Resolve and validate release contract
+        id: release
+        run: |
+          set -euo pipefail
+          subject="$(git log -1 --pretty=%s)"
+          python3 - "$subject" "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+
+          subject, output_path = sys.argv[1], sys.argv[2]
+          match = re.fullmatch(
+              r"release: (?P<tag>v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) — (?P<theme>\S.*)",
+              subject,
+          )
+          if match is None:
+              raise SystemExit(f"invalid release-intent subject: {subject!r}")
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"tag={match.group('tag')}\n")
+              handle.write(f"version={match.group('tag')[1:]}\n")
+              handle.write(f"theme={match.group('theme')}\n")
+          PY
+          tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
+          test -n "$tag"
+          python3 tools/release_contract.py validate \
+            --tag "$tag" \
+            --notes "docs/releases/${tag}.md" \
+            --require-workspace-version
+
+      - name: Verify permanent exact-SHA gates
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&event=push&per_page=100")"
+          for workflow in CI Security CodeQL; do
+            count="$(jq -r --arg workflow "$workflow" '[.workflow_runs[] | select(.name == $workflow and .head_sha == env.SOURCE_SHA and .event == "push" and .status == "completed" and .conclusion == "success")] | length' <<<"$runs")"
+            if [[ "$count" -lt 1 ]]; then
+              echo "missing successful exact-SHA gate: $workflow" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+
+      - run: rustup default 1.98.0
+
+      - name: Run canonical validation
+        run: cargo xtask check
+
+      - name: Build exact-source release binaries once
+        run: cargo build --workspace --release --locked
+
+      - name: Assemble sealed promotable payload
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf "$PROOF_ROOT"
+          mkdir -p "$PAYLOAD_DIR"
+          install -m 0755 target/release/linurad "$PAYLOAD_DIR/linurad"
+          install -m 0755 target/release/linuractl "$PAYLOAD_DIR/linuractl"
+          install -m 0755 target/release/linura-firstboot "$PAYLOAD_DIR/linura-firstboot"
+          install -m 0755 target/release/linura-update-guard "$PAYLOAD_DIR/linura-update-guard"
+          install -m 0755 target/release/linura-executor-systemd "$PAYLOAD_DIR/linura-executor-systemd"
+          printf '%s\n' "$SOURCE_SHA" > "$PAYLOAD_DIR/SOURCE_SHA"
+          printf '%s\n' "$RELEASE_TAG" > "$PAYLOAD_DIR/RELEASE_TAG"
+          cp "docs/releases/${RELEASE_TAG}.md" "$PAYLOAD_DIR/RELEASE_NOTES.md"
+          python3 tools/generate_sbom.py \
+            "$PAYLOAD_DIR/linura.spdx.json" \
+            "$PAYLOAD_DIR/linurad" \
+            "$PAYLOAD_DIR/linuractl" \
+            "$PAYLOAD_DIR/linura-firstboot" \
+            "$PAYLOAD_DIR/linura-update-guard" \
+            "$PAYLOAD_DIR/linura-executor-systemd" \
+            --version "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA"
+          python3 tools/release_contract.py evidence \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --notes "$PAYLOAD_DIR/RELEASE_NOTES.md" \
+            --output "$PAYLOAD_DIR/RELEASE-EVIDENCE.json" \
+            --artifact "$PAYLOAD_DIR/linurad" \
+            --artifact "$PAYLOAD_DIR/linuractl" \
+            --artifact "$PAYLOAD_DIR/linura-firstboot" \
+            --artifact "$PAYLOAD_DIR/linura-update-guard" \
+            --artifact "$PAYLOAD_DIR/linura-executor-systemd" \
+            --artifact "$PAYLOAD_DIR/linura.spdx.json" \
+            --artifact "$PAYLOAD_DIR/SOURCE_SHA" \
+            --artifact "$PAYLOAD_DIR/RELEASE_TAG"
+          python3 tools/make_checksums.py \
+            "$PAYLOAD_DIR/SHA256SUMS" \
+            "$PAYLOAD_DIR/linurad" \
+            "$PAYLOAD_DIR/linuractl" \
+            "$PAYLOAD_DIR/linura-firstboot" \
+            "$PAYLOAD_DIR/linura-update-guard" \
+            "$PAYLOAD_DIR/linura-executor-systemd" \
+            "$PAYLOAD_DIR/linura.spdx.json" \
+            "$PAYLOAD_DIR/SOURCE_SHA" \
+            "$PAYLOAD_DIR/RELEASE_TAG" \
+            "$PAYLOAD_DIR/RELEASE_NOTES.md" \
+            "$PAYLOAD_DIR/RELEASE-EVIDENCE.json"
+          python3 tools/release_contract.py verify \
+            --directory "$PAYLOAD_DIR" \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA"
+          python3 tools/release_verify.py "$PAYLOAD_DIR"
+
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+
+          root = pathlib.Path(os.environ["PROOF_ROOT"])
+          payload = pathlib.Path(os.environ["PAYLOAD_DIR"])
+          items = []
+          for path in sorted(payload.iterdir()):
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"proof payload must be flat regular files: {path.name}")
+              items.append({
+                  "name": path.name,
+                  "size": path.stat().st_size,
+                  "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+              })
+          receipt = {
+              "schema_version": 1,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "tag": os.environ["RELEASE_TAG"],
+              "version": os.environ["RELEASE_VERSION"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "artifacts": items,
+          }
+          (root / "release-proof.json").write_text(
+              json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Assert source remained immutable
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --exit-code -- .
+          git diff --cached --exit-code -- .
+
+      - name: Attest sealed release payload
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "${{ runner.temp }}/linura-release-proof/release-payload/*"
+
+      - name: Upload exact-source proof and payload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linura-trusted-release-proof-${{ github.sha }}
+          path: ${{ runner.temp }}/linura-release-proof/
+          if-no-files-found: error
+          retention-days: 30
