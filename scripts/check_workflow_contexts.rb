@@ -15,6 +15,8 @@ RUNNER_ROOT = /(?<![A-Za-z0-9_.])runner(?![A-Za-z0-9_])/i
 # env. This checker therefore validates only the two schema positions where the
 # original Linura release workflows failed; it is intentionally not a complete
 # GitHub Actions schema validator.
+#
+# Reference: GitHub Actions "Contexts reference" → "Context availability".
 
 
 def expression_bodies(text)
@@ -252,10 +254,10 @@ def assert_self_tests!
             env:
               STEP_TMP: "${{ runner.temp }}/step"
             run: echo "$STEP_TMP"
-          - name: Action input named env is not workflow env
+          - name: Non-workflow key named env must not be interpreted as an env mapping
             uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
             with:
-              env: "${{ runner.temp }}/input"
+              env: "${{ runner.temp }}/synthetic-action-input"
               path: "${{ runner['temp'] }}/proof"
           - name: Env-like text inside a run scalar is not workflow structure
             run: |
@@ -264,7 +266,7 @@ def assert_self_tests!
                 FOO: "${{ runner.temp }}/proof"
               EOF
   YAML
-  assert_accepted!(accepted, "runner-aware-valid-schema-positions")
+  assert_accepted!(accepted, "runner-aware-and-non-env-positions")
 end
 
 
