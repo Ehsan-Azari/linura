@@ -1,69 +1,432 @@
-name: Trusted release candidate
+name: Release
+
+run-name: Release — v${{ inputs.version }} @ ${{ inputs.source_sha }}
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer without v prefix
+        required: true
+        type: string
+      source_sha:
+        description: Exact proven current-main source SHA
+        required: true
+        type: string
+      proof_run_id:
+        description: Exact successful Trusted Release Proof run ID
+        required: true
+        type: string
+      prerelease:
+        description: Mark the GitHub Release as prerelease
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
+  actions: read
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
-  candidate:
-    if: startsWith(github.ref, 'refs/tags/v')
+  validate:
+    name: validate proven release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+      id-token: write
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PROOF_RUN_ID: ${{ inputs.proof_run_id }}
+      PROOF_DIR: ${{ runner.temp }}/linura-proof
+    steps:
+      - name: Validate request shape
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PROOF_RUN_ID" =~ ^[0-9]+$ ]]
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_SHA" = "$SOURCE_SHA"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha }}
+
+      - name: Assert exact current-main release source
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+
+      - name: Resolve and validate release identity
+        id: release
+        run: |
+          set -euo pipefail
+          subject="$(git log -1 --pretty=%s)"
+          python3 - "$subject" "$RELEASE_VERSION" "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+
+          subject, requested_version, output_path = sys.argv[1:]
+          match = re.fullmatch(
+              r"release: (?P<tag>v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) — (?P<theme>\S.*)",
+              subject,
+          )
+          if match is None:
+              raise SystemExit(f"invalid release-intent subject: {subject!r}")
+          tag = match.group("tag")
+          if tag[1:] != requested_version:
+              raise SystemExit(f"release request version {requested_version!r} does not match commit {tag!r}")
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"tag={tag}\n")
+          PY
+          python3 tools/release_contract.py validate \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --notes "docs/releases/${{ steps.release.outputs.tag }}.md" \
+            --require-workspace-version
+
+      - name: Verify permanent exact-SHA gates
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&event=push&per_page=100")"
+          for workflow in CI Security CodeQL; do
+            count="$(jq -r --arg workflow "$workflow" '[.workflow_runs[] | select(.name == $workflow and .head_sha == env.SOURCE_SHA and .event == "push" and .status == "completed" and .conclusion == "success")] | length' <<<"$runs")"
+            if [[ "$count" -lt 1 ]]; then
+              echo "missing successful exact-SHA gate: $workflow" >&2
+              exit 1
+            fi
+          done
+
+      - name: Verify exact Trusted Release Proof
+        run: |
+          set -euo pipefail
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
+          test "$(jq -r .name <<<"$run")" = "Trusted Release Proof"
+          test "$(jq -r .event <<<"$run")" = "workflow_dispatch"
+          test "$(jq -r .status <<<"$run")" = "completed"
+          test "$(jq -r .conclusion <<<"$run")" = "success"
+          test "$(jq -r .head_sha <<<"$run")" = "$SOURCE_SHA"
+
+      - name: Download exact proof payload
+        run: |
+          set -euo pipefail
+          rm -rf "$PROOF_DIR"
+          mkdir -p "$PROOF_DIR"
+          gh run download "$PROOF_RUN_ID" \
+            --name "linura-trusted-release-proof-$SOURCE_SHA" \
+            --dir "$PROOF_DIR"
+
+      - name: Verify proof receipt, sealed payload and provenance
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+
+          root = pathlib.Path(os.environ["PROOF_DIR"])
+          payload = root / "release-payload"
+          receipt = json.loads((root / "release-proof.json").read_text(encoding="utf-8"))
+          if receipt.get("schema_version") != 1:
+              raise SystemExit("unsupported release proof schema")
+          if receipt.get("repository") != os.environ["GITHUB_REPOSITORY"]:
+              raise SystemExit("release proof repository mismatch")
+          if receipt.get("source_sha") != os.environ["SOURCE_SHA"]:
+              raise SystemExit("release proof source mismatch")
+          if receipt.get("tag") != os.environ["RELEASE_TAG"]:
+              raise SystemExit("release proof tag mismatch")
+          if str(receipt.get("run_id")) != os.environ["PROOF_RUN_ID"]:
+              raise SystemExit("release proof run mismatch")
+          declared = receipt.get("artifacts")
+          if not isinstance(declared, list) or not declared:
+              raise SystemExit("release proof artifact declaration missing")
+          expected = {
+              item["name"]: (item["size"], item["sha256"])
+              for item in declared
+              if isinstance(item, dict)
+              and isinstance(item.get("name"), str)
+              and isinstance(item.get("size"), int)
+              and isinstance(item.get("sha256"), str)
+          }
+          actual = {}
+          for path in payload.iterdir():
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(f"invalid proof payload entry: {path.name}")
+              actual[path.name] = (path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest())
+          if actual != expected:
+              raise SystemExit("sealed proof payload does not match proof receipt")
+          PY
+          test "$(cat "$PROOF_DIR/release-payload/SOURCE_SHA")" = "$SOURCE_SHA"
+          test "$(cat "$PROOF_DIR/release-payload/RELEASE_TAG")" = "$RELEASE_TAG"
+          python3 tools/release_contract.py verify \
+            --directory "$PROOF_DIR/release-payload" \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA"
+          python3 tools/release_verify.py "$PROOF_DIR/release-payload"
+          while IFS= read -r -d '' file; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+          done < <(find "$PROOF_DIR/release-payload" -maxdepth 1 -type f -print0)
+
+      - name: Preflight immutable version identity
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null)"; then
+            tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
+            test "$tag_sha" = "$SOURCE_SHA"
+          fi
+
+  publish:
+    name: publish sealed release
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: release
+      deployment: false
+    permissions:
+      contents: write
+      actions: read
+      attestations: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      PROOF_RUN_ID: ${{ inputs.proof_run_id }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      PROOF_DIR: ${{ runner.temp }}/linura-proof
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
-      - name: Require tag commit on main history
+          ref: ${{ inputs.source_sha }}
+
+      - name: Assert exact publication source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Download exact proven payload
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-      - name: Validate frozen release contract
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          rm -rf "$PROOF_DIR"
+          mkdir -p "$PROOF_DIR"
+          gh run download "$PROOF_RUN_ID" \
+            --name "linura-trusted-release-proof-$SOURCE_SHA" \
+            --dir "$PROOF_DIR"
+
+      - name: Reverify sealed payload
         run: |
           set -euo pipefail
-          notes="docs/releases/${RELEASE_TAG}.md"
-          python3 tools/release_contract.py validate --tag "$RELEASE_TAG" --notes "$notes" --require-workspace-version
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
-      - run: rustup default 1.98.0
-      - name: Run canonical validation
-        run: cargo xtask check
-      - name: Build exact-source release binaries
-        run: cargo build --workspace --release --locked
-      - name: Assemble candidate
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          test "$(cat "$PROOF_DIR/release-payload/SOURCE_SHA")" = "$SOURCE_SHA"
+          test "$(cat "$PROOF_DIR/release-payload/RELEASE_TAG")" = "$RELEASE_TAG"
+          python3 tools/release_contract.py verify \
+            --directory "$PROOF_DIR/release-payload" \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA"
+          python3 tools/release_verify.py "$PROOF_DIR/release-payload"
+          while IFS= read -r -d '' file; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
+          done < <(find "$PROOF_DIR/release-payload" -maxdepth 1 -type f -print0)
+
+      - name: Create or resume immutable publication
         run: |
           set -euo pipefail
-          mkdir -p dist
-          install -m 0755 target/release/linurad dist/linurad
-          install -m 0755 target/release/linuractl dist/linuractl
-          install -m 0755 target/release/linura-firstboot dist/linura-firstboot
-          install -m 0755 target/release/linura-update-guard dist/linura-update-guard
-          install -m 0755 target/release/linura-executor-systemd dist/linura-executor-systemd
-          printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_SHA
-          printf '%s\n' "$RELEASE_TAG" > dist/RELEASE_TAG
-          cp "docs/releases/${RELEASE_TAG}.md" dist/RELEASE_NOTES.md
-          python3 tools/generate_sbom.py dist/linura.spdx.json dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd --version "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
-          python3 tools/release_contract.py evidence --tag "$RELEASE_TAG" --source-sha "$GITHUB_SHA" --notes dist/RELEASE_NOTES.md --output dist/RELEASE-EVIDENCE.json --artifact dist/linurad --artifact dist/linuractl --artifact dist/linura-firstboot --artifact dist/linura-update-guard --artifact dist/linura-executor-systemd --artifact dist/linura.spdx.json --artifact dist/SOURCE_SHA --artifact dist/RELEASE_TAG
-          python3 tools/make_checksums.py dist/SHA256SUMS dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd dist/linura.spdx.json dist/SOURCE_SHA dist/RELEASE_TAG dist/RELEASE_NOTES.md dist/RELEASE-EVIDENCE.json
-          python3 tools/release_contract.py verify --directory dist --tag "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
-          python3 tools/release_verify.py dist
-      - name: Attest candidate artifacts
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: "dist/*"
-      - name: Upload exact candidate proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: linura-release-candidate
-          path: dist/
-          if-no-files-found: error
-          retention-days: 30
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import mimetypes
+          import os
+          import pathlib
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          tag = os.environ["RELEASE_TAG"]
+          sha = os.environ["SOURCE_SHA"]
+          token = os.environ["GH_TOKEN"]
+          prerelease = os.environ["PRERELEASE"].lower() == "true"
+          payload_dir = pathlib.Path(os.environ["PROOF_DIR"]) / "release-payload"
+          notes = (payload_dir / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+          release_name = f"Linura {tag}"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "linura-release",
+          }
+
+          def request(method, url, data=None, extra_headers=None):
+              merged = dict(headers)
+              merged.update(extra_headers or {})
+              req = urllib.request.Request(url, data=data, headers=merged, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as response:
+                      return response.read(), response.status
+              except urllib.error.HTTPError as exc:
+                  if exc.code == 404:
+                      return None, 404
+                  print(exc.read().decode(errors="replace"))
+                  raise
+
+          def asset_matches(asset, digest):
+              api_digest = asset.get("digest")
+              if api_digest:
+                  return api_digest == f"sha256:{digest}"
+              raw, _ = request("GET", asset["url"], extra_headers={"Accept": "application/octet-stream"})
+              return hashlib.sha256(raw).hexdigest() == digest
+
+          encoded_tag = urllib.parse.quote(tag, safe="")
+          raw, status = request("GET", f"https://api.github.com/repos/{repo}/git/ref/tags/{encoded_tag}")
+          if status == 404:
+              body = json.dumps({"ref": f"refs/tags/{tag}", "sha": sha}).encode()
+              raw, _ = request(
+                  "POST",
+                  f"https://api.github.com/repos/{repo}/git/refs",
+                  body,
+                  {"Content-Type": "application/json"},
+              )
+              if json.loads(raw)["object"]["sha"] != sha:
+                  raise SystemExit("created tag resolved incorrectly")
+          elif json.loads(raw)["object"]["sha"] != sha:
+              raise SystemExit("refusing to move immutable tag")
+
+          matches = []
+          page = 1
+          while True:
+              raw, _ = request("GET", f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}")
+              batch = json.loads(raw)
+              matches.extend(release for release in batch if release.get("tag_name") == tag)
+              if len(batch) < 100:
+                  break
+              page += 1
+          if len(matches) > 1:
+              raise SystemExit(f"multiple releases exist for {tag}; manual reconciliation required")
+
+          expected = {
+              path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in sorted(payload_dir.iterdir())
+              if path.is_file() and not path.is_symlink()
+          }
+          if not matches:
+              body = json.dumps({
+                  "tag_name": tag,
+                  "target_commitish": sha,
+                  "name": release_name,
+                  "body": notes,
+                  "draft": True,
+                  "prerelease": prerelease,
+              }).encode()
+              raw, _ = request(
+                  "POST",
+                  f"https://api.github.com/repos/{repo}/releases",
+                  body,
+                  {"Content-Type": "application/json"},
+              )
+              release = json.loads(raw)
+          else:
+              release = matches[0]
+              if not release.get("draft"):
+                  if release.get("name") != release_name:
+                      raise SystemExit("published release title differs from canonical title")
+                  if release.get("body") != notes:
+                      raise SystemExit("published release body differs from frozen notes")
+                  assets = {asset["name"]: asset for asset in release.get("assets", [])}
+                  if set(assets) != set(expected):
+                      raise SystemExit("published release asset set differs from sealed payload")
+                  for name, digest in expected.items():
+                      if not asset_matches(assets[name], digest):
+                          raise SystemExit(f"published release asset mismatch: {name}")
+                  print(f"existing published release {tag} matches sealed payload")
+                  raise SystemExit(0)
+              body = json.dumps({
+                  "name": release_name,
+                  "body": notes,
+                  "draft": True,
+                  "prerelease": prerelease,
+              }).encode()
+              raw, _ = request(
+                  "PATCH",
+                  f"https://api.github.com/repos/{repo}/releases/{release['id']}",
+                  body,
+                  {"Content-Type": "application/json"},
+              )
+              release = json.loads(raw)
+
+          release_id = release["id"]
+          remote = {asset["name"]: asset for asset in release.get("assets", [])}
+          for name, asset in list(remote.items()):
+              digest = expected.get(name)
+              if digest is None or not asset_matches(asset, digest):
+                  request("DELETE", asset["url"])
+                  remote.pop(name, None)
+
+          for name, digest in expected.items():
+              if name in remote:
+                  continue
+              path = payload_dir / name
+              query = urllib.parse.urlencode({"name": name})
+              content_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+              request(
+                  "POST",
+                  f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets?{query}",
+                  path.read_bytes(),
+                  {"Content-Type": content_type},
+              )
+
+          raw, _ = request("GET", f"https://api.github.com/repos/{repo}/releases/{release_id}")
+          release = json.loads(raw)
+          assets = {asset["name"]: asset for asset in release.get("assets", [])}
+          if set(assets) != set(expected):
+              raise SystemExit(f"draft asset set mismatch: remote={sorted(assets)} expected={sorted(expected)}")
+          for name, digest in expected.items():
+              if not asset_matches(assets[name], digest):
+                  raise SystemExit(f"draft asset checksum mismatch: {name}")
+
+          body = json.dumps({"draft": False, "prerelease": prerelease}).encode()
+          raw, _ = request(
+              "PATCH",
+              f"https://api.github.com/repos/{repo}/releases/{release_id}",
+              body,
+              {"Content-Type": "application/json"},
+          )
+          release = json.loads(raw)
+          if release.get("draft"):
+              raise SystemExit("release remained draft")
+          print(f"Published {release['html_url']}")
+          PY
+
+  verification-dispatch:
+    name: dispatch independent verification
+    needs: [validate, publish]
+    if: ${{ needs.validate.result == 'success' && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+    steps:
+      - name: Dispatch verification
+        run: gh workflow run release-verification.yml --ref main -f tag="$RELEASE_TAG"
