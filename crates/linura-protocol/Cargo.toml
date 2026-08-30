@@ -10,6 +10,7 @@ repository.workspace = true
 linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
 linura-intent = { path = "../linura-intent" }
+linura-observation = { path = "../linura-observation" }
 linura-provenance = { path = "../linura-provenance" }
 
 [lints]

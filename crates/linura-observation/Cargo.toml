@@ -1,5 +1,5 @@
 [package]
-name = "linura-provider-sdk"
+name = "linura-observation"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,8 +8,6 @@ repository.workspace = true
 
 [dependencies]
 linura-core = { path = "../linura-core" }
-linura-observation = { path = "../linura-observation" }
-linura-protocol = { path = "../linura-protocol" }
 
 [lints]
 workspace = true

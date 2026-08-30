@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, RequestId, ResourceId, SetupId,
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, ProviderId, RequestId, ResourceId,
+    SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
 use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
+use linura_observation::{FreshnessState, ObservationEnvelope, ProviderHealth};
 use linura_provenance::WhyChain;
 
 pub const PROTOCOL_MAJOR: u16 = 1;
@@ -28,6 +30,31 @@ impl Default for ProtocolVersion {
 pub struct CapabilitySnapshot {
     pub profile_id: String,
     pub capabilities: Vec<Capability>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderSnapshot {
+    pub providers: Vec<ProviderHealth>,
+    pub capabilities: Vec<Capability>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservationRequest {
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub capability: CapabilityId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservationResponse {
+    pub observation: ObservationEnvelope,
+    pub freshness: FreshnessState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservationSystemSnapshot {
+    pub graph: SystemGraph,
+    pub providers: ProviderSnapshot,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,6 +97,16 @@ pub struct ExplainResponse {
     pub target: ExplainTarget,
     pub why: WhyChain,
     pub removal_impact: Option<RemovalImpact>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObservationExplanation {
+    pub resource: ResourceId,
+    pub provider: ProviderId,
+    pub capability: CapabilityId,
+    pub freshness: FreshnessState,
+    pub evidence_id: String,
+    pub authority: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
