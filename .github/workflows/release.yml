@@ -41,11 +41,10 @@ jobs:
       actions: read
       attestations: read
       id-token: write
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       PROOF_RUN_ID: ${{ inputs.proof_run_id }}
       PROOF_DIR: ${{ runner.temp }}/linura-proof
@@ -72,31 +71,29 @@ jobs:
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
 
-      - name: Resolve and validate release identity
-        id: release
+      - name: Validate release identity and frozen contract
         run: |
           set -euo pipefail
           subject="$(git log -1 --pretty=%s)"
-          python3 - "$subject" "$RELEASE_VERSION" "$GITHUB_OUTPUT" <<'PY'
+          python3 - "$subject" "$RELEASE_TAG" <<'PY'
           import re
           import sys
 
-          subject, requested_version, output_path = sys.argv[1:]
+          subject, expected_tag = sys.argv[1:]
           match = re.fullmatch(
               r"release: (?P<tag>v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) — (?P<theme>\S.*)",
               subject,
           )
           if match is None:
               raise SystemExit(f"invalid release-intent subject: {subject!r}")
-          tag = match.group("tag")
-          if tag[1:] != requested_version:
-              raise SystemExit(f"release request version {requested_version!r} does not match commit {tag!r}")
-          with open(output_path, "a", encoding="utf-8") as handle:
-              handle.write(f"tag={tag}\n")
+          if match.group("tag") != expected_tag:
+              raise SystemExit(
+                  f"release-intent tag {match.group('tag')!r} does not match requested {expected_tag!r}"
+              )
           PY
           python3 tools/release_contract.py validate \
-            --tag "${{ steps.release.outputs.tag }}" \
-            --notes "docs/releases/${{ steps.release.outputs.tag }}.md" \
+            --tag "$RELEASE_TAG" \
+            --notes "docs/releases/${RELEASE_TAG}.md" \
             --require-workspace-version
 
       - name: Verify permanent exact-SHA gates
@@ -131,8 +128,6 @@ jobs:
             --dir "$PROOF_DIR"
 
       - name: Verify proof receipt, sealed payload and provenance
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -152,6 +147,8 @@ jobs:
               raise SystemExit("release proof source mismatch")
           if receipt.get("tag") != os.environ["RELEASE_TAG"]:
               raise SystemExit("release proof tag mismatch")
+          if receipt.get("version") != os.environ["RELEASE_VERSION"]:
+              raise SystemExit("release proof version mismatch")
           if str(receipt.get("run_id")) != os.environ["PROOF_RUN_ID"]:
               raise SystemExit("release proof run mismatch")
           declared = receipt.get("artifacts")
@@ -169,7 +166,10 @@ jobs:
           for path in payload.iterdir():
               if path.is_symlink() or not path.is_file():
                   raise SystemExit(f"invalid proof payload entry: {path.name}")
-              actual[path.name] = (path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest())
+              actual[path.name] = (
+                  path.stat().st_size,
+                  hashlib.sha256(path.read_bytes()).hexdigest(),
+              )
           if actual != expected:
               raise SystemExit("sealed proof payload does not match proof receipt")
           PY
@@ -185,13 +185,10 @@ jobs:
           done < <(find "$PROOF_DIR/release-payload" -maxdepth 1 -type f -print0)
 
       - name: Preflight immutable version identity
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -euo pipefail
-          if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null)"; then
-            tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
-            test "$tag_sha" = "$SOURCE_SHA"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-list -n1 "$RELEASE_TAG")" = "$SOURCE_SHA"
           fi
 
   publish:
@@ -199,9 +196,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment:
-      name: release
-      deployment: false
+    environment: release
     permissions:
       contents: write
       actions: read
@@ -210,7 +205,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_VERSION: ${{ inputs.version }}
-      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      RELEASE_TAG: v${{ inputs.version }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       PROOF_RUN_ID: ${{ inputs.proof_run_id }}
       PRERELEASE: ${{ inputs.prerelease }}
@@ -234,7 +229,7 @@ jobs:
             --name "linura-trusted-release-proof-$SOURCE_SHA" \
             --dir "$PROOF_DIR"
 
-      - name: Reverify sealed payload
+      - name: Reverify sealed payload and provenance
         run: |
           set -euo pipefail
           test "$(cat "$PROOF_DIR/release-payload/SOURCE_SHA")" = "$SOURCE_SHA"
@@ -247,6 +242,20 @@ jobs:
           while IFS= read -r -d '' file; do
             gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
           done < <(find "$PROOF_DIR/release-payload" -maxdepth 1 -type f -print0)
+
+      - name: Create or verify immutable version tag
+        run: |
+          set -euo pipefail
+          git fetch origin --tags --force
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-list -n1 "$RELEASE_TAG")" = "$SOURCE_SHA"
+            echo "$RELEASE_TAG already exists on the exact proven source"
+          else
+            created="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$RELEASE_TAG" \
+              -f sha="$SOURCE_SHA")"
+            test "$(jq -r .object.sha <<<"$created")" = "$SOURCE_SHA"
+          fi
 
       - name: Create or resume immutable publication
         run: |
@@ -293,28 +302,20 @@ jobs:
               api_digest = asset.get("digest")
               if api_digest:
                   return api_digest == f"sha256:{digest}"
-              raw, _ = request("GET", asset["url"], extra_headers={"Accept": "application/octet-stream"})
-              return hashlib.sha256(raw).hexdigest() == digest
-
-          encoded_tag = urllib.parse.quote(tag, safe="")
-          raw, status = request("GET", f"https://api.github.com/repos/{repo}/git/ref/tags/{encoded_tag}")
-          if status == 404:
-              body = json.dumps({"ref": f"refs/tags/{tag}", "sha": sha}).encode()
               raw, _ = request(
-                  "POST",
-                  f"https://api.github.com/repos/{repo}/git/refs",
-                  body,
-                  {"Content-Type": "application/json"},
+                  "GET",
+                  asset["url"],
+                  extra_headers={"Accept": "application/octet-stream"},
               )
-              if json.loads(raw)["object"]["sha"] != sha:
-                  raise SystemExit("created tag resolved incorrectly")
-          elif json.loads(raw)["object"]["sha"] != sha:
-              raise SystemExit("refusing to move immutable tag")
+              return hashlib.sha256(raw).hexdigest() == digest
 
           matches = []
           page = 1
           while True:
-              raw, _ = request("GET", f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}")
+              raw, _ = request(
+                  "GET",
+                  f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}",
+              )
               batch = json.loads(raw)
               matches.extend(release for release in batch if release.get("tag_name") == tag)
               if len(batch) < 100:
@@ -398,7 +399,9 @@ jobs:
           release = json.loads(raw)
           assets = {asset["name"]: asset for asset in release.get("assets", [])}
           if set(assets) != set(expected):
-              raise SystemExit(f"draft asset set mismatch: remote={sorted(assets)} expected={sorted(expected)}")
+              raise SystemExit(
+                  f"draft asset set mismatch: remote={sorted(assets)} expected={sorted(expected)}"
+              )
           for name, digest in expected.items():
               if not asset_matches(assets[name], digest):
                   raise SystemExit(f"draft asset checksum mismatch: {name}")
@@ -426,7 +429,7 @@ jobs:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      RELEASE_TAG: v${{ inputs.version }}
     steps:
       - name: Dispatch verification
         run: gh workflow run release-verification.yml --ref main -f tag="$RELEASE_TAG"
