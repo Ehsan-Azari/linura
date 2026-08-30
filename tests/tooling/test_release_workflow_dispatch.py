@@ -33,6 +33,19 @@ class ReleaseWorkflowDispatchTests(unittest.TestCase):
 
         self.assertEqual([], failures, "\n".join(failures))
 
+    def test_release_verification_dispatch_uses_release_tag_ref(self) -> None:
+        release_workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        verification_dispatch = next(
+            line
+            for line in release_workflow.splitlines()
+            if "gh workflow run release-verification.yml" in line
+        )
+        self.assertIn(
+            '--ref "$RELEASE_TAG"',
+            verification_dispatch,
+            "independent verification must execute the workflow definition frozen in the published release tag",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
