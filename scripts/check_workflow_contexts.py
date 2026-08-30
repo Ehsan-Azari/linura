@@ -26,21 +26,18 @@ def main() -> int:
                 continue
 
             env_indent = len(match.group("indent"))
-            # `runner` is not available in workflow-level `env` (indent 0) or
-            # job-level `jobs.<job_id>.env` (normally indent 4). Step-level
-            # `env` is evaluated with the runner context and is allowed.
-            if env_indent > 4:
-                continue
-
-            # Cover flow-style YAML mappings such as:
-            # env: { PROOF_DIR: "${{ runner.temp }}/proof" }
+            # Repository policy is deliberately stricter than GitHub's context
+            # matrix: runner.* expressions are forbidden in every env mapping.
+            # This avoids scope/indentation heuristics while preserving runner.*
+            # for valid non-env step contexts such as `with:` when necessary.
             if RUNNER_EXPRESSION.search(match.group("value")):
                 failures.append(
-                    f"runner context is unavailable in workflow/job env: "
+                    f"runner context is forbidden in env mappings: "
                     f"{workflow.relative_to(ROOT)}:{index + 1}"
                 )
 
-            # Cover ordinary block mappings and multi-line flow mappings.
+            # Cover ordinary block mappings and multi-line flow mappings using
+            # indentation relative to this specific env key, not fixed columns.
             for nested_index in range(index + 1, len(lines)):
                 nested = lines[nested_index]
                 if not nested.strip():
@@ -49,7 +46,7 @@ def main() -> int:
                     break
                 if RUNNER_EXPRESSION.search(nested):
                     failures.append(
-                        f"runner context is unavailable in workflow/job env: "
+                        f"runner context is forbidden in env mappings: "
                         f"{workflow.relative_to(ROOT)}:{nested_index + 1}"
                     )
 
