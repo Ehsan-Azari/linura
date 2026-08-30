@@ -36,12 +36,16 @@ fn check() -> Result<(), String> {
             "--workspace",
             "--all-targets",
             "--all-features",
+            "--locked",
             "--",
             "-D",
             "warnings",
         ],
     )?;
-    run("cargo", &["test", "--workspace", "--all-features"])?;
+    run(
+        "cargo",
+        &["test", "--workspace", "--all-features", "--locked"],
+    )?;
     run("python3", &["scripts/check_repository.py"])?;
     run("python3", &["scripts/validate_assets.py"])?;
     release_contracts()?;
