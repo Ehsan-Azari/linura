@@ -11,11 +11,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "linura-bootstrap"
+version = "0.0.0"
+
+[[package]]
 name = "linura-capability-sdk"
 version = "0.0.0"
 dependencies = [
  "linura-core",
 ]
+
+[[package]]
+name = "linura-config"
+version = "0.0.0"
 
 [[package]]
 name = "linura-control"
@@ -54,11 +62,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "linura-hardware"
+version = "0.0.0"
+
+[[package]]
 name = "linura-intent"
 version = "0.0.0"
 dependencies = [
  "linura-core",
 ]
+
+[[package]]
+name = "linura-lifecycle"
+version = "0.0.0"
+
+[[package]]
+name = "linura-migrations"
+version = "0.0.0"
 
 [[package]]
 name = "linura-planner"
@@ -114,41 +134,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "linuractl"
-version = "0.0.0"
-dependencies = [
- "linura-sdk",
-]
-
-[[package]]
-name = "linurad"
-version = "0.0.0"
-dependencies = [
- "linura-control",
- "linura-policy",
-]
-
-[[package]]
-name = "linura-bootstrap"
-version = "0.0.0"
-
-[[package]]
-name = "linura-config"
-version = "0.0.0"
-
-[[package]]
-name = "linura-hardware"
-version = "0.0.0"
-
-[[package]]
-name = "linura-lifecycle"
-version = "0.0.0"
-
-[[package]]
-name = "linura-migrations"
-version = "0.0.0"
-
-[[package]]
 name = "linura-testkit"
 version = "0.0.0"
 dependencies = [
@@ -166,6 +151,21 @@ name = "linura-update-guard"
 version = "0.0.0"
 dependencies = [
  "linura-update",
+]
+
+[[package]]
+name = "linuractl"
+version = "0.0.0"
+dependencies = [
+ "linura-sdk",
+]
+
+[[package]]
+name = "linurad"
+version = "0.0.0"
+dependencies = [
+ "linura-control",
+ "linura-policy",
 ]
 
 [[package]]
