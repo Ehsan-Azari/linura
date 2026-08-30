@@ -21,6 +21,13 @@ jobs:
           set -euo pipefail
           git fetch origin main --depth=1
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Validate frozen release contract
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes="docs/releases/${RELEASE_TAG}.md"
+          python3 tools/release_contract.py validate --tag "$RELEASE_TAG" --notes "$notes" --require-workspace-version
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
       - run: rustup default 1.98.0
@@ -41,12 +48,11 @@ jobs:
           install -m 0755 target/release/linura-executor-systemd dist/linura-executor-systemd
           printf '%s\n' "$GITHUB_SHA" > dist/SOURCE_SHA
           printf '%s\n' "$RELEASE_TAG" > dist/RELEASE_TAG
-          python3 tools/generate_sbom.py dist/linura.spdx.json \
-            dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd \
-            --version "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
-          python3 tools/make_checksums.py dist/SHA256SUMS \
-            dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd \
-            dist/linura.spdx.json dist/SOURCE_SHA dist/RELEASE_TAG
+          cp "docs/releases/${RELEASE_TAG}.md" dist/RELEASE_NOTES.md
+          python3 tools/generate_sbom.py dist/linura.spdx.json dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd --version "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
+          python3 tools/release_contract.py evidence --tag "$RELEASE_TAG" --source-sha "$GITHUB_SHA" --notes dist/RELEASE_NOTES.md --output dist/RELEASE-EVIDENCE.json --artifact dist/linurad --artifact dist/linuractl --artifact dist/linura-firstboot --artifact dist/linura-update-guard --artifact dist/linura-executor-systemd --artifact dist/linura.spdx.json --artifact dist/SOURCE_SHA --artifact dist/RELEASE_TAG
+          python3 tools/make_checksums.py dist/SHA256SUMS dist/linurad dist/linuractl dist/linura-firstboot dist/linura-update-guard dist/linura-executor-systemd dist/linura.spdx.json dist/SOURCE_SHA dist/RELEASE_TAG dist/RELEASE_NOTES.md dist/RELEASE-EVIDENCE.json
+          python3 tools/release_contract.py verify --directory dist --tag "$RELEASE_TAG" --source-sha "$GITHUB_SHA"
           python3 tools/release_verify.py dist
       - name: Attest candidate artifacts
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2

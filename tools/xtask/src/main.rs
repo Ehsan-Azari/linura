@@ -15,6 +15,18 @@ fn run(program: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+fn release_contracts() -> Result<(), String> {
+    run(
+        "python3",
+        &[
+            "tools/release_contract.py",
+            "validate-tree",
+            "--releases-dir",
+            "docs/releases",
+        ],
+    )
+}
+
 fn check() -> Result<(), String> {
     run("cargo", &["fmt", "--all", "--check"])?;
     run(
@@ -32,6 +44,7 @@ fn check() -> Result<(), String> {
     run("cargo", &["test", "--workspace", "--all-features"])?;
     run("python3", &["scripts/check_repository.py"])?;
     run("python3", &["scripts/validate_assets.py"])?;
+    release_contracts()?;
     run(
         "python3",
         &[
@@ -52,7 +65,7 @@ fn print_help() {
     println!("\nUSAGE:\n  cargo xtask <command>");
     println!("\nCOMMANDS:");
     println!("  check              canonical local/CI validation");
-    println!("  repo               repository and structured-asset validation");
+    println!("  repo               repository, asset and release-contract validation");
     println!("  acceptance-list    list disposable-machine acceptance scenarios");
     println!("  vm-plan            print QEMU command for a qcow2 image");
     println!("  image-plan         print Arch image build stages");
@@ -63,7 +76,8 @@ fn main() -> ExitCode {
     let result = match command.as_str() {
         "check" => check(),
         "repo" => run("python3", &["scripts/check_repository.py"])
-            .and_then(|_| run("python3", &["scripts/validate_assets.py"])),
+            .and_then(|_| run("python3", &["scripts/validate_assets.py"]))
+            .and_then(|_| release_contracts()),
         "acceptance-list" => run("python3", &["tools/acceptance.py", "list"]),
         "vm-plan" => run("python3", &["tools/vm.py", "plan"]),
         "image-plan" => run("python3", &["tools/image.py", "plan"]),

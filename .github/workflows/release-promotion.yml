@@ -46,11 +46,14 @@ jobs:
           test "$(git rev-list -n1 "$RELEASE_TAG")" = "$EXPECTED_SHA"
       - name: Download exact candidate artifact
         run: gh run download "$CANDIDATE_RUN_ID" --name linura-release-candidate --dir candidate
-      - name: Verify candidate contents
+      - name: Verify candidate contents and frozen claim
         run: |
           set -euo pipefail
           test "$(cat candidate/SOURCE_SHA)" = "$EXPECTED_SHA"
           test "$(cat candidate/RELEASE_TAG)" = "$RELEASE_TAG"
+          python3 tools/release_contract.py verify --directory candidate --tag "$RELEASE_TAG" --source-sha "$EXPECTED_SHA"
           python3 tools/release_verify.py candidate
-      - name: Publish GitHub Release from verified bytes
-        run: gh release create "$RELEASE_TAG" candidate/* --verify-tag --title "Linura $RELEASE_TAG" --generate-notes
+      - name: Publish GitHub Release from verified bytes and notes
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" candidate/* --verify-tag --title "Linura $RELEASE_TAG" --notes-file candidate/RELEASE_NOTES.md

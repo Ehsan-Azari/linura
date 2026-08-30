@@ -33,7 +33,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/Ehsan-Azari/linura"
+repository = "https://github.com/linura-org/linura"
 authors = ["Linura contributors"]
 
 [workspace.lints.rust]
