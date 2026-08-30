@@ -7,7 +7,7 @@
 
 Linura already follows a proof-first, tag-last release model and promotes the exact bytes produced by Trusted Release Proof. As Linura moves toward externally consumable system artifacts, the build itself becomes a security and trust boundary: a correct source SHA is insufficient if build instructions, runner assumptions, environment drift, or publication-time rebuilding can change the resulting bytes.
 
-The previous proof workflow performed validation, construction, attestation and orchestration in one workflow. That was functional but made the trusted builder harder to isolate as a distinct capability and provided no independent byte-for-byte reproduction requirement.
+The previous proof workflow performed validation, construction, attestation and orchestration in one workflow. That was functional but made the trusted builder harder to reason about as a distinct least-privilege capability and provided no independent byte-for-byte reproduction requirement.
 
 ## Decision
 
@@ -24,7 +24,7 @@ Linura adopts a repository-owned reusable trusted-build boundary:
 9. the reusable builder has no repository-content write, tag, or GitHub Release publication authority;
 10. release-stage handoffs after proof use explicit authenticated `workflow_dispatch` messages. `workflow_run` remains only at the permanent-gate observer boundary (`CI`/`Security`/`CodeQL` → Release Proof Dispatch), where it observes independently completed push gates rather than chaining release authority.
 
-Linura describes this as **SLSA-3-style isolation and provenance hardening**, not independent SLSA certification.
+This decision intentionally makes **no SLSA Build Level 3 claim**. The reusable builder definition is stored in and loaded from the same reviewed source revision as the release candidate. It therefore improves capability separation, provenance, determinism and reproducibility, but it is not an independently governed immutable builder definition. A future SLSA Level 3-oriented design would require that stronger governance boundary to be specified and reviewed separately.
 
 ## Trust boundary
 
@@ -34,7 +34,7 @@ Authorization and construction are deliberately separate capabilities:
 protected release intent
   -> exact-SHA permanent gates
   -> proof authorization
-  -> reusable trusted builder
+  -> repository-owned reusable trusted builder
   -> independent binary reproduction
   -> proof completion
   -> promotion
@@ -42,6 +42,8 @@ protected release intent
 ```
 
 The builder can read the selected source and emit evidence/artifacts. It cannot select another source, mutate repository contents, create a version tag, or publish a GitHub Release. Promotion and publication must independently verify the exact proof/source identity before receiving their own narrow authority.
+
+Because the build workflow comes from the same source revision, review of a release-control change must evaluate both product source and build instructions together. Independent byte reproduction reduces nondeterminism risk but does not turn same-revision build instructions into a separately administered trust root.
 
 ## Failure behavior
 
@@ -70,9 +72,9 @@ Rejected because the released bytes could differ from the bytes that were tested
 
 Rejected because deterministic settings alone do not prove reproducibility. A second isolated rebuild provides direct evidence that the distributable binaries are stable under the declared envelope.
 
-### Claim formal SLSA Build Level 3 compliance immediately
+### Move the builder immediately to an independently governed immutable workflow
 
-Rejected. The design follows the reusable-workflow/isolation pattern and strengthens provenance, but Linura will not claim external certification or a stronger conformance level than its evidence establishes.
+Deferred rather than rejected. That is the direction required for a stronger SLSA-style builder trust root, but it introduces another governed artifact/repository boundary and lifecycle. Linura remains standalone for now and will not claim that stronger level until the independent governance model itself is designed, reviewed and operationally justified.
 
 ## Consequences
 
@@ -80,6 +82,7 @@ Rejected. The design follows the reusable-workflow/isolation pattern and strengt
 - Normal development remains unaffected; the extra cost occurs only for deliberate public-release candidates.
 - Build-environment drift becomes visible in sealed evidence.
 - A reproducibility regression blocks promotion before any immutable version identity is consumed.
+- Release reviewers must treat changes to the reusable builder as release trust-boundary changes, not ordinary CI refactoring.
 - The release architecture has a durable decision record for future changes to runner isolation, provenance, reproducibility, or builder authority.
 
 ## Rollback / replacement
