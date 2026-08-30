@@ -1,4 +1,4 @@
-# Linura vX.Y.Z — release title
+# vX.Y.Z — implementation theme
 
 **Status:** implementation complete; publication evidence is established only by the protected release lifecycle.
 **Claim class:** Experimental

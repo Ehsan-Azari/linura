@@ -21,7 +21,7 @@ def valid_notes() -> str:
         for heading in release_contract.REQUIRED_HEADINGS
     )
     return (
-        "# Linura v0.0.0 — test release\n\n"
+        "# v0.0.0 — test release\n\n"
         "**Status:** implementation complete\n"
         "**Claim class:** Architecture\n"
         "**Supported platform profiles:** none\n\n"
@@ -43,6 +43,26 @@ class ReleaseContractTests(unittest.TestCase):
                 metadata["commits"],
                 ["0123456789abcdef0123456789abcdef01234567"],
             )
+
+    def test_contract_rejects_product_name_in_release_notes_heading(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            notes = Path(temp_dir) / "v0.0.0.md"
+            notes.write_text(
+                valid_notes().replace("# v0.0.0 —", "# Linura v0.0.0 —", 1),
+                encoding="utf-8",
+            )
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.validate_contract(notes, "v0.0.0")
+
+    def test_contract_rejects_empty_release_theme(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            notes = Path(temp_dir) / "v0.0.0.md"
+            notes.write_text(
+                valid_notes().replace("# v0.0.0 — test release", "# v0.0.0 — ", 1),
+                encoding="utf-8",
+            )
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.validate_contract(notes, "v0.0.0")
 
     def test_contract_rejects_missing_heading(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
