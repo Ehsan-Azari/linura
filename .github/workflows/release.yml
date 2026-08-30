@@ -427,6 +427,7 @@ jobs:
       contents: read
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       RELEASE_TAG: v${{ inputs.version }}
     steps:
       - name: Dispatch verification
