@@ -17,8 +17,12 @@ Any stage may transition to `recovery-required` with an attributable reason. Upd
 
 Native package-manager recovery must remain possible even when `linurad`, the shell, or a model provider is unavailable.
 
-## Release proof
+## Release claim and proof
 
-See [Release engineering](release-engineering.md). Linura builds candidate bytes from an exact tagged source SHA, records the source/tag, generates an SPDX SBOM and checksums, creates GitHub/Sigstore provenance, and uploads one candidate artifact set. A separate workflow verifies and promotes those exact bytes. A third workflow redownloads published assets and independently verifies checksums/provenance.
+See [Release contracts, claims and evidence](release-contracts.md) and [Release engineering](release-engineering.md).
 
-Publishing never counts as supported system evidence by itself. Supported releases also require the VM/profile/hardware proof appropriate to their claims.
+Each version has a mutable milestone contract while work is underway and a frozen version-scoped release contract before tagging. Release contracts declare claim class, supported platform/hardware scope, authority/security changes, migration/upgrade/recovery boundaries, known unsupported states, and PR/full-SHA commit traceability where appropriate.
+
+Linura builds candidate bytes from an exact tagged source SHA, binds them to the frozen `RELEASE_NOTES.md`, generates a machine-readable `RELEASE-EVIDENCE.json`, SPDX SBOM and checksums, creates GitHub/Sigstore provenance, and uploads one candidate artifact set. A separate workflow verifies and promotes those exact bytes and notes. A third workflow redownloads published assets and independently verifies checksums, provenance, evidence metadata, tag/source identity, and GitHub Release-body identity.
+
+Publishing never counts as supported system evidence by itself. Supported releases also require the VM/profile/hardware, upgrade and recovery proof appropriate to their declared claim class and capabilities.

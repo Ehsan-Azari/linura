@@ -41,6 +41,9 @@
 - [Persistence model](persistence-model.md)
 - [Testing strategy](testing-strategy.md)
 - [Update and release](update-release.md)
+- [Release contracts, claims and evidence](release-contracts.md)
+- [v0.0.1 milestone contract](milestones/v0.0.1.md)
+- [v0.0.0 release contract](releases/v0.0.0.md)
 - [Enterprise](enterprise.md)
 - [ADRs](adr/README.md)
 
@@ -56,5 +59,6 @@
 - [Application supervision](application-supervision.md)
 - [Lifecycle workflows](lifecycle-workflows.md)
 - [Release engineering](release-engineering.md)
+- [Supported release readiness](operations/release-readiness.md)
 - [Development lessons adopted from Omarchy](omarchy-development-lessons.md)
 - [Grand development-foundation status](grand-foundation-status.md)

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Linura will be documented here.
+All notable changes to Linura will be documented here. Version entries stay concise; detailed claims and acceptance boundaries live in `docs/releases/`.
 
 ## [Unreleased]
 
@@ -13,6 +13,8 @@ All notable changes to Linura will be documented here.
 - Renamed planned application directories to `linura-agent-ui`, `linura-control-center`, and `linura-shell`.
 - Locked the canonical managed-mutation lifecycle as request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile.
 - Made portable machine-profile exports self-contained by carrying referenced setup and intent definitions.
+- Adopted version-scoped milestone/release contracts with explicit claim classes, PR/full-SHA commit traceability, and exact-source acceptance boundaries.
+- Release promotion now publishes the frozen repository release contract as the GitHub Release body rather than generating an independent narrative.
 
 ### Added
 - Persistent intent and requirement model.
@@ -36,9 +38,13 @@ All notable changes to Linura will be documented here.
 - Naming/product architecture documentation and ADR 0011.
 - ADR 0012 defining the canonical trustworthy mutation lifecycle.
 - ADR 0013 defining reusable setups and the local-first Linura Library.
+- ADR 0014 defining version-scoped release contracts and machine-readable release evidence.
+- `RELEASE-EVIDENCE.json` generation/verification binding claim metadata, frozen notes, PR/commit traceability and candidate artifact digests.
+- v0.0.1 milestone contract for authenticated authoritative read-only observation and the first real observed system graph.
 
 ## [0.0.0] - Unreleased
-- Initial control-plane architecture bootstrap.
+
+Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md`](docs/releases/v0.0.0.md).
 
 ### Grand development-foundation update
 

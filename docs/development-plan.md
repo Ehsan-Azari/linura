@@ -2,7 +2,9 @@
 
 The development order proves the intent-native model **without depending on an LLM first** and preserves the canonical mutation lifecycle from the first real effect.
 
-## Phase 0 — Linura architecture lock (current)
+Every implementation version is governed by a mutable milestone contract under `docs/milestones/`; before tagging, that milestone closes into a frozen `docs/releases/` contract with a bounded claim class and permanent acceptance evidence. See [Release contracts, claims and evidence](release-contracts.md).
+
+## Phase 0 — Linura architecture lock (complete for v0.0.0)
 
 Exit criteria:
 - Linura naming is complete;
@@ -11,9 +13,14 @@ Exit criteria:
 - portable setup/profile exports are self-contained and secret-safe by contract;
 - the canonical eleven-stage mutation lifecycle is encoded in code and ADRs;
 - first platform profile and recovery constraints exist;
-- CI/repository checks reject legacy naming and missing vision artifacts.
+- version-scoped milestone/release contracts and machine-readable release-evidence semantics exist;
+- CI/repository checks reject legacy naming and validate frozen release contracts.
+
+The v0.0.0 release contract remains an **Architecture** claim: the contracts and development foundation exist, but production authority backends and supported machine behavior do not.
 
 ## Phase 1 — observe and build the system graph
+
+This phase is the implementation target for [v0.0.1](milestones/v0.0.1.md).
 
 Implement:
 1. session D-Bus service `org.linura.Control1`;
@@ -121,7 +128,7 @@ Build clients over the same protocol. No provider-specific backend logic in UI a
 
 ## Phase 13 — supported release hardening
 
-Installer, migrations, snapshots, recovery drills, hardware matrix, security review, SBOM/signing/attestations, reproducible packaging, documentation and soak tests.
+Installer, migrations, snapshots, recovery drills, hardware matrix, security review, SBOM/signing/attestations, reproducible packaging, documentation and soak tests. Supported claim classes require version-specific evidence in addition to the generic release-readiness checklist.
 
 ## Phase 14 — optional sharing, enterprise and fleet
 

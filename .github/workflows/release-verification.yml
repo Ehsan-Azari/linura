@@ -21,7 +21,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - name: Resolve tag
         id: tag
         env:
@@ -32,13 +31,32 @@ jobs:
           tag="${INPUT_TAG:-$EVENT_TAG}"
           test -n "$tag"
           printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
       - name: Download published assets
         run: gh release download "${{ steps.tag.outputs.tag }}" --dir published
-      - name: Verify published digests
-        run: python3 tools/release_verify.py published
-      - name: Verify GitHub build provenance
+      - name: Verify tag, evidence and published digests
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -euo pipefail
-          for file in published/linurad published/linuractl published/linura-firstboot published/linura-update-guard published/linura-executor-systemd; do
+          source_sha="$(cat published/SOURCE_SHA)"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          test "$(cat published/RELEASE_TAG)" = "$RELEASE_TAG"
+          python3 tools/release_contract.py verify --directory published --tag "$RELEASE_TAG" --source-sha "$source_sha"
+          python3 tools/release_verify.py published
+      - name: Verify GitHub Release body equals frozen notes
+        env:
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json body --jq .body > release-body.md
+          python3 tools/release_contract.py compare-body --notes published/RELEASE_NOTES.md --body release-body.md
+      - name: Verify GitHub build provenance for every published candidate asset
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
             gh attestation verify "$file" --repo "$GITHUB_REPOSITORY"
-          done
+          done < <(find published -maxdepth 1 -type f -print0)
