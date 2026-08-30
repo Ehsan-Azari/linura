@@ -1,0 +1,116 @@
+name: Release Proof Dispatch
+
+on:
+  workflow_run:
+    workflows: ["CI", "Security", "CodeQL"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: release-proof-dispatch-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: dispatch proof
+    if: "${{ github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_commit.message, 'release: v') }}"
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Verify exact-main release intent and dispatch proof
+        run: |
+          set -euo pipefail
+
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$main_sha" != "$SOURCE_SHA" ]]; then
+            echo "stale gate completion ignored: current main is $main_sha, trigger was $SOURCE_SHA"
+            exit 0
+          fi
+
+          subject="$(git log -1 --pretty=%s)"
+          python3 - "$subject" "$GITHUB_OUTPUT" <<'PY'
+          import re
+          import sys
+
+          subject, output_path = sys.argv[1], sys.argv[2]
+          match = re.fullmatch(
+              r"release: (?P<tag>v[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?) — (?P<theme>\S.*)",
+              subject,
+          )
+          if match is None:
+              raise SystemExit(f"invalid release-intent subject: {subject!r}")
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"tag={match.group('tag')}\n")
+              handle.write(f"theme={match.group('theme')}\n")
+          PY
+
+          tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
+          python3 tools/release_contract.py validate \
+            --tag "$tag" \
+            --notes "docs/releases/${tag}.md" \
+            --require-workspace-version
+
+          if tag_payload="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" 2>/dev/null)"; then
+            tag_sha="$(jq -r .object.sha <<<"$tag_payload")"
+            if [[ "$tag_sha" != "$SOURCE_SHA" ]]; then
+              echo "$tag already belongs to another source: $tag_sha" >&2
+              exit 1
+            fi
+            echo "$tag already exists on the exact source; no unpublished release intent"
+            exit 0
+          fi
+
+          workflows=(CI Security CodeQL)
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SOURCE_SHA&event=push&per_page=100")"
+          deferred=0
+          for workflow in "${workflows[@]}"; do
+            state="$(jq -r --arg workflow "$workflow" '
+              [.workflow_runs[] | select(.name == $workflow and .head_sha == env.SOURCE_SHA and .event == "push")]
+              | if any(.[]; .status == "completed" and .conclusion == "success") then "success"
+                elif any(.[]; .status == "queued" or .status == "in_progress" or .status == "pending" or .status == "waiting" or .status == "requested") then "active"
+                elif length == 0 then "missing"
+                else "failed" end
+            ' <<<"$runs")"
+            case "$state" in
+              success) echo "$workflow: success" ;;
+              active|missing) deferred=1 ;;
+              *) echo "$workflow failed for $SOURCE_SHA" >&2; exit 1 ;;
+            esac
+          done
+          if [[ "$deferred" -ne 0 ]]; then
+            echo "release proof dispatch deferred until all exact-main gates complete"
+            exit 0
+          fi
+
+          proof_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/trusted-release-proof.yml/runs?head_sha=$SOURCE_SHA&event=workflow_dispatch&per_page=100")"
+          existing="$(jq -r '
+            [.workflow_runs[] | select(.head_sha == env.SOURCE_SHA and .event == "workflow_dispatch")]
+            | sort_by(.id) | reverse
+            | map(select(.status == "queued" or .status == "in_progress" or .status == "pending" or .status == "waiting" or .status == "requested" or (.status == "completed" and .conclusion == "success")))
+            | .[0].id // empty
+          ' <<<"$proof_runs")"
+          if [[ -n "$existing" ]]; then
+            echo "trusted proof already active/successful for $SOURCE_SHA: $existing"
+            exit 0
+          fi
+
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          if [[ "$current" != "$SOURCE_SHA" ]]; then
+            echo "main moved before proof dispatch: $current != $SOURCE_SHA; no dispatch"
+            exit 0
+          fi
+
+          gh workflow run trusted-release-proof.yml --ref main
+          echo "dispatched Trusted Release Proof for exact main $SOURCE_SHA"
