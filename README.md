@@ -102,11 +102,11 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 │ Intent │ Setups │ Profiles │ Context │ Specialists │ Planner│
 ├─────────────────────────────────────────────────────────────┤
 │ AUTHORITY                                                   │
-│ Observe │ Plan │ Validate │ Authorize │ Prepare │ Execute   │
+│ Observe │ Plan │ Validate │ Authorize │ Prepare │ Execute | │
 │ Verify │ Commit │ Audit │ Reconcile                         │
 ├─────────────────────────────────────────────────────────────┤
 │ SYSTEM GRAPH                                                │
-│ Setups │ Resources │ Dependencies │ Conflicts │ Ownership   │
+│ Setups │ Resources │ Dependencies │ Conflicts │ Ownership | │
 │ Why                                                         │
 ├─────────────────────────────────────────────────────────────┤
 │ CAPABILITIES                                                │
