@@ -55,7 +55,7 @@ Run:
 cargo xtask check
 ```
 
-before opening a pull request. This is the same primary check path used by CI. For system changes, also run the relevant task guide and disposable-machine evidence from `agents/skills/` and `tests/acceptance/`.
+before opening a pull request. This is the same primary check path used by CI. For system changes, also run the relevant task guide and disposable-machine evidence from [`agents/skills/`](agents/skills) and [`tests/acceptance/`](tests/acceptance).
 
 Useful discovery commands:
 
