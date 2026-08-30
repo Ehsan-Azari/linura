@@ -107,7 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PROOF_RUN_ID")"
-          test "$(jq -r .name <<<"$run")" = "Trusted Release Proof"
+          test "$(jq -r .path <<<"$run")" = ".github/workflows/trusted-release-proof.yml"
           test "$(jq -r .event <<<"$run")" = "workflow_dispatch"
           test "$(jq -r .status <<<"$run")" = "completed"
           test "$(jq -r .conclusion <<<"$run")" = "success"
