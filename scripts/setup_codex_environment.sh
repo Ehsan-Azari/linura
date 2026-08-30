@@ -5,10 +5,22 @@ set -euo pipefail
 # This script intentionally does not apt-install mutable "latest" packages.
 # Host primitives must be supplied by the configured Codex base environment.
 
-readonly RUST_VERSION="1.98.0"
-readonly CARGO_AUDIT_VERSION="0.22.2"
-readonly ACTIONLINT_VERSION="1.7.12"
-readonly ACTIONLINT_SHA256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+readonly VERSION_CONTRACT="tools/codex/versions.env"
+if [[ ! -f "$VERSION_CONTRACT" ]]; then
+  echo "missing Codex toolchain contract: $VERSION_CONTRACT" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$VERSION_CONTRACT"
+
+: "${RUST_VERSION:?}"
+: "${CARGO_AUDIT_VERSION:?}"
+: "${ACTIONLINT_VERSION:?}"
+: "${ACTIONLINT_SHA256:?}"
+: "${PYTHON_MAJOR_MINOR:?}"
+: "${HOST_OS:?}"
+: "${HOST_ARCH:?}"
+
 readonly ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
 readonly ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
 readonly TOOL_ROOT="${HOME}/.local/linura-tools"
@@ -23,22 +35,28 @@ require_command() {
   fi
 }
 
-for command_name in bash cargo curl git python3 rustc rustup sha256sum tar; do
+for command_name in bash curl git python3 rustup sha256sum tar uname; do
   require_command "$command_name"
 done
 
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64) ;;
-  *)
-    printf 'unsupported Codex setup host: %s-%s; expected Linux-x86_64\n' "$(uname -s)" "$(uname -m)" >&2
-    exit 1
-    ;;
-esac
+actual_os="$(uname -s)"
+actual_arch="$(uname -m)"
+if [[ "$actual_os" != "$HOST_OS" || "$actual_arch" != "$HOST_ARCH" ]]; then
+  printf 'unsupported Codex setup host: %s-%s; expected %s-%s\n' \
+    "$actual_os" "$actual_arch" "$HOST_OS" "$HOST_ARCH" >&2
+  exit 1
+fi
+
+actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
+  printf 'unsupported Python major/minor: %s; expected %s.x\n' "$actual_python" "$PYTHON_MAJOR_MINOR" >&2
+  exit 1
+fi
 
 mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT"
 
-# Install the repository-pinned Rust toolchain. rust-toolchain.toml is the source
-# of truth; the explicit value here is cross-checked so the setup cannot drift.
+# rust-toolchain.toml remains the language-toolchain source of truth. The Codex
+# contract must match it exactly so environment setup cannot silently diverge.
 repo_rust_version="$(python3 - <<'PY'
 import pathlib
 import re
@@ -51,13 +69,17 @@ print(match.group(1))
 PY
 )"
 if [[ "$repo_rust_version" != "$RUST_VERSION" ]]; then
-  printf 'setup/toolchain drift: script=%s rust-toolchain.toml=%s\n' "$RUST_VERSION" "$repo_rust_version" >&2
+  printf 'Codex/toolchain drift: contract=%s rust-toolchain.toml=%s\n' \
+    "$RUST_VERSION" "$repo_rust_version" >&2
   exit 1
 fi
 
 rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
 rustup default "$RUST_VERSION"
 
+for command_name in cargo rustc; do
+  require_command "$command_name"
+done
 actual_rust="$(rustc --version | awk '{print $2}')"
 if [[ "$actual_rust" != "$RUST_VERSION" ]]; then
   printf 'unexpected rustc version: %s (expected %s)\n' "$actual_rust" "$RUST_VERSION" >&2
@@ -70,7 +92,7 @@ if ! command -v cargo-audit >/dev/null 2>&1 || ! cargo-audit --version | grep -F
 fi
 cargo-audit --version | grep -F " $CARGO_AUDIT_VERSION" >/dev/null
 
-# Install actionlint from the exact archive CI trusts, verified before extraction.
+# Install actionlint from the exact archive and digest already trusted by Linura CI.
 actionlint_bin="$ACTIONLINT_ROOT/actionlint"
 if [[ ! -x "$actionlint_bin" ]] || [[ "$($actionlint_bin -version 2>/dev/null || true)" != *"${ACTIONLINT_VERSION}"* ]]; then
   archive_path="$(mktemp)"
@@ -85,19 +107,20 @@ if [[ ! -x "$actionlint_bin" ]] || [[ "$($actionlint_bin -version 2>/dev/null ||
   chmod 0755 "$actionlint_bin"
 fi
 ln -sfn "$actionlint_bin" "$BIN_ROOT/actionlint"
-"$BIN_ROOT/actionlint" -version | grep -F "$ACTIONLINT_VERSION" >/dev/null
+"$actionlint_bin" -version | grep -F "$ACTIONLINT_VERSION" >/dev/null
 
-# Fetch Rust dependencies without changing the lockfile. This warms Codex's setup
-# cache while preserving the same dependency graph used by CI/release proof.
+# Warm the exact Cargo dependency graph without modifying Cargo.lock.
 cargo fetch --locked
 
-# The setup itself must leave tracked repository state unchanged.
+# Setup is not allowed to repair or rewrite tracked repository state.
 git diff --exit-code -- .
 git diff --cached --exit-code -- .
 
 printf 'Linura Codex environment ready.\n'
+printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  python: %s\n' "$(python3 --version)"
 printf '  rustc: %s\n' "$(rustc --version)"
 printf '  cargo: %s\n' "$(cargo --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
-printf '  actionlint: %s\n' "$("$BIN_ROOT/actionlint" -version | head -1)"
-printf 'Run scripts/preflight_codex_environment.sh before delegated implementation.\n'
+printf '  actionlint: %s\n' "$("$actionlint_bin" -version | head -1)"
+printf 'Run: bash scripts/preflight_codex_environment.sh\n'
