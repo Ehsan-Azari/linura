@@ -96,17 +96,17 @@ The control plane is reusable without AI. The intelligence plane can be replaced
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ EXPERIENCE                                                  │
-│ First Boot │ Agent UI │ Library │ Control Center │ CLI     │
+│ First Boot │ Agent UI │ Library │ Control Center │ CLI      │
 ├─────────────────────────────────────────────────────────────┤
 │ INTELLIGENCE                                                │
 │ Intent │ Setups │ Profiles │ Context │ Specialists │ Planner│
 ├─────────────────────────────────────────────────────────────┤
 │ AUTHORITY                                                   │
 │ Observe │ Plan │ Validate │ Authorize │ Prepare │ Execute   │
-│ Verify │ Commit │ Audit │ Reconcile                           │
+│ Verify │ Commit │ Audit │ Reconcile                         │
 ├─────────────────────────────────────────────────────────────┤
 │ SYSTEM GRAPH                                                │
-│ Setups │ Resources │ Dependencies │ Conflicts │ Ownership  │
+│ Setups │ Resources │ Dependencies │ Conflicts │ Ownership   │
 │ Why                                                         │
 ├─────────────────────────────────────────────────────────────┤
 │ CAPABILITIES                                                │
