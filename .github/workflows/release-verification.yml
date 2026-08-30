@@ -15,6 +15,10 @@ permissions:
   attestations: read
   id-token: write
 
+concurrency:
+  group: release-verification-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     runs-on: ubuntu-latest

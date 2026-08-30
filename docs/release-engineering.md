@@ -22,9 +22,30 @@ Linura follows one stable presentation contract across Git, GitHub Releases and 
 
 The Git tag deliberately stays product-name-free for SemVer-compatible tooling. The product name belongs in the GitHub Release title, while the frozen note heading carries the version plus a concise implementation theme. GitHub has no separate release subtitle field, so the first Markdown heading is the canonical subtitle-like presentation and is verified as part of the frozen release body.
 
+## Protected release intent
+
+The normal release path begins with an exact `main` commit whose subject is:
+
+```text
+release: vX.Y.Z — <implementation theme>
+```
+
+The **Release proof dispatch** workflow runs only for completed `CI`, `Security` or `CodeQL` workflow runs on `main`, and only when the exact source commit has that release-intent subject. It then:
+
+1. proves the source SHA is still the current `main` head;
+2. validates the versioned frozen release contract against the workspace version;
+3. requires successful exact-SHA push runs for `CI`, `Security` and `CodeQL`;
+4. creates `refs/tags/vX.Y.Z` only if the name is unused, or proves an existing tag points to the same source SHA;
+5. avoids duplicate candidate dispatches for the same tag/source;
+6. dispatches the trusted candidate workflow at the immutable tag.
+
+The dispatcher has no product/runtime authority. Its write authority is narrowly limited to release-control operations after permanent exact-main gates succeed.
+
+A manually created valid tag remains supported: tag pushes still invoke the same candidate workflow. `workflow_dispatch` exists as a recovery/retry path, but cannot create a valid candidate from a non-tag ref.
+
 ## Candidate
 
-The tag-triggered **Trusted release candidate** workflow:
+The tag-bound **Trusted release candidate** workflow:
 
 1. verifies the tag commit belongs to `main` history;
 2. requires `docs/releases/<tag>.md`;
@@ -45,7 +66,9 @@ The tag-triggered **Trusted release candidate** workflow:
 
 ## Promotion
 
-The manual promotion workflow accepts a successful candidate run ID, exact SHA and existing tag. It verifies:
+A successful **Trusted release candidate** automatically enters the promotion workflow. Manual dispatch remains available as a recovery path and requires the exact candidate run ID, source SHA and tag.
+
+Promotion verifies:
 
 - candidate workflow identity and successful conclusion;
 - candidate head SHA;
@@ -56,7 +79,9 @@ The manual promotion workflow accepts a successful candidate run ID, exact SHA a
 - release-note identity/digest;
 - `SHA256SUMS`.
 
-It then publishes those **same bytes** to a GitHub Release and uses `RELEASE_NOTES.md` verbatim as the Release body. It does not rebuild and does not use generated release notes.
+It then publishes those **same bytes** to a GitHub Release with title `Linura <tag>` and uses `RELEASE_NOTES.md` verbatim as the Release body. It does not rebuild and does not use generated release notes. An already-existing canonical release is never overwritten; it is preserved and sent to independent verification.
+
+Because GitHub suppresses most recursive workflow triggers created by `GITHUB_TOKEN`, promotion explicitly dispatches the independent verification workflow after publication instead of assuming that a `release.published` event will always create another run.
 
 ## Independent publication verification
 
@@ -70,7 +95,7 @@ The post-publication workflow:
 6. downloads the GitHub Release body and compares it with published `RELEASE_NOTES.md`;
 7. verifies GitHub build provenance for every published candidate asset.
 
-Publication is incomplete until this independent verification succeeds.
+Verification is serialized per tag so duplicate publication signals cannot race one another. Publication is incomplete until this independent verification succeeds.
 
 ## Traceability policy
 
