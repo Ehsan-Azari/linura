@@ -35,6 +35,22 @@ require_command() {
   fi
 }
 
+reports_exact_version() {
+  local expected="$1"
+  shift
+  local output token
+  if ! output="$("$@" 2>/dev/null)"; then
+    return 1
+  fi
+  while IFS= read -r token; do
+    token="${token#v}"
+    if [[ "$token" == "$expected" ]]; then
+      return 0
+    fi
+  done < <(printf '%s\n' "$output" | tr '[:space:]' '\n')
+  return 1
+}
+
 for command_name in bash curl git python3 rustup sha256sum tar uname; do
   require_command "$command_name"
 done
@@ -87,14 +103,17 @@ if [[ "$actual_rust" != "$RUST_VERSION" ]]; then
 fi
 
 # Keep the security tool exact. --locked consumes cargo-audit's published lockfile.
-if ! command -v cargo-audit >/dev/null 2>&1 || ! cargo-audit --version | grep -Fq " $CARGO_AUDIT_VERSION"; then
-  cargo install cargo-audit --locked --version "$CARGO_AUDIT_VERSION"
+if ! command -v cargo-audit >/dev/null 2>&1 || ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
+  cargo install cargo-audit --locked --force --version "$CARGO_AUDIT_VERSION"
 fi
-cargo-audit --version | grep -F " $CARGO_AUDIT_VERSION" >/dev/null
+if ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
+  printf 'unexpected cargo-audit version after setup; expected exactly %s\n' "$CARGO_AUDIT_VERSION" >&2
+  exit 1
+fi
 
 # Install actionlint from the exact archive and digest already trusted by Linura CI.
 actionlint_bin="$ACTIONLINT_ROOT/actionlint"
-if [[ ! -x "$actionlint_bin" ]] || [[ "$($actionlint_bin -version 2>/dev/null || true)" != *"${ACTIONLINT_VERSION}"* ]]; then
+if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
   archive_path="$(mktemp)"
   trap 'rm -f "${archive_path:-}"' EXIT
   curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
@@ -107,7 +126,10 @@ if [[ ! -x "$actionlint_bin" ]] || [[ "$($actionlint_bin -version 2>/dev/null ||
   chmod 0755 "$actionlint_bin"
 fi
 ln -sfn "$actionlint_bin" "$BIN_ROOT/actionlint"
-"$actionlint_bin" -version | grep -F "$ACTIONLINT_VERSION" >/dev/null
+if ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
+  printf 'unexpected actionlint version after setup; expected exactly %s\n' "$ACTIONLINT_VERSION" >&2
+  exit 1
+fi
 
 # Warm the exact Cargo dependency graph without modifying Cargo.lock.
 cargo fetch --locked
