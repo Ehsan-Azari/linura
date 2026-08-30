@@ -3,13 +3,13 @@
 ## Before coding
 
 Read, in order:
-1. `README.md`
-2. `AGENTS.md`
-3. `docs/product-vision.md`
-4. `docs/vision-coverage.md`
-5. `docs/architecture.md`
-6. `docs/security-model.md`
-7. relevant ADRs/domain docs
+1. [`README.md`](README.md)
+2. [`AGENTS.md`](AGENTS.md)
+3. [`docs/product-vision.md`](docs/product-vision.md)
+4. [`docs/vision-coverage.md`](docs/vision-coverage.md)
+5. [`docs/architecture.md`](docs/architecture.md)
+6. [`docs/security-model.md`](docs/security-model.md)
+7. relevant [ADRs](docs/adr)/[domain docs](docs)
 
 ## Change classes
 
