@@ -112,7 +112,7 @@ impl Intent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use linura_core::{ActorKind, ValidationError};
+    use linura_core::{ActorId, ActorKind, ValidationError};
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
@@ -123,7 +123,7 @@ mod tests {
         let intent = Intent {
             id: id(IntentId::new("intent:test")),
             actor: Actor {
-                id: "uid:1000".into(),
+                id: id(ActorId::new("uid:1000")),
                 kind: ActorKind::Human,
                 interactive: true,
             },

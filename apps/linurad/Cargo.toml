@@ -7,8 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-linura-control = { path = "../../crates/linura-control" }
-linura-policy = { path = "../../crates/linura-policy" }
+linura-dbus = { path = "../../crates/linura-dbus" }
+linura-linux-observation = { path = "../../crates/linura-linux-observation" }
+linura-observation-control = { path = "../../crates/linura-observation-control" }
 
 [lints]
 workspace = true

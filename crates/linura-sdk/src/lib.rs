@@ -10,10 +10,11 @@ pub use linura_capability_sdk::{
     CapabilityBlueprint, CapabilityCatalog, CapabilityRelation, CapabilityRelationKind, Resolution,
 };
 pub use linura_core::{
-    ActionPlan, Actor, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId, PlanId,
-    ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
+    ActionPlan, Actor, ActorId, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId,
+    PlanId, ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
     SetupId, SupportLevel, ValidationError, WorkflowId,
 };
+pub use linura_dbus::{Control1Client as LocalControlClient, TransportError as LocalControlError};
 pub use linura_graph::{
     Edge, EdgeKind, Node, NodeId, ObservationRecordOutcome, RemovalImpact, SystemGraph,
 };

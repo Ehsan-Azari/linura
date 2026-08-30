@@ -21,6 +21,7 @@ macro_rules! typed_id {
     };
 }
 
+typed_id!(ActorId, "actor id");
 typed_id!(RequestId, "request id");
 typed_id!(PlanId, "plan id");
 typed_id!(IntentId, "intent id");
@@ -55,7 +56,7 @@ pub enum ActorKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Actor {
-    pub id: String,
+    pub id: ActorId,
     pub kind: ActorKind,
     pub interactive: bool,
 }
@@ -202,7 +203,7 @@ mod tests {
 
     fn actor() -> Actor {
         Actor {
-            id: "uid:1000".into(),
+            id: id(ActorId::new("uid:1000")),
             kind: ActorKind::Human,
             interactive: true,
         }
@@ -215,6 +216,7 @@ mod tests {
     #[test]
     fn identifiers_reject_control_characters() {
         assert!(RequestId::new("bad\nvalue").is_err());
+        assert!(ActorId::new("uid:1000\nspoof").is_err());
     }
 
     #[test]

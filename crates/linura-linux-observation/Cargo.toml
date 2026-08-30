@@ -1,0 +1,16 @@
+[package]
+name = "linura-linux-observation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+linura-core = { path = "../linura-core" }
+linura-observation = { path = "../linura-observation" }
+linura-provider-sdk = { path = "../linura-provider-sdk" }
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+
+[lints]
+workspace = true
