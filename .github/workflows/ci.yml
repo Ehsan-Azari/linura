@@ -14,13 +14,41 @@ concurrency:
 
 jobs:
   canonical-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Load repository toolchain contract
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          {
+            printf 'RUST_VERSION=%s\n' "$RUST_VERSION"
+            printf 'CARGO_AUDIT_VERSION=%s\n' "$CARGO_AUDIT_VERSION"
+            printf 'ACTIONLINT_VERSION=%s\n' "$ACTIONLINT_VERSION"
+            printf 'ACTIONLINT_SHA256=%s\n' "$ACTIONLINT_SHA256"
+            printf 'PYTHON_MAJOR_MINOR=%s\n' "$PYTHON_MAJOR_MINOR"
+            printf 'HOST_OS=%s\n' "$HOST_OS"
+            printf 'HOST_ARCH=%s\n' "$HOST_ARCH"
+          } >> "$GITHUB_ENV"
+      - name: Verify canonical host contract
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "$HOST_OS"
+          test "$(uname -m)" = "$HOST_ARCH"
+          test "$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')" = "$PYTHON_MAJOR_MINOR"
+          repo_rust_version="$(python3 - <<'PY'
+          import pathlib
+          import re
+          text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+          match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('rust-toolchain.toml does not declare a channel')
+          print(match.group(1))
+          PY
+          )"
+          test "$repo_rust_version" = "$RUST_VERSION"
       - name: Validate GitHub Actions workflows
-        env:
-          ACTIONLINT_VERSION: "1.7.12"
-          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
         run: |
           set -euo pipefail
           archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
@@ -54,9 +82,9 @@ jobs:
           fi
           grep -F 'context "runner" is not allowed here' "$RUNNER_TEMP/actionlint-regression.log"
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
+        run: rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
       - name: Use pinned Rust toolchain
-        run: rustup default 1.98.0
+        run: rustup default "$RUST_VERSION"
       - name: Run canonical Linura checks
         run: cargo xtask check
       - name: Verify canonical checks are non-mutating
@@ -69,4 +97,4 @@ jobs:
       - name: Validate shell syntax
         run: |
           set -euo pipefail
-          while IFS= read -r -d '' file; do bash -n "$file"; done < <(find packaging -type f -name '*.sh' -print0)
+          while IFS= read -r -d '' file; do bash -n "$file"; done < <(find packaging scripts -type f -name '*.sh' -print0)

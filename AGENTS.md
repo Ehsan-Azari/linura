@@ -11,6 +11,8 @@ Implement that by converting human/model input into typed intent and determinist
 ## Mandatory rules
 
 - Read `SECURITY.md`, `docs/security-model.md`, `docs/agent-architecture.md`, and `docs/vision-coverage.md` before modifying authority, agent, policy, executor, persistence or extension code.
+- In a Codex/cloud development environment, run `bash scripts/preflight_codex_environment.sh` before modifying repository files. If it fails, report the environment mismatch rather than silently repairing the task environment.
+- `scripts/setup_codex_environment.sh` is environment-creation/bootstrap tooling, not an ordinary task-time installer. Do not install mutable/latest development tools during delegated work; repository-owned Codex tool versions live in `tools/codex/versions.env`.
 - Conversation/model output is never the durable source of truth; approved structured intent is.
 - Every managed resource must be explainable through semantic provenance.
 - Retiring intent must analyze shared ownership/dependencies before cleanup.

@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Canonical deterministic setup for Linura Codex/cloud development environments.
+# This script intentionally does not apt-install mutable "latest" packages.
+# Host primitives must be supplied by the configured Codex base environment.
+
+readonly VERSION_CONTRACT="tools/codex/versions.env"
+if [[ ! -f "$VERSION_CONTRACT" ]]; then
+  echo "missing Codex toolchain contract: $VERSION_CONTRACT" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+source "$VERSION_CONTRACT"
+
+: "${RUST_VERSION:?}"
+: "${CARGO_AUDIT_VERSION:?}"
+: "${ACTIONLINT_VERSION:?}"
+: "${ACTIONLINT_SHA256:?}"
+: "${PYTHON_MAJOR_MINOR:?}"
+: "${HOST_OS:?}"
+: "${HOST_ARCH:?}"
+
+readonly ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+readonly ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
+readonly TOOL_ROOT="${HOME}/.local/linura-tools"
+readonly ACTIONLINT_ROOT="${TOOL_ROOT}/actionlint/${ACTIONLINT_VERSION}"
+readonly BIN_ROOT="${HOME}/.local/bin"
+
+require_command() {
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    printf 'missing required host command: %s\n' "$command_name" >&2
+    exit 1
+  fi
+}
+
+reports_exact_version() {
+  local expected="$1"
+  shift
+  local output token
+  if ! output="$("$@" 2>/dev/null)"; then
+    return 1
+  fi
+  while IFS= read -r token; do
+    token="${token#v}"
+    if [[ "$token" == "$expected" ]]; then
+      return 0
+    fi
+  done < <(printf '%s\n' "$output" | tr '[:space:]' '\n')
+  return 1
+}
+
+for command_name in bash curl git python3 rustup sha256sum tar uname; do
+  require_command "$command_name"
+done
+
+actual_os="$(uname -s)"
+actual_arch="$(uname -m)"
+if [[ "$actual_os" != "$HOST_OS" || "$actual_arch" != "$HOST_ARCH" ]]; then
+  printf 'unsupported Codex setup host: %s-%s; expected %s-%s\n' \
+    "$actual_os" "$actual_arch" "$HOST_OS" "$HOST_ARCH" >&2
+  exit 1
+fi
+
+actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
+  printf 'unsupported Python major/minor: %s; expected %s.x\n' "$actual_python" "$PYTHON_MAJOR_MINOR" >&2
+  exit 1
+fi
+
+mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT"
+
+# rust-toolchain.toml remains the language-toolchain source of truth. The Codex
+# contract must match it exactly so environment setup cannot silently diverge.
+repo_rust_version="$(python3 - <<'PY'
+import pathlib
+import re
+
+text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+if match is None:
+    raise SystemExit('rust-toolchain.toml does not declare a channel')
+print(match.group(1))
+PY
+)"
+if [[ "$repo_rust_version" != "$RUST_VERSION" ]]; then
+  printf 'Codex/toolchain drift: contract=%s rust-toolchain.toml=%s\n' \
+    "$RUST_VERSION" "$repo_rust_version" >&2
+  exit 1
+fi
+
+rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+rustup default "$RUST_VERSION"
+
+for command_name in cargo rustc; do
+  require_command "$command_name"
+done
+actual_rust="$(rustc --version | awk '{print $2}')"
+if [[ "$actual_rust" != "$RUST_VERSION" ]]; then
+  printf 'unexpected rustc version: %s (expected %s)\n' "$actual_rust" "$RUST_VERSION" >&2
+  exit 1
+fi
+
+# Keep the security tool exact. --locked consumes cargo-audit's published lockfile.
+if ! command -v cargo-audit >/dev/null 2>&1 || ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
+  cargo install cargo-audit --locked --force --version "$CARGO_AUDIT_VERSION"
+fi
+if ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
+  printf 'unexpected cargo-audit version after setup; expected exactly %s\n' "$CARGO_AUDIT_VERSION" >&2
+  exit 1
+fi
+
+# Install actionlint from the exact archive and digest already trusted by Linura CI.
+actionlint_bin="$ACTIONLINT_ROOT/actionlint"
+if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
+  archive_path="$(mktemp)"
+  trap 'rm -f "${archive_path:-}"' EXIT
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    --output "$archive_path" \
+    "$ACTIONLINT_URL"
+  printf '%s  %s\n' "$ACTIONLINT_SHA256" "$archive_path" | sha256sum --check --strict
+  rm -rf "$ACTIONLINT_ROOT"
+  mkdir -p "$ACTIONLINT_ROOT"
+  tar -xzf "$archive_path" -C "$ACTIONLINT_ROOT" actionlint
+  chmod 0755 "$actionlint_bin"
+fi
+ln -sfn "$actionlint_bin" "$BIN_ROOT/actionlint"
+if ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
+  printf 'unexpected actionlint version after setup; expected exactly %s\n' "$ACTIONLINT_VERSION" >&2
+  exit 1
+fi
+
+# Warm the exact Cargo dependency graph without modifying Cargo.lock.
+cargo fetch --locked
+
+# Setup is not allowed to repair or rewrite tracked repository state.
+git diff --exit-code -- .
+git diff --cached --exit-code -- .
+
+printf 'Linura Codex environment ready.\n'
+printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  python: %s\n' "$(python3 --version)"
+printf '  rustc: %s\n' "$(rustc --version)"
+printf '  cargo: %s\n' "$(cargo --version)"
+printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
+printf '  actionlint: %s\n' "$("$actionlint_bin" -version | head -1)"
+printf 'Run: bash scripts/preflight_codex_environment.sh\n'

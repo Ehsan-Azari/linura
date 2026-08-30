@@ -40,6 +40,25 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.source_sha }}
 
+      - name: Load repository toolchain contract
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          repo_rust_version="$(python3 - <<'PY'
+          import pathlib
+          import re
+          text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+          match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('rust-toolchain.toml does not declare a channel')
+          print(match.group(1))
+          PY
+          )"
+          test "$repo_rust_version" = "$RUST_VERSION"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
       - name: Assert exact immutable build source
         run: |
           set -euo pipefail
@@ -51,12 +70,12 @@ jobs:
       - name: Install pinned Rust build toolchain
         run: |
           set -euo pipefail
-          rustup toolchain install 1.98.0 \
+          rustup toolchain install "$RUST_VERSION" \
             --profile minimal \
             --component clippy \
             --component rustfmt \
             --target "$RELEASE_TARGET"
-          rustup default 1.98.0
+          rustup default "$RUST_VERSION"
 
       - name: Establish reproducible build envelope
         run: |
@@ -242,11 +261,30 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.source_sha }}
 
+      - name: Load repository toolchain contract
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          repo_rust_version="$(python3 - <<'PY'
+          import pathlib
+          import re
+          text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+          match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('rust-toolchain.toml does not declare a channel')
+          print(match.group(1))
+          PY
+          )"
+          test "$repo_rust_version" = "$RUST_VERSION"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
       - name: Install pinned Rust build toolchain
         run: |
           set -euo pipefail
-          rustup toolchain install 1.98.0 --profile minimal --target "$RELEASE_TARGET"
-          rustup default 1.98.0
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target "$RELEASE_TARGET"
+          rustup default "$RUST_VERSION"
 
       - name: Establish identical build envelope
         run: |
