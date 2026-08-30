@@ -5,13 +5,94 @@ require "psych"
 
 ROOT = File.expand_path("..", __dir__)
 WORKFLOW_DIR = File.join(ROOT, ".github", "workflows")
-RUNNER_EXPRESSION = /\$\{\{.*?\brunner\s*(?:\.|\[\s*["'])/m
+RUNNER_ROOT = /(?<![A-Za-z0-9_.])runner(?![A-Za-z0-9_])/
+
+
+def expression_bodies(text)
+  bodies = []
+  cursor = 0
+
+  while (start_index = text.index("${{", cursor))
+    index = start_index + 3
+    body_start = index
+    quote = nil
+    closed = false
+
+    while index < text.length
+      char = text[index]
+
+      if quote
+        if quote == "'" && char == "'" && text[index + 1] == "'"
+          index += 2
+          next
+        end
+        quote = nil if char == quote
+        index += 1
+        next
+      end
+
+      if char == "'" || char == '"'
+        quote = char
+        index += 1
+        next
+      end
+
+      if text[index, 2] == "}}"
+        bodies << text[body_start...index]
+        cursor = index + 2
+        closed = true
+        break
+      end
+
+      index += 1
+    end
+
+    break unless closed
+  end
+
+  bodies
+end
+
+
+def strip_quoted_literals(expression)
+  result = +""
+  index = 0
+  quote = nil
+
+  while index < expression.length
+    char = expression[index]
+
+    if quote
+      if quote == "'" && char == "'" && expression[index + 1] == "'"
+        result << "  "
+        index += 2
+        next
+      end
+      quote = nil if char == quote
+      result << " "
+      index += 1
+      next
+    end
+
+    if char == "'" || char == '"'
+      quote = char
+      result << " "
+    else
+      result << char
+    end
+    index += 1
+  end
+
+  result
+end
 
 
 def contains_runner?(value)
   case value
   when String
-    RUNNER_EXPRESSION.match?(value)
+    expression_bodies(value).any? do |expression|
+      RUNNER_ROOT.match?(strip_quoted_literals(expression))
+    end
   when Array
     value.any? { |item| contains_runner?(item) }
   when Hash
@@ -94,6 +175,12 @@ def assert_self_tests!
           env:
             PROOF_DIR: "${{ runner [ 'temp' ] }}/proof"
     YAML
+    <<~YAML,
+      jobs:
+        test:
+          env:
+            RUNNER_JSON: "${{ toJson(runner) }}"
+    YAML
   ]
 
   rejected.each_with_index do |yaml, index|
@@ -104,6 +191,10 @@ def assert_self_tests!
   accepted = <<~YAML
     jobs:
       test:
+        env:
+          LITERAL_AFTER_EXPRESSION: "${{ github.ref }} runner.temp"
+          STRING_LITERAL_IN_EXPRESSION: "${{ contains(github.ref, 'runner.temp') }}"
+          INDEX_LITERAL_IN_EXPRESSION: "${{ github['runner'] }}"
         steps:
           - name: Generate config
             run: |
