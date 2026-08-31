@@ -146,9 +146,15 @@ impl Observer for SystemdObserver {
         }
         require_available(&self.health())?;
         let unit_name = Self::unit_name(resource)?;
+
+        // `GetUnit` only resolves units currently resident in systemd's loaded-unit set. Inactive
+        // units can be garbage-collected immediately after they stop even while their unit file is
+        // still installed. `LoadUnit` is therefore the authoritative lookup for an explicitly named
+        // resource: it loads configuration into systemd without starting the unit, after which the
+        // native Unit properties describe the current inactive/failed/active state.
         let unit_path: OwnedObjectPath = self
             .manager()?
-            .call("GetUnit", &(unit_name,))
+            .call("LoadUnit", &(unit_name,))
             .map_err(provider_bus_error)?;
         let properties = all_properties(
             &self.connection,

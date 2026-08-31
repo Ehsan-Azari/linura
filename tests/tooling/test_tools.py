@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -69,6 +70,68 @@ class ToolingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("qemu-system-x86_64", result.stdout)
         self.assertIn("linura.qcow2", result.stdout)
+
+    def test_vm_plan_supports_read_only_cloud_init_seed(self) -> None:
+        result = self.run_tool(
+            "python3",
+            "tools/vm.py",
+            "plan",
+            "--image",
+            "/tmp/linura.qcow2",
+            "--seed",
+            "/tmp/linura-seed.img",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("linura-seed.img", result.stdout)
+        self.assertIn("readonly=on", result.stdout)
+        self.assertIn("-snapshot", result.stdout)
+
+    def test_vm_plan_can_force_tcg_without_kvm(self) -> None:
+        result = self.run_tool(
+            "python3",
+            "tools/vm.py",
+            "plan",
+            "--image",
+            "/tmp/linura.qcow2",
+            "--accel",
+            "tcg",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("q35,accel=tcg", result.stdout)
+        self.assertIn("-cpu max", result.stdout)
+
+    def test_vm_acceptance_uses_pinned_released_base_image(self) -> None:
+        workflow = (ROOT / ".github/workflows/vm-acceptance.yml").read_text(encoding="utf-8")
+        url_match = re.search(r"^\s*BASE_IMAGE_URL:\s*(\S+)\s*$", workflow, re.MULTILINE)
+        digest_match = re.search(r"^\s*BASE_IMAGE_SHA256:\s*([0-9a-f]+)\s*$", workflow, re.MULTILINE)
+        self.assertIsNotNone(url_match)
+        self.assertIsNotNone(digest_match)
+        assert url_match is not None
+        assert digest_match is not None
+        self.assertRegex(
+            url_match.group(1),
+            r"^https://cloud-images\.ubuntu\.com/releases/noble/release-[0-9]{8}/ubuntu-24\.04-server-cloudimg-amd64\.img$",
+        )
+        self.assertEqual(len(digest_match.group(1)), 64)
+        self.assertNotIn("/current/", url_match.group(1))
+        self.assertIn("sha256sum --check --strict", workflow)
+        self.assertIn("cloud-localds", workflow)
+        self.assertIn("cargo build --release --locked -p linurad -p linuractl", workflow)
+        self.assertIn("VM-ACCEPTANCE-EVIDENCE.json", workflow)
+
+    def test_hosted_vm_acceptance_is_tcg_and_fail_fast(self) -> None:
+        workflow = (ROOT / ".github/workflows/vm-acceptance.yml").read_text(encoding="utf-8")
+        self.assertRegex(workflow, r"(?m)^\s*VM_ACCELERATION:\s*tcg\s*$")
+        self.assertIn('--accel "$VM_ACCELERATION"', workflow)
+        self.assertIn('kill -0 "$VM_PID"', workflow)
+        self.assertIn('"acceleration": os.environ["VM_ACCELERATION"]', workflow)
+
+    def test_trusted_release_proof_requires_vm_acceptance(self) -> None:
+        workflow = (ROOT / ".github/workflows/trusted-release-proof.yml").read_text(encoding="utf-8")
+        self.assertIn("uses: ./.github/workflows/vm-acceptance.yml", workflow)
+        self.assertIn("needs: [validate, acceptance]", workflow)
+        self.assertIn("needs: [validate, acceptance, build]", workflow)
+        self.assertIn("needs.acceptance.result == 'success'", workflow)
 
     def test_image_plan_is_available_without_mkarchiso(self) -> None:
         result = self.run_tool("python3", "tools/image.py", "plan")
