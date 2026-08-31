@@ -4,6 +4,31 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-31
+
+Experimental authoritative-observation milestone. Full release contract: [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md).
+
+### Added
+- Authenticated session D-Bus `org.linura.Control1` service with transport-derived caller identity.
+- Deterministic `linuractl whoami`, `capabilities`, `observe`, `graph`, and evidence-only `explain` surfaces through the public SDK/protocol boundary.
+- Provider health/capability discovery with explicit available, degraded, and unavailable states.
+- Native read-only systemd and NetworkManager observation with provider/resource identity, authority, freshness, validity, sequence, and typed attributes.
+- Projection of authoritative observations into the causal system graph with evidence/explanation linkage.
+- Runtime D-Bus introspection lifecycle annotations matching the canonical checked interface contract.
+- Historical Stable-contract enforcement against an accepted baseline, while v0.1.0 contracts remain Experimental.
+- Repository-owned exact-source disposable-VM qualification using a dated SHA-256-pinned Ubuntu cloud image, ephemeral cloud-init/SSH identity, QEMU snapshot execution, and machine-readable VM evidence.
+- Mandatory disposable-VM qualification in Trusted Release Proof before release build/promotion.
+
+### Changed
+- Explicit systemd observation resolves installed units through native `LoadUnit` before reading Unit properties, so inactive installed units remain observable after systemd garbage-collects their previous loaded-unit object without starting or rewriting the unit.
+- VM acceleration selection now distinguishes `/dev/kvm` presence from usable KVM access; GitHub-hosted qualification uses deterministic TCG and fails immediately if QEMU exits before SSH readiness.
+- Renumbered the originally planned `v0.0.1` implementation milestone to `v0.1.0` to follow Linura's pre-1.0 policy: new externally testable capability slices consume a minor version, while patch versions repair an already-published minor line.
+
+### Boundaries
+- No managed system mutation is claimed.
+- No supported Linux distribution/profile or physical hardware tier is declared.
+- No production persistence, migration, First Boot, agent interpretation, Polkit authority, or complete eleven-stage mutation lifecycle is release-qualified.
+
 ## [0.0.0] - 2026-08-30
 
 Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md`](docs/releases/v0.0.0.md).
@@ -45,7 +70,7 @@ Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md
 - ADR 0013 defining reusable setups and the local-first Linura Library.
 - ADR 0014 defining version-scoped release contracts and machine-readable release evidence.
 - `RELEASE-EVIDENCE.json` generation/verification binding claim metadata, frozen notes, PR/commit traceability and candidate artifact digests.
-- v0.0.1 milestone contract for authenticated authoritative read-only observation and the first real observed system graph.
+- First implementation milestone contract for authenticated authoritative read-only observation and the first real observed system graph (completed as v0.1.0).
 
 ### Grand development-foundation update
 

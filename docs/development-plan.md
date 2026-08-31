@@ -20,7 +20,7 @@ The v0.0.0 release contract remains an **Architecture** claim: the contracts and
 
 ## Phase 1 — observe and build the system graph
 
-This phase is the implementation target for [v0.0.1](milestones/v0.0.1.md).
+This phase is the implementation target for [v0.1.0](milestones/v0.1.0.md).
 
 Implement:
 1. session D-Bus service `org.linura.Control1`;

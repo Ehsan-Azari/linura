@@ -288,7 +288,7 @@ fn escaped(value: &str) -> String {
 
 fn print_help() {
     println!("linuractl {}", env!("CARGO_PKG_VERSION"));
-    println!("Read-only Linura v0.0.1 observation client.");
+    println!("Read-only Linura authoritative observation client.");
     println!();
     println!("Commands:");
     println!("  version");

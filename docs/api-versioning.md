@@ -99,10 +99,10 @@ stability.
 Downgrading a Stable contract is not an acceptable substitute for versioning a
 breaking change.
 
-## v0.0.1 contract posture
+## v0.1.0 contract posture
 
-Linura v0.0.1 is Experimental. `org.linura.Control1`, the Rust SDK/CLI surface,
+Linura v0.1.0 is Experimental. `org.linura.Control1`, the Rust SDK/CLI surface,
 and checked-in JSON Schemas may evolve coherently until explicitly promoted.
-The canonical Control1 contract for v0.0.1 is the authenticated read-only
+The canonical Control1 contract for v0.1.0 is the authenticated read-only
 observation surface. Obsolete pre-stable mutation and JSON compatibility stubs
 are intentionally not part of it.
