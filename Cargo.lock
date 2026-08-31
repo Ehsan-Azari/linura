@@ -361,7 +361,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "linura-agent-runtime"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-intent",
@@ -369,22 +369,22 @@ dependencies = [
 
 [[package]]
 name = "linura-bootstrap"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-capability-sdk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-config"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-control"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-graph",
@@ -398,11 +398,11 @@ dependencies = [
 
 [[package]]
 name = "linura-core"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-dbus"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "blocking",
  "linura-core",
@@ -414,18 +414,18 @@ dependencies = [
 
 [[package]]
 name = "linura-executor-systemd"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-firstboot"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-graph"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-observation",
@@ -433,22 +433,22 @@ dependencies = [
 
 [[package]]
 name = "linura-hardware"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-intent"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-lifecycle"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-linux-observation"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-observation",
@@ -458,18 +458,18 @@ dependencies = [
 
 [[package]]
 name = "linura-migrations"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-observation"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-observation-control"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-graph",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "linura-planner"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-capability-sdk",
  "linura-core",
@@ -489,14 +489,14 @@ dependencies = [
 
 [[package]]
 name = "linura-policy"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-protocol"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-graph",
@@ -507,14 +507,14 @@ dependencies = [
 
 [[package]]
 name = "linura-provenance"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
 ]
 
 [[package]]
 name = "linura-provider-sdk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-observation",
@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "linura-sdk"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-capability-sdk",
  "linura-core",
@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "linura-testkit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-core",
  "linura-observation",
@@ -547,25 +547,25 @@ dependencies = [
 
 [[package]]
 name = "linura-update"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "linura-update-guard"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-update",
 ]
 
 [[package]]
 name = "linuractl"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-sdk",
 ]
 
 [[package]]
 name = "linurad"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "linura-dbus",
  "linura-linux-observation",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "zbus"

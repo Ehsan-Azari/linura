@@ -118,7 +118,7 @@ impl Control1Service {
         Ok((version.major, version.product_version.into()))
     }
 
-    // Authenticated read-only observation surface for v0.0.1.
+    // Authenticated read-only observation surface for the current Experimental Control1 generation.
     async fn who_am_i(
         &self,
         #[zbus(connection)] connection: &zbus::Connection,

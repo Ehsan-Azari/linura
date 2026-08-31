@@ -15,13 +15,13 @@ release_contract = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release_contract)
 
 
-def valid_notes() -> str:
+def valid_notes(tag: str = "v0.0.0") -> str:
     headings = "\n\n".join(
         f"{heading}\n\nEvidence text."
         for heading in release_contract.REQUIRED_HEADINGS
     )
     return (
-        "# v0.0.0 — test release\n\n"
+        f"# {tag} — test release\n\n"
         "**Status:** implementation complete\n"
         "**Claim class:** Architecture\n"
         "**Supported platform profiles:** none\n\n"
@@ -77,16 +77,29 @@ class ReleaseContractTests(unittest.TestCase):
     def test_evidence_detects_artifact_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             directory = Path(temp_dir)
+            tag = f"v{release_contract.workspace_version()}"
             notes = directory / "RELEASE_NOTES.md"
-            notes.write_text(valid_notes(), encoding="utf-8")
+            notes.write_text(valid_notes(tag), encoding="utf-8")
             artifact = directory / "linurad"
             artifact.write_bytes(b"original")
-            evidence = release_contract.build_evidence(notes, "v0.0.0", "a" * 40, [artifact])
+            evidence = release_contract.build_evidence(notes, tag, "a" * 40, [artifact])
             (directory / "RELEASE-EVIDENCE.json").write_text(json.dumps(evidence) + "\n", encoding="utf-8")
-            release_contract.verify_evidence(directory, "v0.0.0", "a" * 40)
+            release_contract.verify_evidence(directory, tag, "a" * 40)
             artifact.write_bytes(b"tampered")
             with self.assertRaises(release_contract.ContractError):
-                release_contract.verify_evidence(directory, "v0.0.0", "a" * 40)
+                release_contract.verify_evidence(directory, tag, "a" * 40)
+
+    def test_evidence_rejects_tag_that_does_not_match_workspace_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            current = release_contract.workspace_version()
+            mismatched_tag = "v9.9.8" if current == "9.9.9" else "v9.9.9"
+            notes = directory / "RELEASE_NOTES.md"
+            notes.write_text(valid_notes(mismatched_tag), encoding="utf-8")
+            artifact = directory / "linurad"
+            artifact.write_bytes(b"candidate")
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.build_evidence(notes, mismatched_tag, "a" * 40, [artifact])
 
     def test_release_tree_uses_filename_as_tag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
