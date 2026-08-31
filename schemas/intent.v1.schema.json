@@ -63,5 +63,7 @@
       },
       "default": []
     }
-  }
+  },
+  "x-linura-contract-id": "schema.intent.v1",
+  "x-linura-stability": "experimental"
 }

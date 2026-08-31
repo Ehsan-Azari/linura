@@ -57,5 +57,7 @@
         "type": "string"
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.provenance.v1",
+  "x-linura-stability": "experimental"
 }

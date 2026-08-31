@@ -31,5 +31,7 @@
         "$ref": "https://linura.org/schemas/intent.v1.schema.json"
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.portable-setup.v1",
+  "x-linura-stability": "experimental"
 }

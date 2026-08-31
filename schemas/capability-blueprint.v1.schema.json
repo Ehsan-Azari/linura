@@ -55,5 +55,7 @@
         "type": "string"
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.capability-blueprint.v1",
+  "x-linura-stability": "experimental"
 }

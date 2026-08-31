@@ -17,29 +17,83 @@
     "artifacts"
   ],
   "properties": {
-    "$schema": {"const": "https://linura.org/schemas/release-evidence.v1.schema.json"},
-    "schema": {"const": 1},
-    "tag": {"type": "string", "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
-    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
-    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "claim_class": {"enum": ["Architecture", "Experimental", "Developer Preview", "Supported Preview", "Supported", "Stable"]},
-    "supported_platform_profiles": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "$schema": {
+      "const": "https://linura.org/schemas/release-evidence.v1.schema.json"
+    },
+    "schema": {
+      "const": 1
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "claim_class": {
+      "enum": [
+        "Architecture",
+        "Experimental",
+        "Developer Preview",
+        "Supported Preview",
+        "Supported",
+        "Stable"
+      ]
+    },
+    "supported_platform_profiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "release_notes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "sha256"],
+      "required": [
+        "name",
+        "sha256"
+      ],
       "properties": {
-        "name": {"const": "RELEASE_NOTES.md"},
-        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        "name": {
+          "const": "RELEASE_NOTES.md"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
       }
     },
     "traceability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pull_requests", "commits"],
+      "required": [
+        "pull_requests",
+        "commits"
+      ],
       "properties": {
-        "pull_requests": {"type": "array", "uniqueItems": true, "items": {"type": "integer", "minimum": 1}},
-        "commits": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}
+        "pull_requests": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "commits": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
       }
     },
     "artifacts": {
@@ -48,12 +102,23 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "sha256"],
+        "required": [
+          "name",
+          "sha256"
+        ],
         "properties": {
-          "name": {"type": "string", "minLength": 1},
-          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
         }
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.release-evidence.v1",
+  "x-linura-stability": "experimental"
 }

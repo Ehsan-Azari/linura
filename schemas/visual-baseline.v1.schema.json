@@ -21,5 +21,7 @@
       "type": "string"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.visual-baseline.v1",
+  "x-linura-stability": "experimental"
 }

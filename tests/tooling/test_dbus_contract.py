@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from pathlib import Path
+import unittest
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[2]
+XML_PATH = ROOT / "interfaces/dbus/org.linura.Control1.xml"
+RUNTIME_PATH = ROOT / "crates/linura-dbus/src/lib.rs"
+
+EXPECTED_METHODS = {
+    "GetProtocolVersion": (("major", "q", "out"), ("product_version", "s", "out")),
+    "WhoAmI": (
+        ("actor_id", "s", "out"), ("actor_kind", "s", "out"),
+        ("interactive", "b", "out"), ("uid", "u", "out"),
+        ("pid", "u", "out"), ("dbus_sender", "s", "out"),
+    ),
+    "Capabilities": (("providers", "a(sss)", "out"), ("capabilities", "a(ssss)", "out")),
+    "Observe": (
+        ("provider", "s", "in"), ("resource", "s", "in"), ("capability", "s", "in"),
+        ("observed_provider", "s", "out"), ("observed_resource", "s", "out"),
+        ("observed_capability", "s", "out"), ("authority", "s", "out"),
+        ("freshness", "s", "out"), ("observed_at_unix_ms", "t", "out"),
+        ("valid_for_ms", "t", "out"), ("sequence", "t", "out"),
+        ("attributes", "a(ss)", "out"),
+    ),
+    "Graph": (("nodes", "a(sa(ss))", "out"), ("edges", "a(ssss)", "out")),
+    "ExplainObservation": (
+        ("resource", "s", "in"), ("explained_resource", "s", "out"),
+        ("provider", "s", "out"), ("capability", "s", "out"),
+        ("freshness", "s", "out"), ("evidence_id", "s", "out"),
+        ("authority", "s", "out"),
+    ),
+}
+
+RUNTIME_METHODS = {
+    "GetProtocolVersion": "async fn get_protocol_version(",
+    "WhoAmI": "async fn who_am_i(",
+    "Capabilities": "async fn capabilities(",
+    "Observe": "async fn observe(",
+    "Graph": "async fn graph(",
+    "ExplainObservation": "async fn explain_observation(",
+}
+
+REMOVED_EXPERIMENTAL_METHODS = {
+    "GetCapabilitySnapshot": "async fn get_capability_snapshot(",
+    "GetSystemGraph": "async fn get_system_graph(",
+    "ProposeIntent": "async fn propose_intent(",
+    "Plan": "async fn plan(",
+    "Explain": "async fn explain(",
+    "ExportProfile": "async fn export_profile(",
+}
+
+
+class Control1ContractTests(unittest.TestCase):
+    def test_control1_is_exact_canonical_experimental_surface(self) -> None:
+        root = ET.parse(XML_PATH).getroot()
+        interface = root.find("./interface[@name='org.linura.Control1']")
+        self.assertIsNotNone(interface)
+        assert interface is not None
+        annotations = {
+            annotation.attrib["name"]: annotation.attrib["value"]
+            for annotation in interface.findall("annotation")
+        }
+        self.assertEqual(annotations["org.linura.ContractId"], "dbus.org.linura.Control1")
+        self.assertEqual(annotations["org.linura.ContractVersion"], "1")
+        self.assertEqual(annotations["org.linura.Stability"], "experimental")
+        actual = {}
+        for method in interface.findall("method"):
+            actual[method.attrib["name"]] = tuple(
+                (arg.attrib["name"], arg.attrib["type"], arg.attrib.get("direction", "in"))
+                for arg in method.findall("arg")
+            )
+        self.assertEqual(actual, EXPECTED_METHODS)
+
+    def test_runtime_matches_current_contract_without_obsolete_shims(self) -> None:
+        source = RUNTIME_PATH.read_text(encoding="utf-8")
+        for marker in RUNTIME_METHODS.values():
+            self.assertIn(marker, source)
+        for name, marker in REMOVED_EXPERIMENTAL_METHODS.items():
+            with self.subTest(name=name):
+                self.assertNotIn(marker, source)
+        self.assertIn('CONTRACT_STABILITY: &str = "experimental"', source)
+
+
+if __name__ == "__main__":
+    unittest.main()

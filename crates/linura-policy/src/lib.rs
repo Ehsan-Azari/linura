@@ -63,8 +63,8 @@ impl PolicyEngine for BaselinePolicy {
 mod tests {
     use super::*;
     use linura_core::{
-        Actor, CapabilityId, Compensation, Effect, IntentId, PlanId, Preconditions, RequestId,
-        ResourceId, SemanticReason, ValidationError, Verification,
+        Actor, ActorId, CapabilityId, Compensation, Effect, IntentId, PlanId, Preconditions,
+        RequestId, ResourceId, SemanticReason, ValidationError, Verification,
     };
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
@@ -76,7 +76,7 @@ mod tests {
             id: id(PlanId::new("plan:test")),
             request_id: id(RequestId::new("req:test")),
             actor: Actor {
-                id: "actor".into(),
+                id: id(ActorId::new("actor")),
                 kind,
                 interactive: kind == ActorKind::Human,
             },

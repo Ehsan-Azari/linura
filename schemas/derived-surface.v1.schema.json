@@ -40,5 +40,7 @@
         "type": "string"
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.derived-surface.v1",
+  "x-linura-stability": "experimental"
 }

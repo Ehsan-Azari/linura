@@ -1,13 +1,108 @@
-# API versioning
+# API and contract stability
 
-Public local API starts under `Control1` / schema version `1` while the product version remains pre-1.0.
+Linura treats **contract version** and **contract stability** as independent axes.
+A name such as `Control1` or `*.v1.schema.json` identifies a contract generation;
+it does not, by itself, make that contract stable or frozen.
 
-Rules:
-- additive fields/methods may be compatible when old clients can ignore them;
-- changing semantics of an existing field/action is breaking;
-- resource/action IDs are stable once published in a supported release;
-- breaking changes introduce a new major interface (`Control2`) with an overlap window;
-- persisted audit records keep their original schema version forever;
-- providers expose their own implementation version separately from protocol version.
+`contracts/stability.toml` is the machine-readable source of truth. Public
+machine-readable artifacts also embed lifecycle metadata so contributors,
+tooling, SDK authors, and automated reviewers see the same status where the
+contract is defined.
 
-Transport serialization will be selected by ADR. The domain model must not depend on D-Bus-specific types.
+## Stability levels
+
+### Experimental
+
+Experimental is the default while Linura is pre-1.0 unless a contract is
+explicitly promoted.
+
+- Breaking changes are allowed when they improve the architecture or remove an
+  obsolete design.
+- No overlap window or deprecation shim is required.
+- A breaking change must update implementation, checked-in contract, schemas,
+  in-repository clients/SDKs, tests, documentation, and the stability registry
+  coherently in the same change.
+- Compatibility shims must not be retained merely because an earlier
+  development commit or Experimental release exposed a shape.
+- Security, authority, provenance, validation, resource bounds, and fail-closed
+  behavior remain mandatory; Experimental does not mean careless.
+
+### Preview
+
+Preview is for contracts intentionally exposed to named early adopters or design
+partners.
+
+- Breaking changes remain possible, but require a migration note and explicit
+  release-note disclosure.
+- Avoid gratuitous churn and preserve compatibility when inexpensive.
+- Promotion is explicit in `contracts/stability.toml`; it is never inferred.
+
+### Stable
+
+Stable is a deliberate compatibility commitment.
+
+- Existing semantics and wire shapes are preserved within the same contract
+  major generation.
+- Breaking changes require a new major contract/interface, an overlap window,
+  migration documentation, and compatibility tests.
+- Promotion requires an ADR or equivalent design record, a supported release,
+  compatibility coverage, and explicit registry metadata (`since` and
+  `compatibility`).
+- Stability is never inferred from a `v1` filename, `Control1` suffix, public
+  visibility, age, or prior inclusion in an Experimental release.
+
+## Historical enforcement
+
+Stable compatibility is checked against an accepted historical tree, not only
+against metadata in the current checkout. The canonical validator selects the
+pull-request merge base (or the previous protected-main commit) and enforces
+that a Stable contract cannot be removed, downgraded, or rewritten in place
+under the same generation.
+
+D-Bus validation permits additive members but preserves every previously
+published method, signal, property, interface annotation, argument shape, and
+member annotation. JSON Schema, CLI, and Rust SDK contracts currently use a
+conservative same-generation comparison: once Stable, their checked contract
+artifact is immutable until a typed compatibility checker can prove a change
+is backward-compatible.
+
+Protected CI fetches full Git history so the historical comparison cannot
+silently degrade into a current-tree-only check. Source archives and specialized
+tooling can provide an explicit prior tree with `--baseline-root`; CI or local
+Git workflows can override baseline discovery with `--baseline-ref` or
+`LINURA_CONTRACT_BASELINE_REF`.
+
+## Product SemVer and contract generations
+
+Product versions and contract generations solve different problems. Linura may
+ship `v0.x` releases containing `Control1` and `*.v1.schema.json` contracts that
+remain Experimental. A contract may later be promoted independently without
+renaming it merely because its stability changed.
+
+## Durable state is different
+
+Experimental wire APIs may be replaced, but persisted user state, migration
+records, audit/provenance records, and durable evidence must never be silently
+reinterpreted or discarded. Persisted-format changes require explicit versioning,
+migration handling, validation, and recovery semantics regardless of API
+stability.
+
+## Promotion procedure
+
+1. Identify the exact registry entry in `contracts/stability.toml`.
+2. Document real consumers and compatibility requirements.
+3. Add migration and compatibility tests appropriate to the target level.
+4. Record the promotion rationale in an ADR or release contract.
+5. Update registry and artifact-local lifecycle metadata atomically.
+6. Run `cargo xtask check` plus applicable integration/acceptance evidence.
+
+Downgrading a Stable contract is not an acceptable substitute for versioning a
+breaking change.
+
+## v0.0.1 contract posture
+
+Linura v0.0.1 is Experimental. `org.linura.Control1`, the Rust SDK/CLI surface,
+and checked-in JSON Schemas may evolve coherently until explicitly promoted.
+The canonical Control1 contract for v0.0.1 is the authenticated read-only
+observation surface. Obsolete pre-stable mutation and JSON compatibility stubs
+are intentionally not part of it.

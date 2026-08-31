@@ -71,6 +71,18 @@ impl SystemGraph {
         self.nodes.insert(node.id.clone(), node);
     }
 
+    /// Remove a node and every incident edge.
+    ///
+    /// This is used by bounded live observation history so evicted evidence
+    /// cannot leave dangling causal edges in the in-memory graph.
+    pub fn remove_node(&mut self, id: &NodeId) -> Option<Node> {
+        let removed = self.nodes.remove(id);
+        if removed.is_some() {
+            self.edges.retain(|edge| &edge.from != id && &edge.to != id);
+        }
+        removed
+    }
+
     #[must_use]
     pub fn node(&self, id: &NodeId) -> Option<&Node> {
         self.nodes.get(id)
@@ -263,9 +275,16 @@ fn observation_is_newer(current: &Node, incoming: &ObservationEnvelope) -> bool 
         .attributes
         .get("sequence")
         .and_then(|value| value.parse::<u64>().ok());
+    let current_provider = current.attributes.get("provider").map(String::as_str);
 
-    match (current_time, current_sequence) {
-        (Some(time), Some(sequence)) => {
+    match (current_provider, current_time, current_sequence) {
+        // Native observers own a monotonic sequence for their lifetime. Prefer
+        // that sequence over realtime timestamps so an NTP/admin clock step
+        // backwards cannot make genuinely newer evidence look historical.
+        (Some(provider), _, Some(sequence)) if provider == incoming.provider.as_str() => {
+            incoming.sequence > sequence
+        }
+        (_, Some(time), Some(sequence)) => {
             (incoming.observed_at_unix_ms, incoming.sequence) > (time, sequence)
         }
         _ => true,
@@ -365,6 +384,64 @@ mod tests {
             edge.kind == EdgeKind::Realizes
                 && edge.from == NodeId::Capability(observation.capability.clone())
         }));
+    }
+
+    #[test]
+    fn removing_evidence_also_removes_its_incident_edges() {
+        let observation = observation(10, 1, "active");
+        let evidence = NodeId::Evidence(observation.evidence_id());
+        let mut graph = SystemGraph::default();
+        assert_eq!(
+            graph.record_observation(&observation, FreshnessState::Current),
+            ObservationRecordOutcome::CurrentStateUpdated
+        );
+        let edge_count = graph.edges().len();
+        assert!(graph.remove_node(&evidence).is_some());
+        assert!(graph.node(&evidence).is_none());
+        assert!(graph.edges().len() < edge_count);
+        assert!(
+            graph
+                .edges()
+                .iter()
+                .all(|edge| edge.from != evidence && edge.to != evidence)
+        );
+    }
+
+    #[test]
+    fn same_provider_sequence_survives_realtime_clock_rollback() {
+        let before_clock_step = observation(2_000, 1, "active");
+        let after_clock_step = observation(1_000, 2, "inactive");
+        let mut graph = SystemGraph::default();
+
+        assert_eq!(
+            graph.record_observation(&before_clock_step, FreshnessState::Current),
+            ObservationRecordOutcome::CurrentStateUpdated
+        );
+        assert_eq!(
+            graph.record_observation(&after_clock_step, FreshnessState::Current),
+            ObservationRecordOutcome::CurrentStateUpdated
+        );
+
+        let resource = NodeId::Resource(after_clock_step.resource.clone());
+        let node = graph
+            .node(&resource)
+            .unwrap_or_else(|| unreachable!("resource must exist"));
+        assert_eq!(
+            node.attributes
+                .get("observed.active_state")
+                .map(String::as_str),
+            Some("inactive")
+        );
+        assert_eq!(
+            node.attributes.get("sequence").map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            node.attributes
+                .get("observed_at_unix_ms")
+                .map(String::as_str),
+            Some("1000")
+        );
     }
 
     #[test]

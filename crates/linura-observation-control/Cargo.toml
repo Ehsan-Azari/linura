@@ -1,5 +1,5 @@
 [package]
-name = "linura-sdk"
+name = "linura-observation-control"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,14 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-linura-capability-sdk = { path = "../linura-capability-sdk" }
 linura-core = { path = "../linura-core" }
-linura-dbus = { path = "../linura-dbus" }
 linura-graph = { path = "../linura-graph" }
-linura-intent = { path = "../linura-intent" }
 linura-observation = { path = "../linura-observation" }
 linura-protocol = { path = "../linura-protocol" }
-linura-provenance = { path = "../linura-provenance" }
+linura-provider-sdk = { path = "../linura-provider-sdk" }
 
 [lints]
 workspace = true

@@ -85,5 +85,7 @@
         }
       }
     }
-  ]
+  ],
+  "x-linura-contract-id": "schema.setup.v1",
+  "x-linura-stability": "experimental"
 }

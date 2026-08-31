@@ -1,6 +1,9 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "https://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
   <interface name="org.linura.Executor.Systemd1">
+    <annotation name="org.linura.ContractId" value="dbus.org.linura.Executor.Systemd1"/>
+    <annotation name="org.linura.ContractVersion" value="1"/>
+    <annotation name="org.linura.Stability" value="experimental"/>
     <method name="SetUnitEnabled">
       <arg name="unit" type="s" direction="in"/>
       <arg name="enabled" type="b" direction="in"/>
