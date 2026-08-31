@@ -104,7 +104,17 @@ pub struct MachineProfile {
 }
 
 impl Intent {
-    pub fn is_managed(&self) -> bool {
+    /// Whether this intent currently participates in desired-state compilation
+    /// and reconciliation.
+    #[must_use]
+    pub const fn is_managed(&self) -> bool {
+        matches!(self.status, IntentStatus::Active)
+    }
+
+    /// Whether this intent remains part of the retained lifecycle state even
+    /// when reconciliation is suspended.
+    #[must_use]
+    pub const fn is_retained(&self) -> bool {
         matches!(self.status, IntentStatus::Active | IntentStatus::Suspended)
     }
 }
@@ -118,21 +128,40 @@ mod tests {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
 
-    #[test]
-    fn retired_intent_is_not_managed() {
-        let intent = Intent {
+    fn intent(status: IntentStatus) -> Intent {
+        Intent {
             id: id(IntentId::new("intent:test")),
             actor: Actor {
                 id: id(ActorId::new("uid:1000")),
                 kind: ActorKind::Human,
                 interactive: true,
             },
-            statement: "I no longer need Kubernetes".into(),
-            status: IntentStatus::Retired,
+            statement: "Manage Kubernetes".into(),
+            status,
             requirements: vec![],
             supersedes: vec![],
-        };
+        }
+    }
+
+    #[test]
+    fn active_intent_is_managed_and_retained() {
+        let intent = intent(IntentStatus::Active);
+        assert!(intent.is_managed());
+        assert!(intent.is_retained());
+    }
+
+    #[test]
+    fn suspended_intent_is_retained_but_not_managed() {
+        let intent = intent(IntentStatus::Suspended);
         assert!(!intent.is_managed());
+        assert!(intent.is_retained());
+    }
+
+    #[test]
+    fn retired_intent_is_neither_managed_nor_retained() {
+        let intent = intent(IntentStatus::Retired);
+        assert!(!intent.is_managed());
+        assert!(!intent.is_retained());
     }
 
     #[test]
