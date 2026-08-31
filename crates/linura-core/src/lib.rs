@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter};
 
 macro_rules! typed_id {
@@ -44,6 +45,11 @@ fn validate_token(label: &'static str, value: &str) -> Result<(), ValidationErro
         return Err(ValidationError::ControlCharacter(label));
     }
     Ok(())
+}
+
+fn has_duplicates<T: Ord>(values: &[T]) -> bool {
+    let mut seen = BTreeSet::new();
+    values.iter().any(|value| !seen.insert(value))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -139,6 +145,15 @@ impl SemanticReason {
         {
             return Err(ValidationError::MissingSemanticOrigin);
         }
+        if has_duplicates(&self.intent_ids) {
+            return Err(ValidationError::DuplicateSemanticOrigin("intent"));
+        }
+        if has_duplicates(&self.requirement_ids) {
+            return Err(ValidationError::DuplicateSemanticOrigin("requirement"));
+        }
+        if has_duplicates(&self.capability_ids) {
+            return Err(ValidationError::DuplicateSemanticOrigin("capability"));
+        }
         Ok(())
     }
 }
@@ -176,6 +191,7 @@ pub enum ValidationError {
     TooLong(&'static str),
     ControlCharacter(&'static str),
     MissingSemanticOrigin,
+    DuplicateSemanticOrigin(&'static str),
     NoEffects,
     NoVerification,
 }
@@ -189,6 +205,9 @@ impl Display for ValidationError {
             Self::MissingSemanticOrigin => f.write_str(
                 "managed state must retain an intent, requirement, or capability origin",
             ),
+            Self::DuplicateSemanticOrigin(kind) => {
+                write!(f, "semantic reason contains duplicate {kind} origin")
+            }
             Self::NoEffects => f.write_str("an action plan must contain at least one effect"),
             Self::NoVerification => f.write_str("an action plan must contain verification"),
         }
@@ -217,6 +236,46 @@ mod tests {
     fn identifiers_reject_control_characters() {
         assert!(RequestId::new("bad\nvalue").is_err());
         assert!(ActorId::new("uid:1000\nspoof").is_err());
+    }
+
+    #[test]
+    fn semantic_reason_rejects_duplicate_origins() {
+        let intent = id(IntentId::new("intent:test"));
+        let requirement = id(RequirementId::new("requirement:test"));
+        let capability = id(CapabilityId::new("capability:test"));
+
+        let duplicate_intent = SemanticReason {
+            summary: "test".into(),
+            intent_ids: vec![intent.clone(), intent],
+            requirement_ids: vec![],
+            capability_ids: vec![],
+        };
+        assert_eq!(
+            duplicate_intent.validate(),
+            Err(ValidationError::DuplicateSemanticOrigin("intent"))
+        );
+
+        let duplicate_requirement = SemanticReason {
+            summary: "test".into(),
+            intent_ids: vec![],
+            requirement_ids: vec![requirement.clone(), requirement],
+            capability_ids: vec![],
+        };
+        assert_eq!(
+            duplicate_requirement.validate(),
+            Err(ValidationError::DuplicateSemanticOrigin("requirement"))
+        );
+
+        let duplicate_capability = SemanticReason {
+            summary: "test".into(),
+            intent_ids: vec![],
+            requirement_ids: vec![],
+            capability_ids: vec![capability.clone(), capability],
+        };
+        assert_eq!(
+            duplicate_capability.validate(),
+            Err(ValidationError::DuplicateSemanticOrigin("capability"))
+        );
     }
 
     #[test]
