@@ -105,10 +105,8 @@ impl CapabilityCatalog {
                     if relation.kind == CapabilityRelationKind::Conflicts
                         && result.selected.contains(&relation.capability)
                     {
-                        let pair = canonical_conflict_pair(
-                            selected.clone(),
-                            relation.capability.clone(),
-                        );
+                        let pair =
+                            canonical_conflict_pair(selected.clone(), relation.capability.clone());
                         if !result.conflicts.contains(&pair) {
                             result.conflicts.push(pair);
                         }
