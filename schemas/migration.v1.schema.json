@@ -3,14 +3,43 @@
   "$id": "https://linura.org/schemas/migration.v1.schema.json",
   "title": "Linura migration descriptor",
   "type": "object",
-  "required": ["schema_version", "id", "introduced_in", "scope", "reversible", "requires_snapshot"],
+  "required": [
+    "schema_version",
+    "id",
+    "introduced_in",
+    "scope",
+    "reversible",
+    "requires_snapshot"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "id": {"type": "string", "minLength": 1},
-    "introduced_in": {"type": "string", "minLength": 1},
-    "scope": {"enum": ["system", "user", "intent", "graph", "profile"]},
-    "reversible": {"type": "boolean"},
-    "requires_snapshot": {"type": "boolean"}
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "introduced_in": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": [
+        "system",
+        "user",
+        "intent",
+        "graph",
+        "profile"
+      ]
+    },
+    "reversible": {
+      "type": "boolean"
+    },
+    "requires_snapshot": {
+      "type": "boolean"
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.migration.v1",
+  "x-linura-stability": "experimental"
 }

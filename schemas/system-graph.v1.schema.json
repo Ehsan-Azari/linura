@@ -28,8 +28,16 @@
               "requirement",
               "capability",
               "workflow",
-              "resource"
+              "resource",
+              "provider",
+              "evidence"
             ]
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": true
@@ -63,7 +71,9 @@
               "owns",
               "shared-by",
               "derived-from",
-              "realizes"
+              "realizes",
+              "observed-by",
+              "evidence-for"
             ]
           },
           "reason": {
@@ -73,5 +83,7 @@
         "additionalProperties": false
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.system-graph.v1",
+  "x-linura-stability": "experimental"
 }

@@ -3,12 +3,32 @@
   "$id": "https://linura.org/schemas/hardware-fixture.v1.schema.json",
   "title": "Sanitized Linura hardware fixture",
   "type": "object",
-  "required": ["schema_version", "fixture_id", "profile", "components"],
+  "required": [
+    "schema_version",
+    "fixture_id",
+    "profile",
+    "components"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "fixture_id": {"type": "string", "minLength": 1},
-    "profile": {"type": "string", "minLength": 1},
-    "components": {"type": "array", "items": {"type": "object"}}
+    "schema_version": {
+      "const": 1
+    },
+    "fixture_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.hardware-fixture.v1",
+  "x-linura-stability": "experimental"
 }

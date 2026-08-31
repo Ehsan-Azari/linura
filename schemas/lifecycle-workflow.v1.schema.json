@@ -3,12 +3,41 @@
   "$id": "https://linura.org/schemas/lifecycle-workflow.v1.schema.json",
   "title": "Typed Linura lifecycle workflow",
   "type": "object",
-  "required": ["schema_version", "id", "event", "steps"],
+  "required": [
+    "schema_version",
+    "id",
+    "event",
+    "steps"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "id": {"type": "string", "minLength": 1},
-    "event": {"enum": ["before_bootstrap", "after_bootstrap", "before_update", "after_update", "before_reconcile", "after_reconcile", "before_recovery", "after_recovery"]},
-    "steps": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event": {
+      "enum": [
+        "before_bootstrap",
+        "after_bootstrap",
+        "before_update",
+        "after_update",
+        "before_reconcile",
+        "after_reconcile",
+        "before_recovery",
+        "after_recovery"
+      ]
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object"
+      }
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.lifecycle-workflow.v1",
+  "x-linura-stability": "experimental"
 }

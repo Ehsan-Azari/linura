@@ -23,6 +23,9 @@ Implement that by converting human/model input into typed intent and determinist
 - Never pass secrets in process arguments, logs, audit payloads, model prompts/context, panic messages or fixtures.
 - Unknown/unsupported state fails closed for mutations.
 - Provider/platform dependencies stay out of UI and core domain crates.
+- Contract version is not contract stability. Before preserving, removing, or changing a public interface/schema/SDK/CLI surface, read `contracts/stability.toml` and `docs/api-versioning.md`.
+- Do not create compatibility shims for Experimental contracts merely because an earlier development commit exposed them; replace the contract coherently and update all in-repo consumers/tests/docs in the same change.
+- Stable compatibility obligations exist only for contracts explicitly marked `stable` in `contracts/stability.toml`; Stable breaking changes require a new major generation, overlap/migration documentation, and compatibility evidence.
 - Generated UI must use typed constrained surfaces or isolated extensions.
 - Preserve an offline/no-model path for deterministic control and recovery.
 

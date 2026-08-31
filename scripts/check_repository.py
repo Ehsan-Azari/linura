@@ -20,7 +20,9 @@ REQUIRED = [
     "docs/development-plan.md", "docs/development-infrastructure.md", "docs/installer-bootstrap.md",
     "docs/migrations.md", "docs/managed-configuration.md", "docs/hardware-validation.md", "docs/vm-acceptance.md",
     "docs/visual-testing.md", "docs/application-supervision.md", "docs/lifecycle-workflows.md",
-    "docs/release-engineering.md", "docs/omarchy-development-lessons.md", "profiles/arch-hyprland-v1.toml",
+    "docs/release-engineering.md", "docs/api-versioning.md", "docs/omarchy-development-lessons.md",
+    "contracts/stability.toml", "tools/check_contract_stability.py", "tests/tooling/test_contract_stability.py",
+    "profiles/arch-hyprland-v1.toml",
     "crates/linura-intent/Cargo.toml", "crates/linura-graph/Cargo.toml", "crates/linura-capability-sdk/Cargo.toml",
     "crates/linura-planner/Cargo.toml", "crates/linura-provenance/Cargo.toml", "crates/linura-agent-runtime/Cargo.toml",
     "crates/linura-control/Cargo.toml", "crates/linura-sdk/Cargo.toml",
@@ -227,6 +229,16 @@ def main() -> int:
             candidate = (markdown.parent / target).resolve()
             if not candidate.exists():
                 failures.append(f"broken Markdown link: {markdown.relative_to(ROOT)} -> {target}")
+
+    contract_result = subprocess.run(
+        [sys.executable, str(ROOT / "tools/check_contract_stability.py"), "--root", str(ROOT)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if contract_result.returncode != 0:
+        details = contract_result.stderr.strip() or contract_result.stdout.strip()
+        failures.append(f"contract stability validation failed: {details}")
 
     if failures:
         for failure in failures:

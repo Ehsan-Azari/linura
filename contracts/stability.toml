@@ -1,0 +1,186 @@
+schema_version = 1
+product_stability = "experimental"
+default_contract_stability = "experimental"
+policy_document = "docs/api-versioning.md"
+
+[[contract]]
+id = "dbus.org.linura.Control1"
+kind = "dbus-interface"
+path = "interfaces/dbus/org.linura.Control1.xml"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "cli.linuractl"
+kind = "cli"
+path = "apps/linuractl/src/main.rs"
+version = "0"
+stability = "experimental"
+
+[[contract]]
+id = "rust.linura-sdk"
+kind = "rust-sdk"
+path = "crates/linura-sdk/src/lib.rs"
+version = "0"
+stability = "experimental"
+
+[[contract]]
+id = "schema.acceptance-scenario.v1"
+kind = "json-schema"
+path = "schemas/acceptance-scenario.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.app-supervision.v1"
+kind = "json-schema"
+path = "schemas/app-supervision.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.bootstrap.v1"
+kind = "json-schema"
+path = "schemas/bootstrap.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.capability-blueprint.v1"
+kind = "json-schema"
+path = "schemas/capability-blueprint.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.capability-snapshot.v1"
+kind = "json-schema"
+path = "schemas/capability-snapshot.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.derived-surface.v1"
+kind = "json-schema"
+path = "schemas/derived-surface.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.desired-state.v1"
+kind = "json-schema"
+path = "schemas/desired-state.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.hardware-fixture.v1"
+kind = "json-schema"
+path = "schemas/hardware-fixture.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.intent-proposal.v1"
+kind = "json-schema"
+path = "schemas/intent-proposal.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.intent.v1"
+kind = "json-schema"
+path = "schemas/intent.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.lifecycle-workflow.v1"
+kind = "json-schema"
+path = "schemas/lifecycle-workflow.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.managed-resource.v1"
+kind = "json-schema"
+path = "schemas/managed-resource.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.migration.v1"
+kind = "json-schema"
+path = "schemas/migration.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.portable-profile.v1"
+kind = "json-schema"
+path = "schemas/portable-profile.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.portable-setup.v1"
+kind = "json-schema"
+path = "schemas/portable-setup.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.provenance.v1"
+kind = "json-schema"
+path = "schemas/provenance.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.release-evidence.v1"
+kind = "json-schema"
+path = "schemas/release-evidence.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.setup.v1"
+kind = "json-schema"
+path = "schemas/setup.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.system-graph.v1"
+kind = "json-schema"
+path = "schemas/system-graph.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.update-plan.v1"
+kind = "json-schema"
+path = "schemas/update-plan.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.visual-baseline.v1"
+kind = "json-schema"
+path = "schemas/visual-baseline.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "schema.workflow.v1"
+kind = "json-schema"
+path = "schemas/workflow.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
+id = "dbus.org.linura.Executor.Systemd1"
+kind = "dbus-interface"
+path = "interfaces/dbus/org.linura.Executor.Systemd1.xml"
+version = "1"
+stability = "experimental"

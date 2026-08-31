@@ -74,5 +74,7 @@
         "$ref": "https://linura.org/schemas/intent.v1.schema.json"
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.portable-profile.v1",
+  "x-linura-stability": "experimental"
 }

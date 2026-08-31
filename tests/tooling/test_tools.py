@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -22,6 +23,46 @@ class ToolingTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("security-baseline", result.stdout)
         self.assertIn("recovery-native-path", result.stdout)
+        self.assertIn("authoritative-observation", result.stdout)
+
+    def test_acceptance_scenario_commands_are_valid_bash(self) -> None:
+        scenario_ids: set[str] = set()
+        for path in sorted((ROOT / "tests/acceptance").glob("*.json")):
+            scenario = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(scenario.get("schema_version"), 1, path)
+            scenario_id = scenario.get("id")
+            self.assertIsInstance(scenario_id, str, path)
+            assert isinstance(scenario_id, str)
+            self.assertTrue(scenario_id, path)
+            self.assertNotIn(scenario_id, scenario_ids, f"duplicate scenario id: {scenario_id}")
+            scenario_ids.add(scenario_id)
+
+            steps = scenario.get("steps")
+            self.assertIsInstance(steps, list, path)
+            assert isinstance(steps, list)
+            self.assertTrue(steps, path)
+            step_names: set[str] = set()
+            for step in steps:
+                self.assertIsInstance(step, dict, path)
+                assert isinstance(step, dict)
+                self.assertEqual(set(step), {"name", "command"}, path)
+                name = step.get("name")
+                command = step.get("command")
+                self.assertIsInstance(name, str, path)
+                self.assertIsInstance(command, str, path)
+                assert isinstance(name, str)
+                assert isinstance(command, str)
+                self.assertTrue(name, path)
+                self.assertTrue(command, path)
+                self.assertNotIn(name, step_names, f"duplicate step name in {scenario_id}: {name}")
+                step_names.add(name)
+
+                result = self.run_tool("bash", "-n", "-c", command)
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"invalid bash in {path.name}:{name}: {result.stderr}",
+                )
 
     def test_vm_plan_is_available_without_qemu(self) -> None:
         result = self.run_tool("python3", "tools/vm.py", "plan", "--image", "/tmp/linura.qcow2")

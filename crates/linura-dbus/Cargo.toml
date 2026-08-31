@@ -1,5 +1,5 @@
 [package]
-name = "linura-sdk"
+name = "linura-dbus"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,14 +7,12 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-linura-capability-sdk = { path = "../linura-capability-sdk" }
+blocking = "=1.7.0"
 linura-core = { path = "../linura-core" }
-linura-dbus = { path = "../linura-dbus" }
 linura-graph = { path = "../linura-graph" }
-linura-intent = { path = "../linura-intent" }
-linura-observation = { path = "../linura-observation" }
+linura-observation-control = { path = "../linura-observation-control" }
 linura-protocol = { path = "../linura-protocol" }
-linura-provenance = { path = "../linura-provenance" }
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
 [lints]
 workspace = true

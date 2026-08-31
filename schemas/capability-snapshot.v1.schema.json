@@ -3,24 +3,58 @@
   "$id": "https://linura.org/schemas/capability-snapshot.v1.schema.json",
   "title": "Linura Capability Snapshot v1",
   "type": "object",
-  "required": ["schema_version", "profile_id", "capabilities"],
+  "required": [
+    "schema_version",
+    "profile_id",
+    "capabilities"
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "profile_id": { "type": "string", "minLength": 1 },
+    "schema_version": {
+      "const": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "capabilities": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "support"],
+        "required": [
+          "id",
+          "support"
+        ],
         "properties": {
-          "id": { "type": "string", "minLength": 1 },
-          "support": { "enum": ["supported", "unsupported", "degraded", "unknown"] },
-          "provider": { "type": ["string", "null"] },
-          "reason": { "type": ["string", "null"] }
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "support": {
+            "enum": [
+              "supported",
+              "unsupported",
+              "degraded",
+              "unknown"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "additionalProperties": false
       }
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.capability-snapshot.v1",
+  "x-linura-stability": "experimental"
 }

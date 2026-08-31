@@ -3,12 +3,36 @@
   "$id": "https://linura.org/schemas/bootstrap.v1.schema.json",
   "title": "Linura bootstrap checkpoint",
   "type": "object",
-  "required": ["schema_version", "install_id", "mode", "completed_stages"],
+  "required": [
+    "schema_version",
+    "install_id",
+    "mode",
+    "completed_stages"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "install_id": {"type": "string", "minLength": 1},
-    "mode": {"enum": ["interactive", "non_interactive", "recovery"]},
-    "completed_stages": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+    "schema_version": {
+      "const": 1
+    },
+    "install_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": [
+        "interactive",
+        "non_interactive",
+        "recovery"
+      ]
+    },
+    "completed_stages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "x-linura-contract-id": "schema.bootstrap.v1",
+  "x-linura-stability": "experimental"
 }

@@ -57,5 +57,7 @@
         }
       }
     }
-  }
+  },
+  "x-linura-contract-id": "schema.desired-state.v1",
+  "x-linura-stability": "experimental"
 }
