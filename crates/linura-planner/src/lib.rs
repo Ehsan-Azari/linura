@@ -12,6 +12,15 @@ use linura_intent::Intent;
 
 pub const DEFAULT_PLAN_STORE_CAPACITY: usize = 256;
 
+type DesiredResourceKey = (ProviderId, ResourceId, CapabilityId);
+type DesiredResourceContributions = BTreeMap<DesiredResourceKey, DesiredResourceContribution>;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct DesiredResourceContribution {
+    state: BTreeMap<String, String>,
+    capabilities: BTreeSet<CapabilityId>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DesiredResource {
     pub provider: ProviderId,
@@ -345,10 +354,7 @@ impl DeterministicPlanner {
             return Err(PlanningError::EmptyIntentStatement);
         }
         let resolution = self.resolve_capabilities(intent, catalog, requested)?;
-        let mut contributions: BTreeMap<
-            (ProviderId, ResourceId, CapabilityId),
-            (BTreeMap<String, String>, BTreeSet<CapabilityId>),
-        > = BTreeMap::new();
+        let mut contributions = DesiredResourceContributions::new();
         let mut warnings = Vec::new();
 
         for capability in &resolution.selected {
@@ -367,11 +373,9 @@ impl DeterministicPlanner {
                     template.resource.clone(),
                     template.observation_capability.clone(),
                 );
-                let entry = contributions
-                    .entry(key)
-                    .or_insert_with(|| (BTreeMap::new(), BTreeSet::new()));
+                let entry = contributions.entry(key).or_default();
                 for (attribute, value) in &template.state {
-                    match entry.0.get(attribute) {
+                    match entry.state.get(attribute) {
                         Some(existing) if existing != value => {
                             return Err(PlanningError::DesiredStateConflict {
                                 resource: template.resource.clone(),
@@ -381,11 +385,11 @@ impl DeterministicPlanner {
                             });
                         }
                         _ => {
-                            entry.0.insert(attribute.clone(), value.clone());
+                            entry.state.insert(attribute.clone(), value.clone());
                         }
                     }
                 }
-                entry.1.insert(capability.clone());
+                entry.capabilities.insert(capability.clone());
             }
         }
 
@@ -395,17 +399,17 @@ impl DeterministicPlanner {
             .map(|requirement| requirement.id.clone())
             .collect::<Vec<_>>();
         let mut resources = Vec::with_capacity(contributions.len());
-        for ((provider, resource, observation_capability), (state, capabilities)) in contributions {
+        for ((provider, resource, observation_capability), contribution) in contributions {
             resources.push(DesiredResource {
                 provider,
                 resource,
                 observation_capability,
-                state,
+                state: contribution.state,
                 reason: SemanticReason {
                     summary: intent.statement.clone(),
                     intent_ids: vec![intent.id.clone()],
                     requirement_ids: requirement_ids.clone(),
-                    capability_ids: capabilities.into_iter().collect(),
+                    capability_ids: contribution.capabilities.into_iter().collect(),
                 },
             });
         }
