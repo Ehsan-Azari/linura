@@ -10,7 +10,9 @@ repository.workspace = true
 blocking = "=1.7.0"
 linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
+linura-observation = { path = "../linura-observation" }
 linura-observation-control = { path = "../linura-observation-control" }
+linura-planner = { path = "../linura-planner" }
 linura-protocol = { path = "../linura-protocol" }
 zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 

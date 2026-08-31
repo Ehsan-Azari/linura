@@ -1,16 +1,21 @@
 #![forbid(unsafe_code)]
 
+mod planning;
+
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter, Write};
 use std::sync::{Arc, Mutex};
 
-use linura_core::{Actor, ActorId, ActorKind, CapabilityId, ProviderId, ResourceId, SupportLevel};
-use linura_graph::{EdgeKind, NodeId, SystemGraph};
-use linura_observation_control::{ObservationControlError, ObservationCoordinator};
-use linura_protocol::{
-    ObservationExplanation, ObservationRequest, ObservationResponse, ProtocolVersion,
-    ProviderSnapshot,
+use linura_core::{
+    Actor, ActorId, ActorKind, CapabilityId, PlanId, ProviderId, ResourceId, SupportLevel,
 };
+use linura_graph::{EdgeKind, NodeId, SystemGraph};
+use linura_observation_control::ObservationCoordinator;
+use linura_protocol::{
+    ObservationExplanation, ObservationRequest, ObservationResponse, PlanDesiredStateRequest,
+    PlanPreview, ProtocolVersion, ProviderSnapshot,
+};
+use planning::{ControlState, PlanPreviewWire, PlanRequestWire};
 use zbus::blocking::{Connection as BlockingConnection, Proxy as BlockingProxy};
 use zbus::message::Header;
 use zbus::object_server::{DispatchResult2, Interface, SignalEmitter};
@@ -74,30 +79,28 @@ impl CallerIdentity {
 
 #[derive(Debug)]
 pub struct Control1Service {
-    coordinator: Arc<Mutex<ObservationCoordinator>>,
+    state: Arc<Mutex<ControlState>>,
 }
 
 impl Control1Service {
     #[must_use]
     pub fn new(coordinator: ObservationCoordinator) -> Self {
         Self {
-            coordinator: Arc::new(Mutex::new(coordinator)),
+            state: Arc::new(Mutex::new(ControlState::new(coordinator))),
         }
     }
 
-    async fn with_coordinator<R, F>(&self, operation: F) -> zbus::fdo::Result<R>
+    async fn with_state<R, F>(&self, operation: F) -> zbus::fdo::Result<R>
     where
         R: Send + 'static,
-        F: FnOnce(&mut ObservationCoordinator) -> Result<R, ObservationControlError>
-            + Send
-            + 'static,
+        F: FnOnce(&mut ControlState) -> Result<R, String> + Send + 'static,
     {
-        let coordinator = Arc::clone(&self.coordinator);
+        let state = Arc::clone(&self.state);
         blocking::unblock(move || {
-            let mut guard = coordinator
+            let mut guard = state
                 .lock()
-                .map_err(|_| "observation coordinator lock is poisoned".to_string())?;
-            operation(&mut guard).map_err(|error| error.to_string())
+                .map_err(|_| "Control1 state lock is poisoned".to_string())?;
+            operation(&mut guard)
         })
         .await
         .map_err(fdo_failed)
@@ -118,7 +121,6 @@ impl Control1Service {
         Ok((version.major, version.product_version.into()))
     }
 
-    // Authenticated read-only observation surface for the current Experimental Control1 generation.
     async fn who_am_i(
         &self,
         #[zbus(connection)] connection: &zbus::Connection,
@@ -135,8 +137,14 @@ impl Control1Service {
         #[zbus(header)] header: Header<'_>,
     ) -> zbus::fdo::Result<CapabilitiesWire> {
         let _caller = authenticated_caller(connection, &header).await?;
-        self.with_coordinator(|coordinator| coordinator.provider_snapshot().map(provider_wire))
-            .await
+        self.with_state(|state| {
+            state
+                .coordinator
+                .provider_snapshot()
+                .map(provider_wire)
+                .map_err(|error| error.to_string())
+        })
+        .await
     }
 
     async fn observe(
@@ -153,8 +161,12 @@ impl Control1Service {
             resource: parse_resource(resource)?,
             capability: parse_capability(capability)?,
         };
-        self.with_coordinator(move |coordinator| {
-            coordinator.observe(&request).map(observation_wire)
+        self.with_state(move |state| {
+            state
+                .coordinator
+                .observe(&request)
+                .map(observation_wire)
+                .map_err(|error| error.to_string())
         })
         .await
     }
@@ -165,8 +177,12 @@ impl Control1Service {
         #[zbus(header)] header: Header<'_>,
     ) -> zbus::fdo::Result<GraphWire> {
         let _caller = authenticated_caller(connection, &header).await?;
-        self.with_coordinator(|coordinator| {
-            coordinator.graph_snapshot().map(|graph| graph_wire(&graph))
+        self.with_state(|state| {
+            state
+                .coordinator
+                .graph_snapshot()
+                .map(|graph| graph_wire(&graph))
+                .map_err(|error| error.to_string())
         })
         .await
     }
@@ -179,10 +195,49 @@ impl Control1Service {
     ) -> zbus::fdo::Result<ExplanationWire> {
         let _caller = authenticated_caller(connection, &header).await?;
         let resource = parse_resource(resource)?;
-        self.with_coordinator(move |coordinator| {
-            coordinator.explain_current(&resource).map(explanation_wire)
+        self.with_state(move |state| {
+            state
+                .coordinator
+                .explain_current(&resource)
+                .map(explanation_wire)
+                .map_err(|error| error.to_string())
         })
         .await
+    }
+
+    async fn plan_desired_state(
+        &self,
+        request: PlanRequestWire,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<PlanPreviewWire> {
+        let caller = authenticated_caller(connection, &header).await?;
+        self.with_state(move |state| state.plan_desired_state(caller.actor, caller.uid, request))
+            .await
+    }
+
+    async fn get_plan_preview(
+        &self,
+        plan_id: &str,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<PlanPreviewWire> {
+        let caller = authenticated_caller(connection, &header).await?;
+        let plan_id = plan_id.to_string();
+        self.with_state(move |state| state.get_plan_preview(caller.uid, &plan_id))
+            .await
+    }
+
+    async fn explain_plan_preview(
+        &self,
+        plan_id: &str,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<PlanPreviewWire> {
+        let caller = authenticated_caller(connection, &header).await?;
+        let plan_id = plan_id.to_string();
+        self.with_state(move |state| state.get_plan_preview(caller.uid, &plan_id))
+            .await
     }
 }
 
@@ -426,6 +481,34 @@ impl Control1Client {
         self.proxy()?
             .call("ExplainObservation", &(resource,))
             .map_err(TransportError::from)
+    }
+
+    pub fn plan_desired_state(
+        &self,
+        request: &PlanDesiredStateRequest,
+    ) -> Result<PlanPreview, TransportError> {
+        let wire = planning::plan_request_wire(request);
+        let response: PlanPreviewWire = self
+            .proxy()?
+            .call("PlanDesiredState", &(wire,))
+            .map_err(TransportError::from)?;
+        planning::plan_preview_from_wire(response).map_err(TransportError::new)
+    }
+
+    pub fn get_plan_preview(&self, plan_id: &PlanId) -> Result<PlanPreview, TransportError> {
+        let response: PlanPreviewWire = self
+            .proxy()?
+            .call("GetPlanPreview", &(plan_id.as_str(),))
+            .map_err(TransportError::from)?;
+        planning::plan_preview_from_wire(response).map_err(TransportError::new)
+    }
+
+    pub fn explain_plan_preview(&self, plan_id: &PlanId) -> Result<PlanPreview, TransportError> {
+        let response: PlanPreviewWire = self
+            .proxy()?
+            .call("ExplainPlanPreview", &(plan_id.as_str(),))
+            .map_err(TransportError::from)?;
+        planning::plan_preview_from_wire(response).map_err(TransportError::new)
     }
 }
 
@@ -706,6 +789,11 @@ mod tests {
             let marker = format!("name=\"{name}\" value=\"{value}\"");
             assert_eq!(canonical.matches(&marker).count(), 1, "canonical {name}");
             assert_eq!(live.matches(&marker).count(), 1, "live {name}");
+        }
+        for method in ["PlanDesiredState", "GetPlanPreview", "ExplainPlanPreview"] {
+            let marker = format!("<method name=\"{method}\">");
+            assert!(canonical.contains(&marker), "canonical {method}");
+            assert!(live.contains(&marker), "live {method}");
         }
     }
 

@@ -48,5 +48,44 @@
       <arg name="evidence_id" type="s" direction="out"/>
       <arg name="authority" type="s" direction="out"/>
     </method>
+    <method name="PlanDesiredState">
+      <arg name="request" type="((ssss)(sasasas)a(ss))" direction="in"/>
+      <arg name="ids" type="(ss)" direction="out"/>
+      <arg name="actor" type="(ssb)" direction="out"/>
+      <arg name="route" type="(sss)" direction="out"/>
+      <arg name="reason" type="(sasasas)" direction="out"/>
+      <arg name="observed_evidence_id" type="s" direction="out"/>
+      <arg name="prospective_risk" type="s" direction="out"/>
+      <arg name="status" type="s" direction="out"/>
+      <arg name="execution_authorized" type="b" direction="out"/>
+      <arg name="changes" type="a(sbss)" direction="out"/>
+      <arg name="findings" type="a(sss)" direction="out"/>
+    </method>
+    <method name="GetPlanPreview">
+      <arg name="plan_id" type="s" direction="in"/>
+      <arg name="ids" type="(ss)" direction="out"/>
+      <arg name="actor" type="(ssb)" direction="out"/>
+      <arg name="route" type="(sss)" direction="out"/>
+      <arg name="reason" type="(sasasas)" direction="out"/>
+      <arg name="observed_evidence_id" type="s" direction="out"/>
+      <arg name="prospective_risk" type="s" direction="out"/>
+      <arg name="status" type="s" direction="out"/>
+      <arg name="execution_authorized" type="b" direction="out"/>
+      <arg name="changes" type="a(sbss)" direction="out"/>
+      <arg name="findings" type="a(sss)" direction="out"/>
+    </method>
+    <method name="ExplainPlanPreview">
+      <arg name="plan_id" type="s" direction="in"/>
+      <arg name="ids" type="(ss)" direction="out"/>
+      <arg name="actor" type="(ssb)" direction="out"/>
+      <arg name="route" type="(sss)" direction="out"/>
+      <arg name="reason" type="(sasasas)" direction="out"/>
+      <arg name="observed_evidence_id" type="s" direction="out"/>
+      <arg name="prospective_risk" type="s" direction="out"/>
+      <arg name="status" type="s" direction="out"/>
+      <arg name="execution_authorized" type="b" direction="out"/>
+      <arg name="changes" type="a(sbss)" direction="out"/>
+      <arg name="findings" type="a(sss)" direction="out"/>
+    </method>
   </interface>
 </node>

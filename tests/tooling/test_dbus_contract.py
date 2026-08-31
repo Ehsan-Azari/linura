@@ -8,6 +8,19 @@ ROOT = Path(__file__).resolve().parents[2]
 XML_PATH = ROOT / "interfaces/dbus/org.linura.Control1.xml"
 RUNTIME_PATH = ROOT / "crates/linura-dbus/src/lib.rs"
 
+PLAN_PREVIEW_OUTPUTS = (
+    ("ids", "(ss)", "out"),
+    ("actor", "(ssb)", "out"),
+    ("route", "(sss)", "out"),
+    ("reason", "(sasasas)", "out"),
+    ("observed_evidence_id", "s", "out"),
+    ("prospective_risk", "s", "out"),
+    ("status", "s", "out"),
+    ("execution_authorized", "b", "out"),
+    ("changes", "a(sbss)", "out"),
+    ("findings", "a(sss)", "out"),
+)
+
 EXPECTED_METHODS = {
     "GetProtocolVersion": (("major", "q", "out"), ("product_version", "s", "out")),
     "WhoAmI": (
@@ -31,6 +44,12 @@ EXPECTED_METHODS = {
         ("freshness", "s", "out"), ("evidence_id", "s", "out"),
         ("authority", "s", "out"),
     ),
+    "PlanDesiredState": (
+        ("request", "((ssss)(sasasas)a(ss))", "in"),
+        *PLAN_PREVIEW_OUTPUTS,
+    ),
+    "GetPlanPreview": (("plan_id", "s", "in"), *PLAN_PREVIEW_OUTPUTS),
+    "ExplainPlanPreview": (("plan_id", "s", "in"), *PLAN_PREVIEW_OUTPUTS),
 }
 
 RUNTIME_METHODS = {
@@ -40,6 +59,9 @@ RUNTIME_METHODS = {
     "Observe": "async fn observe(",
     "Graph": "async fn graph(",
     "ExplainObservation": "async fn explain_observation(",
+    "PlanDesiredState": "async fn plan_desired_state(",
+    "GetPlanPreview": "async fn get_plan_preview(",
+    "ExplainPlanPreview": "async fn explain_plan_preview(",
 }
 
 REMOVED_EXPERIMENTAL_METHODS = {
@@ -81,6 +103,15 @@ class Control1ContractTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(marker, source)
         self.assertIn('CONTRACT_STABILITY: &str = "experimental"', source)
+
+    def test_plan_preview_surface_stays_explicitly_non_executable(self) -> None:
+        root = ET.parse(XML_PATH).getroot()
+        interface = root.find("./interface[@name='org.linura.Control1']")
+        assert interface is not None
+        method_names = {method.attrib["name"] for method in interface.findall("method")}
+        self.assertTrue({"PlanDesiredState", "GetPlanPreview", "ExplainPlanPreview"} <= method_names)
+        for forbidden in {"Apply", "Execute", "CommitPlan", "AuthorizePlan", "PreparePlan"}:
+            self.assertNotIn(forbidden, method_names)
 
 
 if __name__ == "__main__":
