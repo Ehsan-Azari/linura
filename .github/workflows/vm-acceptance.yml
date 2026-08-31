@@ -1,54 +1,327 @@
 name: Disposable VM acceptance
 
 on:
+  workflow_call:
+    inputs:
+      scenario:
+        description: Acceptance scenario ID
+        required: false
+        default: authoritative-observation
+        type: string
   workflow_dispatch:
     inputs:
-      image_url:
-        description: HTTPS URL of qcow2 image produced by trusted build infrastructure
-        required: true
-        type: string
-      expected_sha256:
-        description: Expected SHA-256 of qcow2 image
-        required: true
-        type: string
       scenario:
         description: Acceptance scenario ID
         required: true
-        default: security-baseline
+        default: authoritative-observation
         type: string
+  pull_request:
+    paths:
+      - ".github/workflows/vm-acceptance.yml"
+      - ".github/workflows/trusted-release-proof.yml"
+      - "apps/linurad/**"
+      - "apps/linuractl/**"
+      - "crates/linura-dbus/**"
+      - "crates/linura-linux-observation/**"
+      - "crates/linura-observation/**"
+      - "crates/linura-observation-control/**"
+      - "crates/linura-sdk/**"
+      - "tests/acceptance/**"
+      - "tools/acceptance.py"
+      - "tools/vm.py"
+      - "tools/codex/versions.env"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/releases/**"
 
 permissions:
   contents: read
 
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_IMAGE_URL: https://cloud-images.ubuntu.com/releases/noble/release-20260725/ubuntu-24.04-server-cloudimg-amd64.img
+  BASE_IMAGE_SHA256: d1940f7d69d343355e183dff1e08a59852d32e7309baa7a4bad8365b11b005ac
+  ACCEPTANCE_SCENARIO: ${{ inputs.scenario || 'authoritative-observation' }}
+  VM_ACCELERATION: tcg
+
 jobs:
   vm:
-    runs-on: ubuntu-latest
+    name: exact-source authoritative observation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install VM dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 openssh-client
-      - name: Download and verify image
-        env:
-          IMAGE_URL: ${{ inputs.image_url }}
-          EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact source and load toolchain contract
         run: |
           set -euo pipefail
-          case "$IMAGE_URL" in https://*) ;; *) echo "image_url must use HTTPS" >&2; exit 2;; esac
-          curl --fail --location --proto '=https' --tlsv1.2 "$IMAGE_URL" --output linura.qcow2
-          printf '%s  %s\n' "$EXPECTED_SHA256" linura.qcow2 | sha256sum --check --strict
-      - name: Start disposable VM
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          repo_rust_version="$(python3 - <<'PY'
+          import pathlib
+          import re
+          text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+          match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('rust-toolchain.toml does not declare a channel')
+          print(match.group(1))
+          PY
+          )"
+          test "$repo_rust_version" = "$RUST_VERSION"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
         run: |
           set -euo pipefail
-          python3 tools/vm.py start --image linura.qcow2 --ssh-port 2222 >vm.log 2>&1 &
-          echo $! > vm.pid
-          for _ in $(seq 1 60); do
-            if ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=2 -p 2222 linura@127.0.0.1 true; then exit 0; fi
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Build exact-source observation clients
+        run: cargo build --release --locked -p linurad -p linuractl
+
+      - name: Install disposable VM harness dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cloud-image-utils \
+            openssh-client \
+            qemu-system-x86 \
+            qemu-utils
+
+      - name: Download and verify pinned Ubuntu cloud image
+        run: |
+          set -euo pipefail
+          case "$BASE_IMAGE_URL" in
+            https://cloud-images.ubuntu.com/*) ;;
+            *) echo "base image must come from the pinned Ubuntu cloud-image origin" >&2; exit 2 ;;
+          esac
+          [[ "$BASE_IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          base_image="$RUNNER_TEMP/ubuntu-noble-base.qcow2"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$base_image" "$BASE_IMAGE_URL"
+          printf '%s  %s\n' "$BASE_IMAGE_SHA256" "$base_image" | sha256sum --check --strict
+          qemu-img info "$base_image"
+          printf 'BASE_IMAGE=%s\n' "$base_image" >> "$GITHUB_ENV"
+
+      - name: Create ephemeral cloud-init identity and guest
+        run: |
+          set -euo pipefail
+          vm_image="$RUNNER_TEMP/linura-acceptance.qcow2"
+          seed_image="$RUNNER_TEMP/linura-acceptance-seed.img"
+          ssh_key="$RUNNER_TEMP/linura-acceptance-key"
+          vm_log="$RUNNER_TEMP/linura-vm.log"
+          artifact_dir="$RUNNER_TEMP/linura-vm-artifacts"
+          user_data="$RUNNER_TEMP/user-data"
+          meta_data="$RUNNER_TEMP/meta-data"
+          network_config="$RUNNER_TEMP/network-config"
+
+          cp --reflink=auto "$BASE_IMAGE" "$vm_image"
+          ssh-keygen -q -t ed25519 -N '' -f "$ssh_key"
+          public_key="$(cat "$ssh_key.pub")"
+
+          cat > "$user_data" <<EOF
+          #cloud-config
+          users:
+            - default
+            - name: linura
+              groups: [adm, sudo]
+              shell: /bin/bash
+              sudo:
+                - ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $public_key
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          EOF
+
+          cat > "$meta_data" <<EOF
+          instance-id: linura-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          local-hostname: linura-acceptance
+          EOF
+
+          cat > "$network_config" <<'EOF'
+          version: 2
+          ethernets:
+            primary:
+              match:
+                name: "en*"
+              dhcp4: true
+          EOF
+
+          cloud-localds --network-config="$network_config" \
+            "$seed_image" "$user_data" "$meta_data"
+          mkdir -p "$artifact_dir"
+          {
+            printf 'VM_IMAGE=%s\n' "$vm_image"
+            printf 'SEED_IMAGE=%s\n' "$seed_image"
+            printf 'SSH_KEY=%s\n' "$ssh_key"
+            printf 'VM_LOG=%s\n' "$vm_log"
+            printf 'ARTIFACT_DIR=%s\n' "$artifact_dir"
+          } >> "$GITHUB_ENV"
+
+      - name: Start disposable snapshot guest
+        run: |
+          set -euo pipefail
+          python3 tools/vm.py start \
+            --image "$VM_IMAGE" \
+            --seed "$SEED_IMAGE" \
+            --ssh-port 2222 \
+            --accel "$VM_ACCELERATION" \
+            >"$VM_LOG" 2>&1 &
+          printf 'VM_PID=%s\n' "$!" >> "$GITHUB_ENV"
+
+      - name: Wait for cloud-init and install exact-source binaries
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          ready=0
+          for _ in $(seq 1 120); do
+            if ! kill -0 "$VM_PID" 2>/dev/null; then
+              echo "VM process exited before SSH became ready" >&2
+              cat "$VM_LOG" >&2
+              exit 1
+            fi
+            if ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 true >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
             sleep 2
           done
-          cat vm.log >&2
-          exit 1
-      - name: Run repository acceptance scenario
-        run: python3 tools/acceptance.py run "${{ inputs.scenario }}" --host 127.0.0.1 --port 2222 --user linura
-      - name: Stop VM
+          if [[ "$ready" -ne 1 ]]; then
+            echo "SSH readiness bound exhausted" >&2
+            cat "$VM_LOG" >&2
+            exit 1
+          fi
+
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'cloud-init status --wait --long'
+          scp "${ssh_common[@]}" -P 2222 \
+            target/release/linurad target/release/linuractl \
+            linura@127.0.0.1:/tmp/
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'sudo -n install -o root -g root -m 0755 /tmp/linurad /usr/local/bin/linurad && sudo -n install -o root -g root -m 0755 /tmp/linuractl /usr/local/bin/linuractl && rm -f /tmp/linurad /tmp/linuractl'
+
+      - name: Run repository authoritative observation acceptance
+        run: |
+          set -euo pipefail
+          python3 tools/acceptance.py run "$ACCEPTANCE_SCENARIO" \
+            --host 127.0.0.1 \
+            --port 2222 \
+            --user linura \
+            --identity "$SSH_KEY"
+
+      - name: Record exact-source VM acceptance evidence
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path.cwd()
+          artifact_dir = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          scenario_id = os.environ["ACCEPTANCE_SCENARIO"]
+          scenarios = []
+          for path in sorted((root / "tests/acceptance").glob("*.json")):
+              data = json.loads(path.read_text(encoding="utf-8"))
+              if data.get("id") == scenario_id:
+                  scenarios.append((path, data))
+          if len(scenarios) != 1:
+              raise SystemExit(f"expected exactly one scenario {scenario_id!r}, found {len(scenarios)}")
+          scenario_path, _ = scenarios[0]
+
+          def digest(path: pathlib.Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          binaries = {}
+          for name in ("linurad", "linuractl"):
+              path = root / "target/release" / name
+              binaries[name] = {"sha256": digest(path), "size": path.stat().st_size}
+
+          package_versions = {}
+          for package in ("cloud-image-utils", "qemu-system-x86", "qemu-utils"):
+              value = subprocess.check_output(
+                  ["dpkg-query", "-W", "-f=${Version}", package], text=True
+              ).strip()
+              package_versions[package] = value
+
+          evidence = {
+              "schema_version": 1,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "scenario": {
+                  "id": scenario_id,
+                  "path": scenario_path.relative_to(root).as_posix(),
+                  "sha256": digest(scenario_path),
+              },
+              "base_image": {
+                  "url": os.environ["BASE_IMAGE_URL"],
+                  "sha256": os.environ["BASE_IMAGE_SHA256"],
+              },
+              "virtualization": {
+                  "acceleration": os.environ["VM_ACCELERATION"],
+              },
+              "binaries": binaries,
+              "toolchain": {
+                  "rustc": subprocess.check_output(["rustc", "-Vv"], text=True).strip(),
+                  "qemu": subprocess.check_output(["qemu-system-x86_64", "--version"], text=True).splitlines()[0],
+                  "packages": package_versions,
+              },
+              "workflow": {
+                  "path": ".github/workflows/vm-acceptance.yml",
+                  "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+              },
+              "result": "passed",
+          }
+          output = artifact_dir / "VM-ACCEPTANCE-EVIDENCE.json"
+          output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"wrote {output}")
+          PY
+
+      - name: Stop disposable guest
         if: always()
-        run: test ! -f vm.pid || kill "$(cat vm.pid)" || true
+        run: |
+          set +e
+          if [[ -n "${VM_PID:-}" ]]; then
+            kill "$VM_PID" 2>/dev/null || true
+            wait "$VM_PID" 2>/dev/null || true
+          fi
+
+      - name: Collect VM diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact_dir="${ARTIFACT_DIR:-$RUNNER_TEMP/linura-vm-artifacts}"
+          mkdir -p "$artifact_dir"
+          if [[ -f "${VM_LOG:-}" ]]; then
+            cp "$VM_LOG" "$artifact_dir/qemu.log"
+          fi
+
+      - name: Upload VM acceptance evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linura-vm-acceptance-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/linura-vm-artifacts/
+          if-no-files-found: warn
+          retention-days: 30
