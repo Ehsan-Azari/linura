@@ -108,6 +108,13 @@
           },
           "prospective_risk": {
             "const": "read-only"
+          },
+          "findings": {
+            "not": {
+              "contains": {
+                "$ref": "#/$defs/blockerFinding"
+              }
+            }
           }
         }
       }
@@ -127,6 +134,13 @@
         "properties": {
           "changes": {
             "minItems": 1
+          },
+          "findings": {
+            "not": {
+              "contains": {
+                "$ref": "#/$defs/blockerFinding"
+              }
+            }
           }
         }
       }
@@ -146,15 +160,7 @@
         "properties": {
           "findings": {
             "contains": {
-              "type": "object",
-              "properties": {
-                "level": {
-                  "const": "blocker"
-                }
-              },
-              "required": [
-                "level"
-              ]
+              "$ref": "#/$defs/blockerFinding"
             },
             "minContains": 1
           }
@@ -307,6 +313,17 @@
           "minLength": 1
         }
       }
+    },
+    "blockerFinding": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "const": "blocker"
+        }
+      },
+      "required": [
+        "level"
+      ]
     }
   },
   "x-linura-contract-id": "schema.plan-preview.v1",
