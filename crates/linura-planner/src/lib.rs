@@ -232,6 +232,11 @@ pub struct StateChange {
     pub desired: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExecutionAuthority {
+    Disabled,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReconciliationPlan {
     pub id: PlanId,
@@ -244,7 +249,7 @@ pub struct ReconciliationPlan {
     pub observed_evidence_id: String,
     pub prospective_risk: RiskClass,
     pub status: PlanStatus,
-    pub execution_authorized: bool,
+    execution_authority: ExecutionAuthority,
     pub changes: Vec<StateChange>,
     pub findings: Vec<PlanFinding>,
 }
@@ -255,6 +260,15 @@ impl ReconciliationPlan {
         self.findings
             .iter()
             .any(|finding| finding.level == PlanFindingLevel::Blocker)
+    }
+
+    /// Planning previews never carry execution authority. The private enum makes
+    /// an authorized preview unrepresentable outside this module.
+    #[must_use]
+    pub const fn execution_authorized(&self) -> bool {
+        match self.execution_authority {
+            ExecutionAuthority::Disabled => false,
+        }
     }
 }
 
@@ -393,11 +407,6 @@ impl DeterministicPlanner {
             }
         }
 
-        let requirement_ids = intent
-            .requirements
-            .iter()
-            .map(|requirement| requirement.id.clone())
-            .collect::<Vec<_>>();
         let mut resources = Vec::with_capacity(contributions.len());
         for ((provider, resource, observation_capability), contribution) in contributions {
             resources.push(DesiredResource {
@@ -408,7 +417,11 @@ impl DeterministicPlanner {
                 reason: SemanticReason {
                     summary: intent.statement.clone(),
                     intent_ids: vec![intent.id.clone()],
-                    requirement_ids: requirement_ids.clone(),
+                    // Requirement IDs are intentionally omitted until the input
+                    // model carries an explicit requirement-to-capability edge.
+                    // Attaching every requirement here would create false causal
+                    // provenance for unrelated desired resources.
+                    requirement_ids: vec![],
                     capability_ids: contribution.capabilities.into_iter().collect(),
                 },
             });
@@ -536,7 +549,7 @@ impl DeterministicPlanner {
             observed_evidence_id: observation.evidence_id.clone(),
             prospective_risk,
             status,
-            execution_authorized: false,
+            execution_authority: ExecutionAuthority::Disabled,
             changes,
             findings,
         })
@@ -725,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn intent_compilation_is_deterministic_and_preserves_origins() {
+    fn intent_compilation_is_deterministic_and_preserves_causal_origins() {
         let capability = id(CapabilityId::new("remote.ssh"));
         let mut catalog = CapabilityCatalog::default();
         catalog.register(systemd_blueprint("remote.ssh", "active"));
@@ -749,10 +762,7 @@ mod tests {
             resource.reason.intent_ids,
             vec![id(IntentId::new("intent:ssh"))]
         );
-        assert_eq!(
-            resource.reason.requirement_ids,
-            vec![id(RequirementId::new("requirement:ssh-active"))]
-        );
+        assert!(resource.reason.requirement_ids.is_empty());
         assert_eq!(resource.reason.capability_ids, vec![capability]);
     }
 
@@ -786,7 +796,7 @@ mod tests {
 
         assert_eq!(plan.status, PlanStatus::ChangeProposed);
         assert_eq!(plan.prospective_risk, RiskClass::SystemMutation);
-        assert!(!plan.execution_authorized);
+        assert!(!plan.execution_authorized());
         assert_eq!(plan.changes.len(), 1);
         assert_eq!(plan.changes[0].current.as_deref(), Some("inactive"));
         assert_eq!(plan.changes[0].desired, "active");
@@ -814,7 +824,7 @@ mod tests {
                 .iter()
                 .any(|finding| finding.code == "attribute-not-observed")
         );
-        assert!(!plan.execution_authorized);
+        assert!(!plan.execution_authorized());
     }
 
     #[test]
@@ -830,6 +840,7 @@ mod tests {
         assert_eq!(plan.status, PlanStatus::NoChange);
         assert_eq!(plan.prospective_risk, RiskClass::ReadOnly);
         assert!(plan.changes.is_empty());
+        assert!(!plan.execution_authorized());
     }
 
     #[test]
