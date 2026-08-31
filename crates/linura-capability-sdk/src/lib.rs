@@ -52,6 +52,17 @@ pub struct Resolution {
     pub missing: BTreeSet<CapabilityId>,
 }
 
+fn canonical_conflict_pair(
+    left: CapabilityId,
+    right: CapabilityId,
+) -> (CapabilityId, CapabilityId) {
+    if left.as_str() <= right.as_str() {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
 impl CapabilityCatalog {
     pub fn register(&mut self, blueprint: CapabilityBlueprint) {
         self.blueprints.insert(blueprint.id.clone(), blueprint);
@@ -79,9 +90,10 @@ impl CapabilityCatalog {
                     CapabilityRelationKind::Conflicts
                         if result.selected.contains(&relation.capability) =>
                     {
-                        result
-                            .conflicts
-                            .push((id.clone(), relation.capability.clone()));
+                        let pair = canonical_conflict_pair(id.clone(), relation.capability.clone());
+                        if !result.conflicts.contains(&pair) {
+                            result.conflicts.push(pair);
+                        }
                     }
                     _ => {}
                 }
@@ -93,10 +105,11 @@ impl CapabilityCatalog {
                     if relation.kind == CapabilityRelationKind::Conflicts
                         && result.selected.contains(&relation.capability)
                     {
-                        let pair = (selected.clone(), relation.capability.clone());
-                        let reverse = (relation.capability.clone(), selected.clone());
-                        if !result.conflicts.contains(&pair) && !result.conflicts.contains(&reverse)
-                        {
+                        let pair = canonical_conflict_pair(
+                            selected.clone(),
+                            relation.capability.clone(),
+                        );
+                        if !result.conflicts.contains(&pair) {
                             result.conflicts.push(pair);
                         }
                     }
@@ -122,6 +135,18 @@ mod tests {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
 
+    fn conflicting_blueprint(id_value: &str, other: &CapabilityId) -> CapabilityBlueprint {
+        CapabilityBlueprint {
+            id: id(CapabilityId::new(id_value)),
+            title: id_value.into(),
+            relations: vec![CapabilityRelation {
+                kind: CapabilityRelationKind::Conflicts,
+                capability: other.clone(),
+            }],
+            desired_resources: vec![],
+        }
+    }
+
     #[test]
     fn required_capabilities_are_selected() {
         let ai = id(CapabilityId::new("development.ai"));
@@ -145,6 +170,21 @@ mod tests {
         let resolution = catalog.resolve(&[ai]);
         assert!(resolution.selected.contains(&python));
         assert!(resolution.missing.is_empty());
+    }
+
+    #[test]
+    fn conflict_pairs_are_canonical_for_equivalent_request_orders() {
+        let alpha = id(CapabilityId::new("capability.alpha"));
+        let beta = id(CapabilityId::new("capability.beta"));
+        let mut catalog = CapabilityCatalog::default();
+        catalog.register(conflicting_blueprint(alpha.as_str(), &beta));
+        catalog.register(conflicting_blueprint(beta.as_str(), &alpha));
+
+        let forward = catalog.resolve(&[alpha.clone(), beta.clone()]);
+        let reverse = catalog.resolve(&[beta.clone(), alpha.clone()]);
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.conflicts, vec![(alpha, beta)]);
     }
 
     #[test]
