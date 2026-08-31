@@ -18,11 +18,11 @@ Exit criteria:
 
 The v0.0.0 release contract remains an **Architecture** claim: the contracts and development foundation exist, but production authority backends and supported machine behavior do not.
 
-## Phase 1 — observe and build the system graph
+## Phase 1 — observe and build the system graph (complete for v0.1.0)
 
-This phase is the implementation target for [v0.1.0](milestones/v0.1.0.md).
+This phase was completed by [v0.1.0](milestones/v0.1.0.md).
 
-Implement:
+Implemented:
 1. session D-Bus service `org.linura.Control1`;
 2. caller credential extraction and actor binding;
 3. provider registry/capability discovery;
@@ -31,21 +31,30 @@ Implement:
 6. resource nodes/edges in the system graph;
 7. `linuractl observe`, `graph`, `capabilities`, `explain` (observed evidence only).
 
-No root code required.
+No root authority is required by the observation surface.
 
-## Phase 2 — deterministic intent → desired state, no AI
+## Phase 2 — deterministic intent → desired state → non-executable plan, no AI
 
-Create hand-authored intents and capability blueprints. Prove:
+This phase is the implementation target for [v0.2.0](milestones/v0.2.0.md).
+
+Create hand-authored intents and capability blueprints and prove:
 
 ```text
-Intent → requirements → capability resolution → conflicts → desired state → diff → plan
+Intent → requirements → capability resolution → conflicts → desired state
+→ authoritative observation → diff → structural validation → plan preview
 ```
 
-Use a constrained example such as secure SSH on a disposable VM. No model provider yet.
+The plan preview is deliberately non-executable. It binds the semantic origin and exact authoritative evidence used for planning, reports prospective risk and blockers, and always carries `execution_authorized = false`.
 
-## Phase 3 — plan-only mutation + semantic provenance
+Use a constrained example such as a systemd service on a disposable VM. Prove both a proposed change and an already-satisfied no-change state, and prove that planning itself does not alter the machine. No model provider, executor, Polkit authority, prepare/commit or public `apply` operation exists in this phase.
 
-Implement typed plan, risk classification, structural validation, policy decision, approval requirement and planned provenance/audit. Every managed resource in the plan must retain an intent/requirement/capability origin. Planning must consume authoritative observation rather than assumed state.
+`v0.2.0` includes the structural plan/risk/provenance foundations needed by the next phase, but it does not claim the policy/approval or mutation-authority parts of Phase 3.
+
+## Phase 3 — policy-evaluated plan review + semantic provenance
+
+Complete the authority-side plan-review contract: policy decision, approval requirement, authorization-boundary inputs and planned provenance/audit. Every managed resource in a plan must retain an intent/requirement/capability origin. Planning continues to consume authoritative observation rather than assumed state.
+
+This phase still does not permit supported external mutation until the durable prepare/commit and recovery foundation exists.
 
 ## Phase 4 — durable prepare/commit and recovery foundation
 

@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://linura.org/schemas/plan-preview.v1.schema.json",
+  "title": "Linura Plan Preview v1",
+  "description": "A deterministic, observation-bound reconciliation preview. This contract carries no execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "plan_id",
+    "request_id",
+    "actor",
+    "provider",
+    "resource",
+    "observation_capability",
+    "reason",
+    "observed_evidence_id",
+    "prospective_risk",
+    "status",
+    "execution_authorized",
+    "changes",
+    "findings"
+  ],
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "observation_capability": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "reason": {
+      "$ref": "#/$defs/semanticReason"
+    },
+    "observed_evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prospective_risk": {
+      "enum": [
+        "read-only",
+        "user-state",
+        "system-mutation",
+        "security-sensitive",
+        "destructive"
+      ]
+    },
+    "status": {
+      "enum": [
+        "no-change",
+        "change-proposed",
+        "blocked"
+      ]
+    },
+    "execution_authorized": {
+      "const": false
+    },
+    "changes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateChange"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "no-change"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "changes": {
+            "maxItems": 0
+          },
+          "prospective_risk": {
+            "const": "read-only"
+          },
+          "findings": {
+            "not": {
+              "contains": {
+                "$ref": "#/$defs/blockerFinding"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "change-proposed"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "changes": {
+            "minItems": 1
+          },
+          "findings": {
+            "not": {
+              "contains": {
+                "$ref": "#/$defs/blockerFinding"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "blocked"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "findings": {
+            "contains": {
+              "$ref": "#/$defs/blockerFinding"
+            },
+            "minContains": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "interactive"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "kind": {
+          "enum": [
+            "human",
+            "service",
+            "agent",
+            "remote"
+          ]
+        },
+        "interactive": {
+          "type": "boolean"
+        }
+      }
+    },
+    "semanticReason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "intent_ids",
+        "requirement_ids",
+        "capability_ids"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "intent_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "uniqueItems": true
+        },
+        "requirement_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "uniqueItems": true
+        },
+        "capability_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "uniqueItems": true
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "intent_ids": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "requirement_ids": {
+              "minItems": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "capability_ids": {
+              "minItems": 1
+            }
+          }
+        }
+      ]
+    },
+    "stateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "current",
+        "desired"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "current": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "desired": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "level",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "level": {
+          "enum": [
+            "pass",
+            "warning",
+            "blocker"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "blockerFinding": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "const": "blocker"
+        }
+      },
+      "required": [
+        "level"
+      ]
+    }
+  },
+  "x-linura-contract-id": "schema.plan-preview.v1",
+  "x-linura-stability": "experimental"
+}

@@ -74,6 +74,13 @@ version = "1"
 stability = "experimental"
 
 [[contract]]
+id = "schema.plan-preview.v1"
+kind = "json-schema"
+path = "schemas/plan-preview.v1.schema.json"
+version = "1"
+stability = "experimental"
+
+[[contract]]
 id = "schema.hardware-fixture.v1"
 kind = "json-schema"
 path = "schemas/hardware-fixture.v1.schema.json"

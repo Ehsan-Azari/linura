@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use linura_core::CapabilityId;
+use linura_core::{CapabilityId, ProviderId, ResourceId};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,12 +19,25 @@ pub struct CapabilityRelation {
     pub capability: CapabilityId,
 }
 
+/// Provider-neutral declarative resource contribution made by a capability.
+///
+/// The blueprint describes the state that should hold and the authoritative
+/// observation route used to compare that state with reality. It is not an
+/// executor command and carries no mutation authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesiredResourceBlueprint {
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub observation_capability: CapabilityId,
+    pub state: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapabilityBlueprint {
     pub id: CapabilityId,
     pub title: String,
     pub relations: Vec<CapabilityRelation>,
-    pub desired_resources: Vec<String>,
+    pub desired_resources: Vec<DesiredResourceBlueprint>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -39,9 +52,25 @@ pub struct Resolution {
     pub missing: BTreeSet<CapabilityId>,
 }
 
+fn canonical_conflict_pair(
+    left: CapabilityId,
+    right: CapabilityId,
+) -> (CapabilityId, CapabilityId) {
+    if left.as_str() <= right.as_str() {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
 impl CapabilityCatalog {
     pub fn register(&mut self, blueprint: CapabilityBlueprint) {
         self.blueprints.insert(blueprint.id.clone(), blueprint);
+    }
+
+    #[must_use]
+    pub fn blueprint(&self, id: &CapabilityId) -> Option<&CapabilityBlueprint> {
+        self.blueprints.get(id)
     }
 
     pub fn resolve(&self, requested: &[CapabilityId]) -> Resolution {
@@ -61,9 +90,10 @@ impl CapabilityCatalog {
                     CapabilityRelationKind::Conflicts
                         if result.selected.contains(&relation.capability) =>
                     {
-                        result
-                            .conflicts
-                            .push((id.clone(), relation.capability.clone()));
+                        let pair = canonical_conflict_pair(id.clone(), relation.capability.clone());
+                        if !result.conflicts.contains(&pair) {
+                            result.conflicts.push(pair);
+                        }
                     }
                     _ => {}
                 }
@@ -75,16 +105,21 @@ impl CapabilityCatalog {
                     if relation.kind == CapabilityRelationKind::Conflicts
                         && result.selected.contains(&relation.capability)
                     {
-                        let pair = (selected.clone(), relation.capability.clone());
-                        let reverse = (relation.capability.clone(), selected.clone());
-                        if !result.conflicts.contains(&pair) && !result.conflicts.contains(&reverse)
-                        {
+                        let pair =
+                            canonical_conflict_pair(selected.clone(), relation.capability.clone());
+                        if !result.conflicts.contains(&pair) {
                             result.conflicts.push(pair);
                         }
                     }
                 }
             }
         }
+        result.conflicts.sort_by(|left, right| {
+            left.0
+                .as_str()
+                .cmp(right.0.as_str())
+                .then_with(|| left.1.as_str().cmp(right.1.as_str()))
+        });
         result
     }
 }
@@ -96,6 +131,18 @@ mod tests {
 
     fn id(result: Result<CapabilityId, ValidationError>) -> CapabilityId {
         result.unwrap_or_else(|error| unreachable!("{error}"))
+    }
+
+    fn conflicting_blueprint(id_value: &str, other: &CapabilityId) -> CapabilityBlueprint {
+        CapabilityBlueprint {
+            id: id(CapabilityId::new(id_value)),
+            title: id_value.into(),
+            relations: vec![CapabilityRelation {
+                kind: CapabilityRelationKind::Conflicts,
+                capability: other.clone(),
+            }],
+            desired_resources: vec![],
+        }
     }
 
     #[test]
@@ -121,5 +168,47 @@ mod tests {
         let resolution = catalog.resolve(&[ai]);
         assert!(resolution.selected.contains(&python));
         assert!(resolution.missing.is_empty());
+    }
+
+    #[test]
+    fn conflict_pairs_are_canonical_for_equivalent_request_orders() {
+        let alpha = id(CapabilityId::new("capability.alpha"));
+        let beta = id(CapabilityId::new("capability.beta"));
+        let mut catalog = CapabilityCatalog::default();
+        catalog.register(conflicting_blueprint(alpha.as_str(), &beta));
+        catalog.register(conflicting_blueprint(beta.as_str(), &alpha));
+
+        let forward = catalog.resolve(&[alpha.clone(), beta.clone()]);
+        let reverse = catalog.resolve(&[beta.clone(), alpha.clone()]);
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.conflicts, vec![(alpha, beta)]);
+    }
+
+    #[test]
+    fn blueprint_lookup_preserves_declarative_resource_identity() {
+        let capability = id(CapabilityId::new("remote.ssh"));
+        let provider = ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}"));
+        let resource = ResourceId::new("systemd:unit:ssh.service")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let observation = id(CapabilityId::new("systemd.unit.observe"));
+        let mut catalog = CapabilityCatalog::default();
+        catalog.register(CapabilityBlueprint {
+            id: capability.clone(),
+            title: "SSH service".into(),
+            relations: vec![],
+            desired_resources: vec![DesiredResourceBlueprint {
+                provider: provider.clone(),
+                resource: resource.clone(),
+                observation_capability: observation,
+                state: BTreeMap::from([("active_state".into(), "active".into())]),
+            }],
+        });
+
+        let blueprint = catalog
+            .blueprint(&capability)
+            .unwrap_or_else(|| unreachable!("registered blueprint is missing"));
+        assert_eq!(blueprint.desired_resources[0].provider, provider);
+        assert_eq!(blueprint.desired_resources[0].resource, resource);
     }
 }

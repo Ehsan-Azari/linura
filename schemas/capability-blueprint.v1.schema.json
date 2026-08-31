@@ -7,53 +7,100 @@
   "required": [
     "schema",
     "id",
-    "title"
+    "title",
+    "desired_resources"
   ],
   "properties": {
     "schema": {
       "const": 1
     },
     "id": {
-      "type": "string"
+      "$ref": "#/$defs/typedId"
     },
     "title": {
-      "type": "string"
+      "type": "string",
+      "minLength": 1
     },
     "provides": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "$ref": "#/$defs/typedId"
+      },
+      "uniqueItems": true
     },
     "requires": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "$ref": "#/$defs/typedId"
+      },
+      "uniqueItems": true
     },
     "recommends": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "$ref": "#/$defs/typedId"
+      },
+      "uniqueItems": true
     },
     "optional": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "$ref": "#/$defs/typedId"
+      },
+      "uniqueItems": true
     },
     "conflicts": {
       "type": "array",
       "items": {
-        "type": "string"
-      }
+        "$ref": "#/$defs/typedId"
+      },
+      "uniqueItems": true
     },
-    "resources": {
+    "desired_resources": {
       "type": "array",
       "items": {
-        "type": "string"
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "resource",
+          "observation_capability",
+          "state"
+        ],
+        "properties": {
+          "provider": {
+            "$ref": "#/$defs/typedId"
+          },
+          "resource": {
+            "$ref": "#/$defs/typedId"
+          },
+          "observation_capability": {
+            "$ref": "#/$defs/typedId"
+          },
+          "state": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096,
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]*$"
+            },
+            "propertyNames": {
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
+            }
+          }
+        }
       }
+    }
+  },
+  "$defs": {
+    "typedId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F]+$"
     }
   },
   "x-linura-contract-id": "schema.capability-blueprint.v1",
