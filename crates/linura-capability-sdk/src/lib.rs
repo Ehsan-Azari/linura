@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use linura_core::CapabilityId;
+use linura_core::{CapabilityId, ProviderId, ResourceId};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,12 +19,25 @@ pub struct CapabilityRelation {
     pub capability: CapabilityId,
 }
 
+/// Provider-neutral declarative resource contribution made by a capability.
+///
+/// The blueprint describes the state that should hold and the authoritative
+/// observation route used to compare that state with reality. It is not an
+/// executor command and carries no mutation authority.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DesiredResourceBlueprint {
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub observation_capability: CapabilityId,
+    pub state: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CapabilityBlueprint {
     pub id: CapabilityId,
     pub title: String,
     pub relations: Vec<CapabilityRelation>,
-    pub desired_resources: Vec<String>,
+    pub desired_resources: Vec<DesiredResourceBlueprint>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -42,6 +55,11 @@ pub struct Resolution {
 impl CapabilityCatalog {
     pub fn register(&mut self, blueprint: CapabilityBlueprint) {
         self.blueprints.insert(blueprint.id.clone(), blueprint);
+    }
+
+    #[must_use]
+    pub fn blueprint(&self, id: &CapabilityId) -> Option<&CapabilityBlueprint> {
+        self.blueprints.get(id)
     }
 
     pub fn resolve(&self, requested: &[CapabilityId]) -> Resolution {
@@ -85,6 +103,12 @@ impl CapabilityCatalog {
                 }
             }
         }
+        result.conflicts.sort_by(|left, right| {
+            left.0
+                .as_str()
+                .cmp(right.0.as_str())
+                .then_with(|| left.1.as_str().cmp(right.1.as_str()))
+        });
         result
     }
 }
@@ -121,5 +145,32 @@ mod tests {
         let resolution = catalog.resolve(&[ai]);
         assert!(resolution.selected.contains(&python));
         assert!(resolution.missing.is_empty());
+    }
+
+    #[test]
+    fn blueprint_lookup_preserves_declarative_resource_identity() {
+        let capability = id(CapabilityId::new("remote.ssh"));
+        let provider = ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}"));
+        let resource = ResourceId::new("systemd:unit:ssh.service")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let observation = id(CapabilityId::new("systemd.unit.observe"));
+        let mut catalog = CapabilityCatalog::default();
+        catalog.register(CapabilityBlueprint {
+            id: capability.clone(),
+            title: "SSH service".into(),
+            relations: vec![],
+            desired_resources: vec![DesiredResourceBlueprint {
+                provider: provider.clone(),
+                resource: resource.clone(),
+                observation_capability: observation,
+                state: BTreeMap::from([("active_state".into(), "active".into())]),
+            }],
+        });
+
+        let blueprint = catalog
+            .blueprint(&capability)
+            .unwrap_or_else(|| unreachable!("registered blueprint is missing"));
+        assert_eq!(blueprint.desired_resources[0].provider, provider);
+        assert_eq!(blueprint.desired_resources[0].resource, resource);
     }
 }

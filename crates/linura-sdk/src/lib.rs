@@ -7,7 +7,8 @@
 //! policy-engine implementation details, providers, or privileged executors.
 
 pub use linura_capability_sdk::{
-    CapabilityBlueprint, CapabilityCatalog, CapabilityRelation, CapabilityRelationKind, Resolution,
+    CapabilityBlueprint, CapabilityCatalog, CapabilityRelation, CapabilityRelationKind,
+    DesiredResourceBlueprint, Resolution,
 };
 pub use linura_core::{
     ActionPlan, Actor, ActorId, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId,
