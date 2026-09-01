@@ -79,15 +79,39 @@ forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
+package = "linura-provenance"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
 package = "linura-control"
 forbid_local = ["linura-dbus", "linura-linux-observation"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
+package = "linura-sdk"
+forbid_local = ["linura-control", "linura-provider-sdk", "linura-policy", "linura-agent-runtime", "linura-linux-observation", "linura-observation-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-linux-observation"
+forbid_local = ["linura-dbus", "linura-planner", "linura-policy", "linura-control", "linura-observation-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = []
+
+[[rules]]
 package = "linura-dbus"
 forbid_local = ["linura-planner", "linura-policy", "linura-provider-sdk", "linura-linux-observation"]
 forbid_local_prefixes = ["linura-executor-"]
+forbid_external = []
+
+[[rules]]
+package = "linura-executor-systemd"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-planner", "linura-policy", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = []
 forbid_external = []
 
 [[markers]]
@@ -101,6 +125,18 @@ contains = "Providers expose bounded mechanisms; Linura owns orchestration."
 [[markers]]
 path = "docs/state-model.md"
 contains = "Retrieval context is not observed state."
+
+[[markers]]
+path = "docs/system-graph.md"
+contains = "The System Graph is a materialized causal/evidence projection, not current-state authority."
+
+[[markers]]
+path = "docs/action-lifecycle.md"
+contains = "The lifecycle does not require distributed two-phase commit across Linux subsystems."
+
+[[markers]]
+path = "agents/skills/providers.md"
+contains = "Providers expose bounded mechanisms; Linura owns orchestration."
 
 [[markers]]
 path = "crates/linura-provider-sdk/src/lib.rs"
