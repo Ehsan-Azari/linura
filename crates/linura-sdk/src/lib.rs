@@ -20,8 +20,8 @@ pub use linura_graph::{
     Edge, EdgeKind, Node, NodeId, ObservationRecordOutcome, RemovalImpact, SystemGraph,
 };
 pub use linura_intent::{
-    Intent, IntentProposal, IntentStatus, MachineClass, MachineProfile, Requirement, RequirementKind,
-    Setup, SetupValidationError,
+    Intent, IntentProposal, IntentStatus, MachineClass, MachineProfile, Requirement,
+    RequirementKind, Setup, SetupValidationError,
 };
 pub use linura_observation::{
     FreshnessState, ObservationAuthority, ObservationEnvelope, ObservationValidationError,
