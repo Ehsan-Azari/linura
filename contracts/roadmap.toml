@@ -3,10 +3,14 @@ canonical_document = "docs/roadmap.md"
 domain_document = "docs/system-domains.md"
 development_document = "docs/development-plan.md"
 versioning_document = "docs/versioning-and-release-policy.md"
+machine_profile_document = "docs/machine-profiles.md"
+hardware_support_matrix = "hardware/support-matrix.json"
 canonical_lifecycle = "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
 current_release = "v0.2.0"
 next_release = "v0.3.0"
 product_stability = "experimental"
+target_machine_classes = ["workstation", "server", "edge"]
+fleet_model = "optional-overlay"
 
 [[milestone]]
 version = "v0.0.0"

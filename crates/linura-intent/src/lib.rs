@@ -93,10 +93,35 @@ impl Setup {
     }
 }
 
+/// Canonical target role of a machine profile.
+///
+/// This is deliberately separate from system domains such as networking,
+/// services, storage or virtualization. Fleet/enterprise is also not a machine
+/// class; it is an optional management overlay across locally authoritative
+/// machines.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MachineClass {
+    Workstation,
+    Server,
+    Edge,
+}
+
+impl MachineClass {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Workstation => "workstation",
+            Self::Server => "server",
+            Self::Edge => "edge",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MachineProfile {
     pub id: ProfileId,
     pub name: String,
+    pub machine_class: MachineClass,
     pub setup_ids: Vec<SetupId>,
     pub intent_ids: Vec<IntentId>,
     pub portable_constraints: Vec<String>,
@@ -195,5 +220,26 @@ mod tests {
             hardware_hints: vec![],
         };
         assert_eq!(setup.validate(), Err(SetupValidationError::SelfReference));
+    }
+
+    #[test]
+    fn machine_class_wire_names_are_canonical() {
+        assert_eq!(MachineClass::Workstation.as_str(), "workstation");
+        assert_eq!(MachineClass::Server.as_str(), "server");
+        assert_eq!(MachineClass::Edge.as_str(), "edge");
+    }
+
+    #[test]
+    fn machine_profile_retains_its_target_class() {
+        let profile = MachineProfile {
+            id: id(ProfileId::new("profile:container-host")),
+            name: "Container host".into(),
+            machine_class: MachineClass::Server,
+            setup_ids: vec![],
+            intent_ids: vec![],
+            portable_constraints: vec!["headless".into()],
+            hardware_hints: vec![],
+        };
+        assert_eq!(profile.machine_class, MachineClass::Server);
     }
 }

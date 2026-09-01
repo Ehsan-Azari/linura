@@ -1,6 +1,17 @@
 {
   "schema_version": 1,
   "evidence_tiers": ["unknown", "fixture_only", "virtual_machine", "community_hardware", "maintainer_hardware", "release_qualified"],
+  "machine_classes": {
+    "workstation": {
+      "release_qualified_profiles": []
+    },
+    "server": {
+      "release_qualified_profiles": []
+    },
+    "edge": {
+      "release_qualified_profiles": []
+    }
+  },
   "domains": {
     "network": "fixture_only",
     "bluetooth": "fixture_only",
@@ -12,5 +23,5 @@
     "amd_gpu": "fixture_only",
     "nvidia_gpu": "fixture_only"
   },
-  "note": "Development evidence only. No physical hardware is release-qualified at bootstrap."
+  "note": "Development evidence only. Workstation, server and edge are target machine classes, but no machine-class profile or physical hardware is release-qualified at bootstrap."
 }

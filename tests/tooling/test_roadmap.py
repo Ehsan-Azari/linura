@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,6 +20,14 @@ class RoadmapContractTests(unittest.TestCase):
             check=False,
         )
 
+    def _run_machine_checker(self, root: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(ROOT / "tools/check_machine_classes.py"), str(root)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
     def _copy_fixture(self, destination: Path) -> None:
         paths = (
             "contracts/roadmap.toml",
@@ -26,11 +35,13 @@ class RoadmapContractTests(unittest.TestCase):
             "docs/system-domains.md",
             "docs/development-plan.md",
             "docs/versioning-and-release-policy.md",
+            "docs/machine-profiles.md",
             "docs/releases/v0.0.0.md",
             "docs/releases/v0.1.0.md",
             "docs/releases/v0.2.0.md",
             "docs/qualification/v0.1.0.md",
             "docs/qualification/v0.2.0.md",
+            "hardware/support-matrix.json",
         )
         for rel in paths:
             source = ROOT / rel
@@ -40,6 +51,10 @@ class RoadmapContractTests(unittest.TestCase):
 
     def test_repository_roadmap_contract_is_valid(self) -> None:
         result = self._run_checker(ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_repository_machine_class_contract_is_valid(self) -> None:
+        result = self._run_machine_checker(ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_current_release_cannot_silently_move_backward(self) -> None:
@@ -267,6 +282,100 @@ class RoadmapContractTests(unittest.TestCase):
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("versioning policy missing Stable v1 invariant", result.stderr)
+
+    def test_machine_class_set_cannot_silently_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8").replace(
+                'target_machine_classes = ["workstation", "server", "edge"]',
+                'target_machine_classes = ["workstation", "server", "fleet"]',
+                1,
+            )
+            contract.write_text(text, encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("target_machine_classes must remain exactly workstation, server, edge", result.stderr)
+            self.assertIn("fleet/enterprise must not be encoded as a local machine class", result.stderr)
+
+    def test_fleet_must_remain_optional_overlay(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8").replace(
+                'fleet_model = "optional-overlay"',
+                'fleet_model = "central-authority"',
+                1,
+            )
+            contract.write_text(text, encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("fleet_model must remain optional-overlay", result.stderr)
+
+    def test_machine_classes_cannot_become_second_domain_maturity_ladder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            domains = root / "docs/system-domains.md"
+            text = domains.read_text(encoding="utf-8").replace(
+                "Do not create a second D-like maturity ladder for workstation/server/edge.",
+                "Workstation/server/edge use a second maturity ladder.",
+                1,
+            )
+            domains.write_text(text, encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("system domain map missing machine-class invariant", result.stderr)
+
+    def test_machine_profile_document_cannot_turn_developer_into_fourth_class(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            profiles = root / "docs/machine-profiles.md"
+            text = profiles.read_text(encoding="utf-8").replace(
+                "`developer machine` is not a fourth class",
+                "`developer machine` is a fourth class",
+                1,
+            )
+            profiles.write_text(text, encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("machine profile document missing machine-class invariant", result.stderr)
+
+    def test_current_release_cannot_claim_machine_profiles_without_platform_support(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            matrix = root / "hardware/support-matrix.json"
+            payload = json.loads(matrix.read_text(encoding="utf-8"))
+            payload["machine_classes"]["workstation"]["release_qualified_profiles"] = [
+                "workstation/example"
+            ]
+            matrix.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("current release has platform_support=none", result.stderr)
+
+    def test_hardware_matrix_cannot_encode_fleet_as_machine_class(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            matrix = root / "hardware/support-matrix.json"
+            payload = json.loads(matrix.read_text(encoding="utf-8"))
+            payload["machine_classes"]["fleet"] = {"release_qualified_profiles": []}
+            matrix.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+            result = self._run_machine_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("hardware support matrix machine_classes must remain exactly", result.stderr)
+            self.assertIn("fleet must not appear as a hardware support machine class", result.stderr)
 
 
 if __name__ == "__main__":

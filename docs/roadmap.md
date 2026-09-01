@@ -13,6 +13,7 @@ The machine-readable companion contract is `contracts/roadmap.toml`. Repository 
 5. **Independent observation proves effects.** Executor success is never sufficient evidence that intended machine state was reached.
 6. **Local authority remains standalone.** Remote control, hosted Library sync, model providers and enterprise services remain optional integrations rather than prerequisites for local operation or recovery.
 7. **Version numbers describe proven capability/support slices.** Pre-1.0 minor releases may introduce externally testable Experimental capability slices; patch releases repair an already-published minor line; v1.0 is reserved for the first Stable supported end-user contract.
+8. **Machine classes are support targets, not domains.** Workstation, server and edge share Linura's authority model but require separately qualified machine/platform profiles; fleet is an optional overlay across those classes, not a fourth local machine class.
 
 ## Canonical managed-mutation architecture
 
@@ -208,10 +209,12 @@ Target capabilities:
 
 - First Boot with offline/default/Library/import paths;
 - installation, update and native recovery integration;
-- first explicitly supported Experimental distribution/desktop/hardware profile boundary;
+- first explicitly supported Experimental machine class + distribution/desktop-or-headless/hardware profile boundary;
 - essential service/network/audio/power/package/security capabilities needed by the reference experience;
-- initial Control Center and shell surfaces;
+- initial Control Center and shell surfaces where the chosen reference profile is interactive;
 - upgrade/migration qualification for persistent Linura state.
+
+The first reference profile does not imply support for every workstation, server or edge configuration.
 
 ## v0.10.0 — meaningful end-user Experimental Linura
 
@@ -228,7 +231,7 @@ Target experience:
 - supported Experimental install/update/recovery path for the reference environment;
 - setup/profile Library workflows;
 - diagnostics, explanation and audit surfaces appropriate to the supported scope;
-- explicit unsupported-domain, platform and compatibility boundaries;
+- explicit unsupported-domain, machine-class, platform and compatibility boundaries;
 - user-facing acceptance evidence sufficient to discover the remaining gaps before Stable support is attempted.
 
 v0.10.0 is where Linura should become meaningfully usable by external experimental users. It is deliberately **not** the point where Stable/production support is declared.
@@ -244,7 +247,7 @@ The v1.0 release contract must bound exactly what is Stable and supported. Exper
 
 Required v1.0 evidence includes, at minimum:
 
-- explicitly declared supported distribution/desktop/hardware profiles and qualification matrix;
+- explicitly declared supported machine class, distribution/desktop-or-headless, architecture and hardware profiles with a qualification matrix;
 - install/bootstrap, First Boot, update, migration and upgrade behavior for supported persistent state;
 - backup/restore, recovery, rollback and indeterminate-operation procedures exercised under failure injection;
 - complete privilege-boundary and threat-model review for every Stable mutating path;
@@ -255,11 +258,11 @@ Required v1.0 evidence includes, at minimum:
 - diagnostics/support bundles with privacy/redaction guarantees;
 - documented security-response, support and known-limitations expectations.
 
-`v1.0.0` does not mean every Linura domain, provider, model adapter or enterprise feature is Stable. It means the exact end-user reference contract named by the release has crossed the Stable support threshold with evidence.
+`v1.0.0` does not mean every Linura domain, machine class, provider, model adapter or enterprise feature is Stable. It means the exact end-user reference contract named by the release has crossed the Stable support threshold with evidence.
 
 ## Beyond v1.0 — broader support and product expansion
 
-After the first Stable supported reference contract, Linura can broaden Stable provider/domain coverage, supported platform matrices, compatibility guarantees and enterprise/fleet capabilities without weakening the local-first authority model.
+After the first Stable supported reference contract, Linura can broaden Stable provider/domain coverage, workstation/server/edge platform matrices, compatibility guarantees and enterprise/fleet capabilities without weakening the local-first authority model.
 
 No later capability may make remote control, hosted Library sync, model providers or enterprise services prerequisites for local operation, setup adoption or recovery.
 
@@ -285,6 +288,16 @@ These tracks preserve Linura's long-term product ambitions without assigning spe
 - UI/workflow extension points;
 - local, hosted and enterprise model adapters that retain proposal-only authority.
 
+### Machine-class expansion
+
+- **workstation** profiles including general, developer, AI/ML, creative and other interactive machine roles;
+- **server** profiles including headless application/database hosts, container hosts, virtualization hosts and GPU/compute nodes;
+- **edge** profiles including gateways, appliances, constrained edge-compute nodes and unattended systems;
+- class-specific qualification for interaction model, resource constraints, hardware architecture, recovery, update and failure semantics;
+- portable profile compatibility rules that never assume cross-class replay is automatically safe.
+
+Workstation, server and edge are support targets over the same local authority architecture. They are not system domains and do not receive a second D0–D7-like maturity ladder.
+
 ### General-purpose provider breadth
 
 - deeper networking, packages/apps, firewall, storage/recovery and boot providers;
@@ -298,11 +311,11 @@ These tracks preserve Linura's long-term product ambitions without assigning spe
 - enrollment and mTLS identity;
 - central policy and audit export;
 - enterprise setup/profile catalog policy;
-- fleet desired-state orchestration;
+- fleet desired-state orchestration across workstation, server and edge nodes;
 - staged deployment, health gates and rollback;
 - enterprise model/provider controls.
 
-Fleet, hosted sync and enterprise services remain optional integrations. They never become prerequisites for local authority, local Library use, setup adoption or recovery.
+Fleet, hosted sync and enterprise services remain optional integrations. Fleet is an **optional overlay**, not a fourth machine class. They never become prerequisites for local authority, local Library use, setup adoption or recovery.
 
 ## Independent maturity axes
 
@@ -313,10 +326,21 @@ Release versions are only one axis. Linura tracks the following independently:
 | Trust/lifecycle maturity | Which managed-mutation boundaries are proven end to end? |
 | Domain maturity | How far has a specific domain such as services, networking, packages or virtualization progressed? |
 | Contract stability | Is an API/schema Experimental, Preview or Stable? |
-| Platform support | Which exact distribution/desktop/hardware profiles are release-qualified? |
+| Machine/platform support | Which exact workstation/server/edge + distribution/desktop-or-headless/architecture/hardware profiles are release-qualified? |
 | Product experience | Which end-user workflows are coherent and supported? |
 
-A domain can be implemented in source while still having no supported platform claim. Experimental contracts/providers may coexist with a future Stable product scope when they are explicitly excluded from that Stable boundary. A VM can be used for qualification without VM lifecycle management being a Linura product capability.
+A domain can be implemented in source while still having no supported machine/platform claim. Experimental contracts/providers may coexist with a future Stable product scope when they are explicitly excluded from that Stable boundary. A VM can be used for qualification without VM lifecycle management being a Linura product capability.
+
+## Target machine classes
+
+The canonical target classes are `workstation`, `server` and `edge`, as defined in [Machine profiles](machine-profiles.md) and machine-locked by `contracts/roadmap.toml`.
+
+- A **developer machine** is normally a workstation profile, not a fourth machine class.
+- **Server** is a first-class headless/remote operating target, not merely a workstation with its GUI removed.
+- **Edge** is a first-class constrained/unattended operating target with distinct resource, connectivity, update and recovery qualification concerns.
+- **Fleet/enterprise** is an optional management/control topology across these classes, not a local machine class and not a replacement for local Linura authority.
+
+Declaring a target class does not claim that any profile in that class is currently supported. Exact support comes only from release-qualified machine/platform profiles and evidence.
 
 ## Domain maturity levels
 
@@ -333,7 +357,7 @@ System domains use a capability maturity scale independent of release numbering:
 | D6 — Experimental supported | A published release explicitly supports the bounded capability. |
 | D7 — Stable supported | Compatibility/support guarantees have been explicitly promoted and qualified. |
 
-The current [system domain map](system-domains.md) records sequencing classes and known release-qualified slices without assigning obsolete product-version promises to every domain.
+The current [system domain map](system-domains.md) records sequencing classes, machine-class applicability and known release-qualified slices without assigning obsolete product-version promises to every domain. Workstation/server/edge applicability does not create another maturity scale.
 
 ## VM and virtualization boundary
 
@@ -353,10 +377,11 @@ These gates are architectural, not merely scheduling preferences:
 - the first supported Experimental effect in v0.6 must depend on durable recovery, narrow execution, independent verification, commit, audit and reconciliation;
 - broader domain mutation must not become normal scope before the complete v0.6 lifecycle is proven;
 - agent interpretation must remain proposal-only and must not bypass deterministic planning, policy or authorization;
-- First Boot/support claims require an explicit platform profile and install/update/recovery evidence;
+- First Boot/support claims require an explicit machine/platform profile and install/update/recovery evidence;
 - v0.10 remains Experimental even when it becomes meaningfully usable;
 - v1.0 must not ship until its exact supported reference scope satisfies the Stable contract requirements in `docs/versioning-and-release-policy.md`;
 - high-risk domains such as storage, boot, security posture and virtualization must define domain-specific recovery/verification semantics before mutation support;
+- workstation/server/edge support must be qualified per exact profile rather than promoted class-wide from one configuration;
 - fleet/remote authority must remain optional and must not replace local authority or recovery.
 
 ## Anti-drift governance
@@ -369,9 +394,10 @@ These gates are architectural, not merely scheduling preferences:
 6. **Every active milestone gets a bounded milestone contract.** It must define goal, dependencies, required capabilities, trust invariants, explicit non-goals, evidence and exit criteria before release preparation.
 7. **Every release writes the next-version handoff.** The frozen release contract must state what trust boundary can safely come next and what remains prohibited.
 8. **Domains do not own release numbers.** Domain sequencing lives in `docs/system-domains.md`; exact release inclusion belongs in milestone/release contracts.
-9. **Architecture shortcuts require explicit review.** Any proposal that bypasses typed capability resolution, policy, durable prepare, independent verification or local authority requires an ADR-level decision before implementation.
-10. **Evidence wins over aspiration.** If qualification cannot support a planned claim, the claim is reduced or deferred; tests are never weakened to preserve roadmap optics.
-11. **Stable is never implied by implementation volume.** Stable support requires an explicit contract promotion and qualification; conversely, the `v1.0.0` product version is reserved for the first such supported end-user contract rather than an Experimental marketing milestone.
+9. **Machine classes do not become domains or fleet roles.** Workstation/server/edge are platform-support targets; fleet stays an optional overlay and agent/AI stays an upstream proposal plane.
+10. **Architecture shortcuts require explicit review.** Any proposal that bypasses typed capability resolution, policy, durable prepare, independent verification or local authority requires an ADR-level decision before implementation.
+11. **Evidence wins over aspiration.** If qualification cannot support a planned claim, the claim is reduced or deferred; tests are never weakened to preserve roadmap optics.
+12. **Stable is never implied by implementation volume.** Stable support requires an explicit contract promotion and qualification; conversely, the `v1.0.0` product version is reserved for the first such supported end-user contract rather than an Experimental marketing milestone.
 
 ## Roadmap-change procedure
 
@@ -381,9 +407,11 @@ A roadmap rebaseline should answer all of the following in the reviewing PR:
 - Does it alter any already-published claim? If yes, the change is invalid; published claims remain frozen.
 - Which future milestone goals/dependencies move?
 - Does any domain sequencing change?
+- Does the target machine-class set or an exact machine/platform support boundary change?
 - Does the change introduce or move mutation authority, persistence, agent authority, platform support or remote authority?
+- Does it accidentally turn fleet/enterprise into a local machine class or make remote control required for local authority/recovery?
 - Does it change the meaning of `v1.0.0` or any stability threshold defined by the versioning policy?
-- Are milestone, domain, architecture, qualification, versioning and machine-readable roadmap documents still consistent?
+- Are milestone, domain, machine-profile, hardware, architecture, qualification, versioning and machine-readable roadmap documents still consistent?
 - Can repository validation detect accidental reintroduction of the superseded roadmap shape?
 
 The purpose of this process is not to prevent learning. It is to ensure that learning becomes an explicit architectural decision rather than silent roadmap drift.

@@ -231,7 +231,9 @@ pub struct SetupAdoptionResponse {
 }
 
 /// A portable machine profile export is self-contained: the profile references
-/// setup/intent IDs while this bundle carries those definitions for replay.
+/// setup/intent IDs while this bundle carries those definitions for replay. The
+/// profile's canonical machine class is retained in the typed profile itself so
+/// adoption can detect and review cross-class replay.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableProfileExport {
     pub profile: MachineProfile,
@@ -259,6 +261,8 @@ pub struct ProfileAdoptionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use linura_core::ProfileId;
+    use linura_intent::MachineClass;
 
     #[test]
     fn preview_contract_names_are_explicitly_non_executable() {
@@ -292,5 +296,27 @@ mod tests {
             desired_state: BTreeMap::from([("active_state".into(), "active".into())]),
         };
         assert_eq!(request.request_id.as_str(), "request:test");
+    }
+
+    #[test]
+    fn portable_profile_export_retains_machine_class() {
+        let bundle = PortableProfileExport {
+            profile: MachineProfile {
+                id: ProfileId::new("profile:edge-gateway")
+                    .unwrap_or_else(|error| unreachable!("{error}")),
+                name: "Edge gateway".into(),
+                machine_class: MachineClass::Edge,
+                setup_ids: vec![],
+                intent_ids: vec![],
+                portable_constraints: vec!["intermittent-connectivity".into()],
+                hardware_hints: vec![],
+            },
+            setups: vec![],
+            intents: vec![],
+            format_version: 1,
+        };
+
+        assert_eq!(bundle.profile.machine_class, MachineClass::Edge);
+        assert_eq!(bundle.profile.machine_class.as_str(), "edge");
     }
 }
