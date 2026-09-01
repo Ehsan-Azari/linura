@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 blocking = "=1.7.0"
+linura-control = { path = "../linura-control" }
 linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
 linura-observation-control = { path = "../linura-observation-control" }

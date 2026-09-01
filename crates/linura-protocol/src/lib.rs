@@ -1,8 +1,10 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
+
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, ProviderId, RequestId, ResourceId,
-    SetupId,
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId,
+    ResourceId, RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
 use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
@@ -55,6 +57,92 @@ pub struct ObservationResponse {
 pub struct ObservationSystemSnapshot {
     pub graph: SystemGraph,
     pub providers: ProviderSnapshot,
+}
+
+/// Authenticated desired-state request for one non-executable reconciliation preview.
+///
+/// Actor identity is deliberately absent. Local transports derive the actor and
+/// authorization principal from authenticated transport credentials.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanDesiredStateRequest {
+    pub request_id: RequestId,
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub observation_capability: CapabilityId,
+    pub reason: SemanticReason,
+    pub desired_state: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanPreviewStatus {
+    NoChange,
+    ChangeProposed,
+    Blocked,
+}
+
+impl PlanPreviewStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoChange => "no-change",
+            Self::ChangeProposed => "change-proposed",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanPreviewFindingLevel {
+    Pass,
+    Warning,
+    Blocker,
+}
+
+impl PlanPreviewFindingLevel {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Warning => "warning",
+            Self::Blocker => "blocker",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanPreviewChange {
+    pub key: String,
+    pub current: Option<String>,
+    pub desired: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanPreviewFinding {
+    pub code: String,
+    pub level: PlanPreviewFindingLevel,
+    pub message: String,
+}
+
+/// Public, transport-neutral projection of a deterministic reconciliation plan.
+///
+/// `execution_authorized` is present so wire/schema consumers can assert the
+/// authority boundary explicitly. Conforming Linura transports reject a value of
+/// `true`; v0.2.0 has no public conversion from a preview to an executable effect.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanPreview {
+    pub plan_id: PlanId,
+    pub request_id: RequestId,
+    pub actor: Actor,
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub observation_capability: CapabilityId,
+    pub reason: SemanticReason,
+    pub observed_evidence_id: String,
+    pub prospective_risk: RiskClass,
+    pub status: PlanPreviewStatus,
+    pub execution_authorized: bool,
+    pub changes: Vec<PlanPreviewChange>,
+    pub findings: Vec<PlanPreviewFinding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -166,4 +254,43 @@ pub struct ProfileAdoptionResponse {
     pub missing_secret_refs: Vec<String>,
     pub warnings: Vec<String>,
     pub requires_plan: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_contract_names_are_explicitly_non_executable() {
+        assert_eq!(PlanPreviewStatus::NoChange.as_str(), "no-change");
+        assert_eq!(
+            PlanPreviewStatus::ChangeProposed.as_str(),
+            "change-proposed"
+        );
+        assert_eq!(PlanPreviewStatus::Blocked.as_str(), "blocked");
+        assert_eq!(PlanPreviewFindingLevel::Blocker.as_str(), "blocker");
+    }
+
+    #[test]
+    fn public_request_has_no_actor_field_constructor_requirement() {
+        let request = PlanDesiredStateRequest {
+            request_id: RequestId::new("request:test")
+                .unwrap_or_else(|error| unreachable!("{error}")),
+            provider: ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}")),
+            resource: ResourceId::new("systemd:unit:test.service")
+                .unwrap_or_else(|error| unreachable!("{error}")),
+            observation_capability: CapabilityId::new("systemd.unit.observe")
+                .unwrap_or_else(|error| unreachable!("{error}")),
+            reason: SemanticReason {
+                summary: "keep test active".into(),
+                intent_ids: vec![
+                    IntentId::new("intent:test").unwrap_or_else(|error| unreachable!("{error}")),
+                ],
+                requirement_ids: vec![],
+                capability_ids: vec![],
+            },
+            desired_state: BTreeMap::from([("active_state".into(), "active".into())]),
+        };
+        assert_eq!(request.request_id.as_str(), "request:test");
+    }
 }

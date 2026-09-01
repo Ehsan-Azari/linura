@@ -30,8 +30,9 @@ pub use linura_observation::{
 pub use linura_protocol::{
     ActionRequest, CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand,
     ObservationExplanation, ObservationRequest, ObservationResponse, ObservationSystemSnapshot,
-    PROTOCOL_MAJOR, PlanResponse, PortableProfileExport, PortableSetupExport,
-    ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion, ProviderSnapshot,
-    SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
+    PROTOCOL_MAJOR, PlanDesiredStateRequest, PlanPreview, PlanPreviewChange, PlanPreviewFinding,
+    PlanPreviewFindingLevel, PlanPreviewStatus, PlanResponse, PortableProfileExport,
+    PortableSetupExport, ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion,
+    ProviderSnapshot, SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
 };
 pub use linura_provenance::{ProvenanceKind, ProvenanceRecord, WhyChain};

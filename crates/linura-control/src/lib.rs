@@ -1,5 +1,13 @@
 #![forbid(unsafe_code)]
 
+mod plan_preview;
+
+pub use plan_preview::{
+    AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
+    MAX_PREVIEW_ENTRY_BYTES, MAX_PREVIEW_TOTAL_BYTES, MAX_REQUEST_BYTES, MAX_SUMMARY_BYTES,
+    MAX_TOTAL_ORIGINS, PlanPreviewControl, PlanPreviewControlError,
+};
+
 use std::fmt::{Debug, Display, Formatter};
 
 use linura_core::{ActionPlan, PlanId};
