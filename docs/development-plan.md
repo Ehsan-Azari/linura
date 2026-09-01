@@ -1,8 +1,8 @@
 # Development plan
 
-The development order proves the intent-native model **without depending on an LLM first** and preserves the canonical mutation lifecycle from the first real effect.
+The development order proves the intent-native model **without depending on an LLM first** and preserves the canonical mutation lifecycle from the first supported managed effect.
 
-Every implementation version is governed by a mutable milestone contract under `docs/milestones/`; before tagging, that milestone closes into a frozen `docs/releases/` contract with a bounded claim class and permanent acceptance evidence. See [Release contracts, claims and evidence](release-contracts.md).
+The canonical version spine lives in [Roadmap](roadmap.md). This document explains implementation sequencing and proof dependencies; it must not independently redefine release meaning. Every implementation version is governed by a mutable milestone contract under `docs/milestones/`; before tagging, that milestone closes into a frozen `docs/releases/` contract with a bounded claim class and permanent acceptance evidence. See [Release contracts, claims and evidence](release-contracts.md).
 
 ## Phase 0 — Linura architecture lock (complete for v0.0.0)
 
@@ -50,31 +50,36 @@ Use a constrained example such as a systemd service on a disposable VM. Prove bo
 
 `v0.2.0` includes the structural plan/risk/provenance foundations needed by the next phase, but it does not claim the policy/approval or mutation-authority parts of Phase 3.
 
-## Phase 3 — policy-evaluated plan review + semantic provenance
+## Phase 3 — policy-evaluated plan review + semantic provenance (target v0.3.0)
 
 Complete the authority-side plan-review contract: policy decision, approval requirement, authorization-boundary inputs and planned provenance/audit. Every managed resource in a plan must retain an intent/requirement/capability origin. Planning continues to consume authoritative observation rather than assumed state.
 
-This phase still does not permit supported external mutation until the durable prepare/commit and recovery foundation exists.
+This phase still does not permit supported external mutation. Even a fully approved reviewed plan remains non-executable at the public product boundary.
 
-## Phase 4 — durable prepare/commit and recovery foundation
+## Phase 4 — durable prepare/commit and recovery foundation (target v0.4.0)
 
 Select local persistence via ADR and implement the transaction boundary required before any supported external mutation:
 - request/plan idempotency;
 - durable `prepare` intent-to-execute record;
+- exact plan/evidence/authorization binding;
 - indeterminate-operation recovery state;
-- verified `commit` transaction for desired state/graph/provenance;
-- append-only success/failure audit records;
-- migration and corruption-detection basics.
+- verified `commit` transaction model for desired state/graph/provenance;
+- append-only success/failure audit foundations;
+- migration, versioning and corruption-detection basics.
 
-A crash after prepare must recover by re-observing authoritative state, never by blindly replaying an effect.
+A crash after prepare must recover by re-observing authoritative state, never by blindly replaying an effect. Durable state alone does not grant mutation authority.
 
-## Phase 5 — first narrow privileged executor and independent verifier
+## Phase 5 — first narrow privileged executor and independent verifier (target v0.5.0)
 
 Implement `linura-executor-systemd` over systemd D-Bus with strict unit validation and Polkit. No arbitrary command execution.
 
 Implement verification as a separate boundary consuming post-execution authoritative observation. Executor success alone is never state proof.
 
-## Phase 6 — first complete eleven-stage vertical slice
+The executor/verifier may be exercised against a deliberately narrow disposable test fixture to qualify component behavior, failure paths, timeouts and indeterminate outcomes. **Phase 5 remains qualification-only:** it must not expose a supported public `apply` path or claim Linura-managed external mutation as a product capability.
+
+The first supported managed external effect is reserved for Phase 6, after these components are integrated with authorization, durable prepare/recovery, commit, audit and reconciliation through the complete canonical lifecycle.
+
+## Phase 6 — first complete eleven-stage vertical slice (target v0.6.0)
 
 Make one narrow capability traverse the entire canonical path:
 
@@ -94,7 +99,9 @@ request / intent
 
 Add denial tests, approval tests, failure injection, crash/indeterminate recovery, compensation where applicable, drift tests and VM acceptance evidence. A successful effect without successful verification/commit/audit is not a successful managed mutation.
 
-## Phase 7 — persistent intent lifecycle + local Linura Library
+Phase 6 is the first milestone allowed to publish a bounded Experimental supported managed external effect.
+
+## Phase 7 — persistent intent lifecycle + local Linura Library (target v0.7.0)
 
 Persist intents, requirements, desired state, graph, provenance, approvals, audit and reconciliation state. Implement suspend/supersede/retire and shared-ownership removal impact using the same canonical mutation lifecycle for resulting changes.
 
@@ -109,38 +116,76 @@ Implement the local-first reusable configuration layer:
 
 Sync backends and signatures remain optional/later; local file/store export is sufficient for this phase.
 
-## Phase 8 — agent interpretation
+## Phase 8 — agent interpretation (target v0.8.0)
 
 Introduce model/provider adapters whose only authority output is `IntentProposal`. Add specialist advice and disagreement/conflict handling. Test prompt injection, malicious tool proposals, stale context and provider unavailability.
 
 Agents may propose saving/adopting setups, but Library operations and adoption remain typed deterministic APIs. Imported setup text never becomes executable model output.
 
-## Phase 9 — first boot
+## Phase 9 — First Boot + supported Experimental reference environment (target v0.9.0)
 
 Implement the signature flow: "What do you want this computer to become?" including offline/default/library/import paths, hardware discovery, plan review, approval, snapshot and recovery escape hatches.
 
 A user can start from fresh intent, a saved Setup, or a whole MachineProfile; all paths converge on target observation and fresh planning.
 
-## Phase 10 — expand system domains
+Declare the first bounded Experimental reference environment only when installation, update/recovery and the essential domain capabilities needed by that environment have version-specific acceptance evidence.
 
-Network, Bluetooth, audio, power, storage, packages, firewall, updates/snapshots, displays, containers/virtualization and other system domains. Every managed domain uses the same eleven-stage mutation lifecycle rather than defining a domain-specific authority shortcut.
+## Phase 10 — meaningful end-user Experimental Linura (target v0.10.0)
 
-## Phase 11 — workflows and derived UI
+Integrate the proven trust core into a coherent external-user experience without prematurely claiming Stable support:
 
-Add declarative workflow runtime and constrained derived surfaces. Custom code uses isolated extensions only. Workflow steps still enter Linura Control through typed requests and cannot bypass the mutation lifecycle.
+- First Boot, local Library and profile/setup workflows;
+- initial Control Center and shell surfaces over the same typed control protocol;
+- essential system domains required by the Experimental reference environment;
+- manual operation that remains complete without AI;
+- bounded agent-assisted `IntentProposal` workflows;
+- explanation, diagnostics and audit surfaces;
+- install/update/recovery flows exercised by user-facing system acceptance;
+- explicit unsupported-domain/platform/compatibility boundaries.
 
-Reusable workflows can later be cataloged by the Linura Library, but Setup v1 remains centered on intent/setup composition until workflow portability contracts stabilize.
+Use v0.10 to discover and close product-level gaps under a truthful Experimental contract before the Stable threshold is attempted.
 
-## Phase 12 — Control Center and shell
+## Phase 11 — Stable support qualification (target v1.0.0)
 
-Build clients over the same protocol. No provider-specific backend logic in UI and no privileged UI shortcut around Linura Control. Include Library/setup/profile browsing, diff/review and explainable adoption history.
+`v1.0.0` is reserved by Linura's versioning policy for the first Stable supported end-user contract. Do not tag 1.0 merely because the product is usable or the feature list is large.
 
-## Phase 13 — supported release hardening
+The declared Stable reference scope must qualify, at minimum:
 
-Installer, migrations, snapshots, recovery drills, hardware matrix, security review, SBOM/signing/attestations, reproducible packaging, documentation and soak tests. Supported claim classes require version-specific evidence in addition to the generic release-readiness checklist.
+- supported distribution/desktop/hardware profiles;
+- install/bootstrap and First Boot behavior;
+- migration, upgrade, backup/restore, rollback and recovery paths;
+- canonical lifecycle and privilege boundaries for every Stable mutating path;
+- failure injection, crash/restart, power-loss and indeterminate-operation recovery;
+- security/threat-model review and documented support/security-response expectations;
+- compatibility/deprecation guarantees for Stable public contracts;
+- resource bounds, daemon resilience, corruption handling and soak testing;
+- reproducible/attested release and rollback/recovery publication procedures;
+- privacy-safe diagnostics/support evidence.
 
-## Phase 14 — optional sharing, enterprise and fleet
+Experimental providers and extensions may coexist with v1.0 only if the Stable release contract clearly excludes them from the supported boundary.
 
-After local trust is proven, add optional canonical serialization/content digests/signatures and pluggable Library synchronization/catalog backends. Enterprise/fleet adds enrollment, mTLS, remote policy, fleet desired intent/state, audit export, staged rollout and rollback.
+## Phase 12 — broader system domains (post-v1 strategic expansion)
 
-Remote/fleet requests and synced setups enter the same local authority lifecycle. No remote catalog becomes the source of execution authority.
+Expand network, Bluetooth, audio, power, storage, packages, firewall, updates/snapshots, displays, containers/virtualization and other system domains. Every managed domain uses the same eleven-stage mutation lifecycle rather than defining a domain-specific authority shortcut.
+
+Provider breadth does not automatically inherit Stable status. Each capability advances independently through domain maturity and version-specific evidence.
+
+## Phase 13 — personal operating environment, workflows and derived UI (post-v1 strategic expansion)
+
+Add declarative workflow runtime, constrained derived surfaces, machine profile/personality composition, profile/setup capture from managed causal state, coherent shell/design-system behavior and accessibility/input parity.
+
+Custom code uses isolated extensions only. Workflow steps still enter Linura Control through typed requests and cannot bypass the mutation lifecycle.
+
+Reusable workflows can later be cataloged by the Linura Library, but portability contracts must stabilize before Stable support is claimed.
+
+## Phase 14 — extension and sharing ecosystem (post-v1 strategic expansion)
+
+Add capability-isolated extensions, signed manifests/update policy, canonical setup/profile serialization and digests/signatures, optional Git/user-owned/hosted Library synchronization, and UI/workflow extension points.
+
+All hosted/model/sync providers remain optional. None becomes the source of local execution authority.
+
+## Phase 15 — optional enterprise and fleet (post-v1 strategic expansion)
+
+After local trust and the Stable reference contract are proven, add enrollment, mTLS, remote policy, audit export, enterprise setup/profile catalog controls, fleet desired intent/state, staged rollout and rollback, and enterprise model/provider controls.
+
+Remote/fleet requests and synced setups enter the same local authority lifecycle. No remote catalog becomes the source of execution authority, and loss of enterprise connectivity must not destroy local recovery.
