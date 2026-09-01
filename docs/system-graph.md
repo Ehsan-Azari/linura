@@ -11,6 +11,7 @@ The system graph is Linura's causal view of the machine. It unifies reusable set
 - workflow
 - application/service/package/configuration/resource
 - device/hardware resource
+- observation evidence and provider/capability relationships where projected by the observation control plane
 
 ## Edge semantics
 
@@ -24,6 +25,16 @@ The system graph is Linura's causal view of the machine. It unifies reusable set
 - `shared-by`
 - `derived-from`
 - `realizes`
+
+## Observation evidence and materialization
+
+**The System Graph is a materialized causal/evidence projection, not current-state authority.**
+
+Authoritative current machine truth still comes from the responsible provider through a validated `ObservationEnvelope`. The observation control plane may project current and retained evidence into the graph so Linura can explain provider/resource/capability relationships, correlate provenance, answer bounded context queries and reuse still-valid evidence.
+
+A graph node does not become permanently current merely because it was once derived from authoritative evidence. Freshness remains attached to the underlying observation and must be re-evaluated before a consumer treats retained evidence as current. When planning, policy or verification requires fresh authority, the graph cannot waive that requirement.
+
+Future context projections may read the graph together with current observations, history, diagnostics or retrieval indexes. Those projections remain derived views and do not create a second state authority.
 
 ## Why setups belong in the graph
 
