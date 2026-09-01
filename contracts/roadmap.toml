@@ -1,6 +1,7 @@
 schema_version = 1
 canonical_document = "docs/roadmap.md"
 domain_document = "docs/system-domains.md"
+canonical_lifecycle = "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
 current_release = "v0.2.0"
 next_release = "v0.3.0"
 product_stability = "experimental"
