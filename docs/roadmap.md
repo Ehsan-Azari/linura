@@ -115,31 +115,34 @@ Target capabilities:
 - explicit indeterminate-operation representation and recovery rules;
 - durable audit foundation for later execution evidence.
 
-This milestone is not permission to introduce broad managed mutation merely because durable state exists.
+This milestone is not permission to introduce managed external mutation merely because durable state exists.
 
 ## v0.5.0 — first narrow privileged executor and independent verifier
 
 **Status:** planned  
 **Target claim class:** Experimental
 
-Introduce the first release-qualified privileged effect for one deliberately narrow capability only after v0.3 and v0.4 foundations exist.
+Implement and qualify the first narrow privileged executor and independent verifier components **without yet supporting a Linura-managed external mutation as a product capability**.
 
 Target capabilities:
 
 - least-privilege typed executor with no generic shell authority;
 - exact prepared-plan/effect binding;
-- constrained privileged authorization path;
-- one narrow externally observable mutation;
-- independent authoritative re-observation after the effect;
+- constrained privileged authorization plumbing suitable for later lifecycle integration;
+- one deliberately narrow effect exercised only through disposable qualification authority;
+- independent authoritative re-observation after the qualification effect;
 - postcondition verification that does not trust executor self-reporting;
-- failure-path, timeout and indeterminate-state evidence.
+- failure-path, timeout and indeterminate-state component evidence;
+- no public `apply`/managed-mutation surface and no release claim that users may rely on the qualification-only effect.
+
+Any external effect in v0.5 qualification is test-fixture evidence for the executor/verifier components, not supported Linura mutation authority. The first supported managed external effect remains blocked until v0.6 integrates these components with authorization, durable prepare/recovery, commit, audit and reconciliation through the complete lifecycle.
 
 ## v0.6.0 — complete eleven-stage managed mutation
 
 **Status:** planned  
 **Target claim class:** Experimental
 
-Prove the first complete end-to-end execution of Linura's already-canonical lifecycle for one narrow capability:
+Prove the first complete end-to-end execution of Linura's already-canonical lifecycle for one narrow capability, and only then permit the first bounded Experimental **supported managed external effect**:
 
 ```text
 request / intent
@@ -155,9 +158,9 @@ request / intent
 → reconcile
 ```
 
-The release must exercise success, denial, stale-evidence, crash/restart, executor failure, verification failure, indeterminate outcome and reconciliation paths in disposable system acceptance.
+The release must exercise success, denial, stale-evidence, crash/restart, executor failure, verification failure, indeterminate outcome and reconciliation paths in disposable system acceptance. A supported mutation must be bound to the exact authorized plan/prepare state and independently verified before commit.
 
-Only after this milestone is complete should broad system-domain mutation become normal roadmap work.
+Only after this milestone is complete should broader system-domain mutation become normal roadmap work.
 
 ## v0.7.0 — persistent intent lifecycle and local Linura Library
 
@@ -332,9 +335,11 @@ A future VM lifecycle must use the same canonical eleven stages: request/intent 
 
 These gates are architectural, not merely scheduling preferences:
 
-- supported external mutation must not precede the v0.4 durable transaction/recovery foundation;
-- the first privileged effect must remain narrow until independently verified through v0.5 evidence;
-- broad domain mutation must not become normal scope before the complete v0.6 lifecycle is proven;
+- no supported managed external mutation may appear before v0.6 proves the complete eleven-stage lifecycle;
+- v0.4 may establish durable prepare/recovery state but still has no external effect authority;
+- v0.5 may exercise a narrow executor/verifier only through disposable qualification authority and must not expose or claim supported managed mutation;
+- the first supported Experimental effect in v0.6 must depend on durable recovery, narrow execution, independent verification, commit, audit and reconciliation;
+- broader domain mutation must not become normal scope before the complete v0.6 lifecycle is proven;
 - agent interpretation must remain proposal-only and must not bypass deterministic planning, policy or authorization;
 - First Boot/support claims require an explicit platform profile and install/update/recovery evidence;
 - high-risk domains such as storage, boot, security posture and virtualization must define domain-specific recovery/verification semantics before mutation support;
