@@ -1,0 +1,170 @@
+schema_version = 1
+canonical_document = "docs/roadmap.md"
+domain_document = "docs/system-domains.md"
+development_document = "docs/development-plan.md"
+versioning_document = "docs/versioning-and-release-policy.md"
+canonical_lifecycle = "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
+current_release = "v0.2.0"
+next_release = "v0.3.0"
+product_stability = "experimental"
+
+[[milestone]]
+version = "v0.0.0"
+title = "architecture and trustworthy development foundation"
+status = "released"
+claim_class = "Experimental"
+depends_on = []
+durable_recovery = false
+executor_state = "none"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+release_contract = "docs/releases/v0.0.0.md"
+
+[[milestone]]
+version = "v0.1.0"
+title = "authoritative observation and causal system graph"
+status = "released"
+claim_class = "Experimental"
+depends_on = ["v0.0.0"]
+durable_recovery = false
+executor_state = "none"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+release_contract = "docs/releases/v0.1.0.md"
+qualification = "docs/qualification/v0.1.0.md"
+
+[[milestone]]
+version = "v0.2.0"
+title = "deterministic desired state and non-executable planning"
+status = "released"
+claim_class = "Experimental"
+depends_on = ["v0.1.0"]
+durable_recovery = false
+executor_state = "none"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+release_contract = "docs/releases/v0.2.0.md"
+qualification = "docs/qualification/v0.2.0.md"
+
+[[milestone]]
+version = "v0.3.0"
+title = "policy, authorization, approval, and plan review"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.2.0"]
+durable_recovery = false
+executor_state = "none"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.4.0"
+title = "durable transaction and recovery foundation"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.3.0"]
+durable_recovery = true
+executor_state = "none"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.5.0"
+title = "first narrow privileged executor and independent verifier"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.4.0"]
+durable_recovery = true
+executor_state = "isolated-qualified"
+complete_lifecycle = false
+managed_mutation_support = "none"
+agent_role = "none"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.6.0"
+title = "complete eleven-stage managed mutation"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.5.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "narrow-experimental"
+agent_role = "none"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.7.0"
+title = "persistent intent lifecycle and local Linura Library"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.6.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "narrow-experimental"
+agent_role = "none"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.8.0"
+title = "agent interpretation / IntentProposal"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.7.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "narrow-experimental"
+agent_role = "proposal-only"
+platform_support = "none"
+
+[[milestone]]
+version = "v0.9.0"
+title = "First Boot and supported reference environment"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.8.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "narrow-experimental"
+agent_role = "proposal-only"
+platform_support = "reference-experimental"
+
+[[milestone]]
+version = "v0.10.0"
+title = "meaningful end-user Experimental Linura"
+status = "planned"
+claim_class = "Experimental"
+depends_on = ["v0.9.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "narrow-experimental"
+agent_role = "proposal-only"
+platform_support = "reference-experimental"
+
+[[milestone]]
+version = "v1.0.0"
+title = "first Stable supported end-user Linura"
+status = "planned"
+claim_class = "Stable"
+depends_on = ["v0.10.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "reference-stable"
+agent_role = "proposal-only"
+platform_support = "reference-stable"

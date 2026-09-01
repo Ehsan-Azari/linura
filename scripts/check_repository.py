@@ -21,7 +21,9 @@ REQUIRED = [
     "docs/migrations.md", "docs/managed-configuration.md", "docs/hardware-validation.md", "docs/vm-acceptance.md",
     "docs/visual-testing.md", "docs/application-supervision.md", "docs/lifecycle-workflows.md",
     "docs/release-engineering.md", "docs/api-versioning.md", "docs/omarchy-development-lessons.md",
+    "docs/roadmap.md", "docs/system-domains.md",
     "contracts/stability.toml", "tools/check_contract_stability.py", "tests/tooling/test_contract_stability.py",
+    "contracts/roadmap.toml", "tools/check_roadmap.py", "tests/tooling/test_roadmap.py",
     "profiles/arch-hyprland-v1.toml",
     "crates/linura-intent/Cargo.toml", "crates/linura-graph/Cargo.toml", "crates/linura-capability-sdk/Cargo.toml",
     "crates/linura-planner/Cargo.toml", "crates/linura-provenance/Cargo.toml", "crates/linura-agent-runtime/Cargo.toml",
@@ -239,6 +241,16 @@ def main() -> int:
     if contract_result.returncode != 0:
         details = contract_result.stderr.strip() or contract_result.stdout.strip()
         failures.append(f"contract stability validation failed: {details}")
+
+    roadmap_result = subprocess.run(
+        [sys.executable, str(ROOT / "tools/check_roadmap.py"), str(ROOT)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if roadmap_result.returncode != 0:
+        details = roadmap_result.stderr.strip() or roadmap_result.stdout.strip()
+        failures.append(f"roadmap contract validation failed: {details}")
 
     if failures:
         for failure in failures:
