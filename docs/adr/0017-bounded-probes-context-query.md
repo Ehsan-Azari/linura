@@ -26,6 +26,8 @@ The current `Observer`/`ObservationCoordinator` path remains the authoritative f
 
 Providers adapt semantic Linura contracts to upstream mechanisms. They may internally use D-Bus, Unix sockets, native libraries/APIs, kernel/filesystem interfaces, subprocesses, HTTP/RPC, or other bounded mechanisms.
 
+Provider/probe interfaces should stay deliberately small and stable in the same spirit as a narrow driver API: callers exchange semantic typed requests/results, while native handles and implementation mechanics remain private to the adapter. D-Bus object paths, Unix file descriptors, sockets, process handles and other transport/session handles are provider-owned, lifetime-bounded implementation details; they are not durable Linura resource identities and must not leak into portable domain contracts.
+
 Two D-Bus roles are explicitly permitted:
 
 1. D-Bus as a local Linura client/control transport.
@@ -33,9 +35,11 @@ Two D-Bus roles are explicitly permitted:
 
 Neither role may define Linura capability, resource, desired-state, observation, planning, policy, or lifecycle semantics. D-Bus paths, interfaces, signals, file descriptors, and wire-specific values remain adapter details.
 
-### Observation, cache, and context boundary
+### Observation, cache, uncertainty, and context boundary
 
 `linura-observation::ObservationEnvelope` is the canonical authoritative observation envelope. It carries provider/resource/capability identity, authority, time/validity information, sequence, and typed attributes.
+
+Authoritative state does not become more authoritative because a model, retriever or aggregator assigns it a confidence score. If an upstream subsystem natively exposes quality/uncertainty metadata, a provider may preserve that as typed evidence where the domain requires it; inferred confidence belongs to derived/retrieval context and cannot substitute for a required authoritative observation.
 
 A cache may retain or materialize observations for bounded reuse, history, query coalescing, or context projection. Cached evidence keeps its original provenance and freshness semantics. When a consumer requires current authoritative truth, cache presence cannot waive the required freshness/authority contract.
 
@@ -43,7 +47,7 @@ Derived **context projections** may combine authoritative observations, system-g
 
 RAG/retrieval may augment reasoning. It may never manufacture an `ObservationEnvelope`, satisfy a required authoritative observation by assertion, or grant policy/execution authority.
 
-### Query governance
+### Query governance and bounded service contracts
 
 A future query runtime must make resource governance explicit. Depending on the query contract, this includes:
 
@@ -51,6 +55,8 @@ A future query runtime must make resource governance explicit. Depending on the 
 - cancellation;
 - bounded concurrency and fan-out;
 - priority and resource budget;
+- admission control when a requested service bound cannot be honored;
+- propagation of remaining deadline/resource budget into dispatched probes;
 - retry and query-coalescing policy;
 - cache/freshness requirements;
 - backpressure and response-size bounds;
@@ -59,7 +65,7 @@ A future query runtime must make resource governance explicit. Depending on the 
 - provenance for every returned fact;
 - fail-closed behavior when an authoritative fact required for planning/policy is unavailable.
 
-Providers do not silently widen these budgets or turn a bounded query into an unbounded background activity.
+A query service contract should make latency/deadline, freshness, resource and partial-result expectations explicit enough that the runtime can reject, degrade, or return a typed partial result rather than silently violating them. Providers do not silently widen these budgets or turn a bounded query into an unbounded background activity.
 
 ### Relationship to the mutation lifecycle
 
@@ -79,7 +85,7 @@ request / intent
 → reconcile
 ```
 
-The authority plane remains owned by Linura Control. A query result cannot authorize an effect, and an agent or retrieval system cannot receive privileged executor authority.
+The authority plane remains owned by Linura Control. A query result cannot authorize an effect, and an agent or retrieval system cannot receive privileged executor authority. Query orchestration is also not a replacement transaction coordinator; mutation transaction/recovery semantics remain those defined by the canonical lifecycle.
 
 ### Terminology
 
