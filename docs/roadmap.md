@@ -50,6 +50,8 @@ request / intent
 
 Domain implementations must compose through the canonical lifecycle rather than bypassing or replacing it.
 
+Bounded probes, context-query orchestration, caching/coalescing and context projection are likewise implementation machinery around observation/planning/intelligence, not new authority or lifecycle stages. ADR 0017 fixes the boundary: providers expose bounded mechanisms, while Linura owns cross-provider orchestration/resource policy. This roadmap does not assign a speculative release number to a generalized query runtime; any pre-v1 implementation must be introduced only when a bounded milestone explicitly needs and qualifies it.
+
 ## Release spine
 
 ## v0.0.0 — architecture and trustworthy development foundation
@@ -306,6 +308,19 @@ Workstation, server and edge are support targets over the same local authority a
 - users/sessions, credentials, printers/scanners, diagnostics and other domain providers;
 - domain-specific verification, recovery and policy semantics proportional to risk.
 
+### Context query and retrieval plane
+
+- bounded probe contracts with explicit deadlines/cancellation/resource budgets;
+- multi-provider query planning with bounded concurrency and deterministic routing;
+- query coalescing, freshness-aware cache reuse and bounded materialized observation views;
+- deterministic aggregation and explicit partial-result/provider-unavailability semantics;
+- typed context projections for planners, UIs, diagnostics and agents;
+- retrieval/RAG indexes that preserve source/provenance/freshness and remain advisory;
+- larger semantic query languages built over normalized capability/resource contracts rather than transport-specific objects;
+- optional fleet/cluster query federation with local authority, backpressure and partial-failure guarantees preserved.
+
+A generalized query/retrieval plane must not turn cache or RAG output into authoritative state, and it must not introduce a parallel mutation/authorization path.
+
 ### Optional fleet and enterprise
 
 - enrollment and mTLS identity;
@@ -382,7 +397,8 @@ These gates are architectural, not merely scheduling preferences:
 - v1.0 must not ship until its exact supported reference scope satisfies the Stable contract requirements in `docs/versioning-and-release-policy.md`;
 - high-risk domains such as storage, boot, security posture and virtualization must define domain-specific recovery/verification semantics before mutation support;
 - workstation/server/edge support must be qualified per exact profile rather than promoted class-wide from one configuration;
-- fleet/remote authority must remain optional and must not replace local authority or recovery.
+- fleet/remote authority must remain optional and must not replace local authority or recovery;
+- context-query/probe orchestration must not create a parallel authority/lifecycle path or allow cached/retrieved context to satisfy an unmet authoritative-observation requirement.
 
 ## Anti-drift governance
 

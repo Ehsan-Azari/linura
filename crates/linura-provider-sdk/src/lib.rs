@@ -28,10 +28,13 @@ impl Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
-/// Existing planning observation contract.
+/// Existing transitional planning observation contract.
 ///
-/// Mutation planning continues to use this compact form until the later planning
-/// milestone is migrated onto authoritative observation envelopes end-to-end.
+/// Mutation planning continues to use this compact form until the planning path
+/// is migrated onto authoritative [`ObservationEnvelope`] values end-to-end.
+///
+/// This type is explicit architecture debt and **MUST NOT become a second canonical observation model**.
+/// New authoritative observation semantics belong in `linura-observation`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Observation {
     pub provider_id: String,
@@ -43,6 +46,13 @@ pub struct Observation {
 ///
 /// This is intentionally separate from mutation planning. Implementing
 /// `Observer` does not grant or imply any effect or planning authority.
+///
+/// One call is a narrow provider-backed probe. Cross-provider fan-out, global
+/// retry policy, deadlines, cancellation, query coalescing, cache policy,
+/// backpressure and aggregate resource budgets belong to Linura's control-plane
+/// orchestration rather than to an individual observer. The current synchronous
+/// contract may be wrapped/evolved when a bounded context-query runtime is
+/// implemented; transport details must not escape through this trait.
 pub trait Observer: Send + Sync {
     fn observer_id(&self) -> ProviderId;
     fn observation_capabilities(&self) -> Vec<Capability>;

@@ -21,3 +21,15 @@ When specialist recommendations conflict, the planner records the conflict and s
 ## Context and secrets
 
 Agent context is capability-scoped and minimized. Secrets are represented by references/handles and are not inserted into general model context by default.
+
+Agent-facing context should be supplied through typed/bounded context projections rather than by granting a model direct unrestricted provider access. A future context-query runtime may aggregate current observations, historical evidence and retrieval sources under explicit resource/freshness budgets.
+
+RAG and retrieval are advisory reasoning inputs. They may explain likely causes, surface documentation or select relevant history, but they cannot:
+
+- fabricate an authoritative `ObservationEnvelope`;
+- turn stale/cached evidence into current truth;
+- satisfy a required provider observation merely by semantic similarity;
+- authorize or execute an effect;
+- override policy, approval, verification or reconciliation.
+
+If an agent needs a fact that is authoritative for planning or policy, the control plane obtains and validates the required provider observation independently of the model's claim.

@@ -15,15 +15,17 @@ REQUIRED = [
     "README.md", "SECURITY.md", "AGENTS.md", "CONTRIBUTING.md", "Cargo.toml", "rust-toolchain.toml",
     "docs/product-vision.md", "docs/vision-coverage.md", "docs/architecture.md", "docs/naming.md", "docs/sdk.md", "docs/intent-model.md",
     "docs/system-graph.md", "docs/capability-composition.md", "docs/semantic-provenance.md", "docs/reusable-setups.md",
-    "docs/agent-architecture.md", "docs/first-boot.md", "docs/machine-profiles.md", "docs/workflow-model.md",
+    "docs/agent-architecture.md", "docs/provider-model.md", "docs/state-model.md", "docs/terminology.md",
+    "docs/first-boot.md", "docs/machine-profiles.md", "docs/workflow-model.md",
     "docs/derived-surfaces.md", "docs/bootstrap-recovery.md", "docs/security-model.md", "docs/threat-model.md",
     "docs/development-plan.md", "docs/development-infrastructure.md", "docs/installer-bootstrap.md",
     "docs/migrations.md", "docs/managed-configuration.md", "docs/hardware-validation.md", "docs/vm-acceptance.md",
     "docs/visual-testing.md", "docs/application-supervision.md", "docs/lifecycle-workflows.md",
     "docs/release-engineering.md", "docs/api-versioning.md", "docs/omarchy-development-lessons.md",
-    "docs/roadmap.md", "docs/system-domains.md",
+    "docs/roadmap.md", "docs/system-domains.md", "docs/adr/0017-bounded-probes-context-query.md",
     "contracts/stability.toml", "tools/check_contract_stability.py", "tests/tooling/test_contract_stability.py",
     "contracts/roadmap.toml", "tools/check_roadmap.py", "tests/tooling/test_roadmap.py",
+    "contracts/layering.toml", "tools/check_layering.py", "tests/tooling/test_layering.py",
     "profiles/arch-hyprland-v1.toml",
     "crates/linura-intent/Cargo.toml", "crates/linura-graph/Cargo.toml", "crates/linura-capability-sdk/Cargo.toml",
     "crates/linura-planner/Cargo.toml", "crates/linura-provenance/Cargo.toml", "crates/linura-agent-runtime/Cargo.toml",
@@ -251,6 +253,16 @@ def main() -> int:
     if roadmap_result.returncode != 0:
         details = roadmap_result.stderr.strip() or roadmap_result.stdout.strip()
         failures.append(f"roadmap contract validation failed: {details}")
+
+    layering_result = subprocess.run(
+        [sys.executable, str(ROOT / "tools/check_layering.py"), str(ROOT)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if layering_result.returncode != 0:
+        details = layering_result.stderr.strip() or layering_result.stdout.strip()
+        failures.append(f"layering contract validation failed: {details}")
 
     if failures:
         for failure in failures:
