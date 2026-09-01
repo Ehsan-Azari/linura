@@ -49,13 +49,16 @@ A capability can therefore be mature in source without being supported on every 
 Enterprise/fleet management is a deployment and control topology over locally authoritative Linura machines. A fleet may contain any mixture of workstation, server and edge nodes:
 
 ```text
-optional fleet plane
-       |
-  +----+---------+
-  |    |         |
-workstation   server   edge
-  |    |         |
-local Linura authority on every machine
+            optional fleet plane
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+  workstation      server        edge
+        │            │            │
+        └────────────┼────────────┘
+                     │
+      local Linura authority
+          on every machine
 ```
 
 Fleet services never become a fourth machine class and never replace each node's local Linura authority, recovery path or local Library semantics. See [Enterprise and fleet architecture](enterprise.md).
