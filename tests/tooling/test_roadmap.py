@@ -24,6 +24,7 @@ class RoadmapContractTests(unittest.TestCase):
             "contracts/roadmap.toml",
             "docs/roadmap.md",
             "docs/system-domains.md",
+            "docs/development-plan.md",
             "docs/versioning-and-release-policy.md",
             "docs/releases/v0.0.0.md",
             "docs/releases/v0.1.0.md",
@@ -194,6 +195,22 @@ class RoadmapContractTests(unittest.TestCase):
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("system domain map missing virtualization boundary marker", result.stderr)
+
+    def test_development_plan_cannot_promote_v05_executor_to_product_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            development = root / "docs/development-plan.md"
+            text = development.read_text(encoding="utf-8").replace(
+                "**Phase 5 remains qualification-only:**",
+                "**Phase 5 supports public mutation:**",
+                1,
+            )
+            development.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("development plan missing roadmap alignment marker", result.stderr)
 
     def test_v010_remains_explicitly_experimental(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
