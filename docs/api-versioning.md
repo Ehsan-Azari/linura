@@ -106,3 +106,18 @@ and checked-in JSON Schemas may evolve coherently until explicitly promoted.
 The canonical Control1 contract for v0.1.0 is the authenticated read-only
 observation surface. Obsolete pre-stable mutation and JSON compatibility stubs
 are intentionally not part of it.
+
+## v0.2.0 contract posture
+
+Linura v0.2.0 remains Experimental. The canonical `org.linura.Control1`
+generation now adds explicit `PlanDesiredState`, `GetPlanPreview`, and
+`ExplainPlanPreview` operations to the authenticated observation/graph surface.
+Those methods expose deterministic, evidence-bound plan previews only;
+`execution_authorized=false` is part of the boundary and there is no public
+`apply` operation or compatibility promise that turns Control1 generation 1
+into a Stable API.
+
+The planning JSON contracts and Rust SDK/CLI surface may evolve coherently with
+the Experimental Control1 generation. Any future Stable promotion requires the
+normal explicit registry/compatibility process; the v0.2.0 product version does
+not imply that promotion.

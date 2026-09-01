@@ -120,6 +120,19 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("cargo build --release --locked -p linurad -p linuractl", workflow)
         self.assertIn("VM-ACCEPTANCE-EVIDENCE.json", workflow)
 
+    def test_vm_acceptance_artifacts_are_scenario_scoped(self) -> None:
+        workflow = (ROOT / ".github/workflows/vm-acceptance.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "name: linura-vm-acceptance-${{ inputs.scenario || 'authoritative-observation' }}-${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
+        self.assertNotIn(
+            "name: linura-vm-acceptance-${{ github.event.pull_request.head.sha || github.sha }}",
+            workflow,
+        )
+        self.assertIn("name: exact-source disposable VM acceptance", workflow)
+        self.assertIn("name: Run repository acceptance scenario", workflow)
+
     def test_control1_plan_preview_uses_reusable_exact_source_vm(self) -> None:
         workflow = (ROOT / ".github/workflows/control1-plan-preview-vm.yml").read_text(
             encoding="utf-8"
@@ -135,12 +148,23 @@ class ToolingTests(unittest.TestCase):
         self.assertIn('kill -0 "$VM_PID"', workflow)
         self.assertIn('"acceleration": os.environ["VM_ACCELERATION"]', workflow)
 
-    def test_trusted_release_proof_requires_vm_acceptance(self) -> None:
+    def test_trusted_release_proof_requires_v020_vm_acceptance(self) -> None:
         workflow = (ROOT / ".github/workflows/trusted-release-proof.yml").read_text(encoding="utf-8")
-        self.assertIn("uses: ./.github/workflows/vm-acceptance.yml", workflow)
-        self.assertIn("needs: [validate, acceptance]", workflow)
-        self.assertIn("needs: [validate, acceptance, build]", workflow)
-        self.assertIn("needs.acceptance.result == 'success'", workflow)
+        self.assertEqual(workflow.count("uses: ./.github/workflows/vm-acceptance.yml"), 2)
+        self.assertIn("observation-acceptance:", workflow)
+        self.assertIn("plan-preview-acceptance:", workflow)
+        self.assertIn("scenario: authoritative-observation", workflow)
+        self.assertIn("scenario: control1-plan-preview", workflow)
+        self.assertIn(
+            "needs: [validate, observation-acceptance, plan-preview-acceptance]",
+            workflow,
+        )
+        self.assertIn(
+            "needs: [validate, observation-acceptance, plan-preview-acceptance, build]",
+            workflow,
+        )
+        self.assertIn("needs.observation-acceptance.result == 'success'", workflow)
+        self.assertIn("needs.plan-preview-acceptance.result == 'success'", workflow)
 
     def test_image_plan_is_available_without_mkarchiso(self) -> None:
         result = self.run_tool("python3", "tools/image.py", "plan")

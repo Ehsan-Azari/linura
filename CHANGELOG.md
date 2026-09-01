@@ -4,6 +4,33 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
+Experimental deterministic desired-state and non-executable planning milestone. Full release contract: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md).
+
+### Added
+- Typed declarative capability resource blueprints and deterministic capability resolution/conflict handling.
+- Deterministic hand-authored semantic intent/requirements/capability-origin compilation into normalized desired resources.
+- Evidence-bound deterministic reconciliation previews with `no-change`, `change-proposed`, and fail-closed `blocked` status.
+- Exact authoritative evidence identity, ordered changes/findings, prospective risk, and explicit `execution_authorized=false` in the preview contract.
+- Experimental Control1 `PlanDesiredState`, `GetPlanPreview`, and `ExplainPlanPreview` methods with matching checked D-Bus XML, SDK/client methods, CLI commands, and JSON contracts.
+- Transport-neutral `linura-control::PlanPreviewControl` as the single orchestration owner for replay checks, authoritative observation, planning, retention, and retained preview lookup/explanation.
+- Stable authenticated-principal replay/retention namespaces while preserving the first accepted transport actor as provenance.
+- Bounded request decoding and process-local preview retention by entry count, per-entry bytes, and aggregate bytes with deterministic eviction.
+- Exact-source `control1-plan-preview` disposable-VM acceptance proving change-proposed, exact retry replay, retained lookup/explanation, no-change, blocked unknown state, idempotency conflict, and unchanged native system state.
+- v0.2.0 release qualification requiring both the authoritative-observation regression and Control1 plan-preview VM before release build/promotion.
+
+### Changed
+- Moved plan-preview authority orchestration out of `linura-dbus` into `linura-control`; D-Bus now authenticates credentials, adapts typed wire data, and delegates.
+- Plan-preview VM path coverage now includes core, graph, control, planning, observation, protocol, SDK, D-Bus, interface, and acceptance/tooling dependencies so semantically relevant changes cannot bypass system qualification.
+- Trusted Release Proof now requires both mandatory v0.2.0 VM scenarios before isolated release build and promotion.
+
+### Boundaries
+- Plan previews are non-executable and process-local; no public `apply` path exists.
+- No policy approval, Polkit authority, durable prepare/commit, managed external mutation, post-effect verification/commit/audit/reconciliation, or complete eleven-stage lifecycle is claimed.
+- No supported Linux distribution/profile or hardware tier is declared.
+- No natural-language/model interpretation, First Boot, persistent Linura Library, or production readiness is release-qualified.
+
 ## [0.1.0] - 2026-08-31
 
 Experimental authoritative-observation milestone. Full release contract: [`docs/releases/v0.1.0.md`](docs/releases/v0.1.0.md).

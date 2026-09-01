@@ -79,8 +79,8 @@ jobs:
             fi
           done
 
-  acceptance:
-    name: exact-source disposable VM qualification
+  observation-acceptance:
+    name: exact-source authoritative observation qualification
     needs: validate
     uses: ./.github/workflows/vm-acceptance.yml
     permissions:
@@ -88,9 +88,18 @@ jobs:
     with:
       scenario: authoritative-observation
 
+  plan-preview-acceptance:
+    name: exact-source Control1 plan-preview qualification
+    needs: validate
+    uses: ./.github/workflows/vm-acceptance.yml
+    permissions:
+      contents: read
+    with:
+      scenario: control1-plan-preview
+
   build:
     name: isolated build and reproducibility proof
-    needs: [validate, acceptance]
+    needs: [validate, observation-acceptance, plan-preview-acceptance]
     uses: ./.github/workflows/reusable-release-build.yml
     permissions:
       actions: read
@@ -104,8 +113,8 @@ jobs:
 
   dispatch-promotion:
     name: dispatch release promotion
-    needs: [validate, acceptance, build]
-    if: ${{ needs.validate.result == 'success' && needs.acceptance.result == 'success' && needs.build.result == 'success' }}
+    needs: [validate, observation-acceptance, plan-preview-acceptance, build]
+    if: ${{ needs.validate.result == 'success' && needs.observation-acceptance.result == 'success' && needs.plan-preview-acceptance.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       actions: write
