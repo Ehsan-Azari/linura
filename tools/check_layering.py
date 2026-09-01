@@ -13,22 +13,87 @@ EXPECTED_SEMANTICS = {
     "transport_role": "adapter-only",
 }
 DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
+EXPECTED_RULE_PACKAGES = {
+    "linura-core",
+    "linura-intent",
+    "linura-capability-sdk",
+    "linura-planner",
+    "linura-observation",
+    "linura-provider-sdk",
+    "linura-graph",
+    "linura-observation-control",
+    "linura-protocol",
+    "linura-policy",
+    "linura-lifecycle",
+    "linura-agent-runtime",
+    "linura-provenance",
+    "linura-control",
+    "linura-sdk",
+    "linura-linux-observation",
+    "linura-dbus",
+    "linura-executor-systemd",
+}
 
 
-def dependency_names(manifest: dict[str, object]) -> set[str]:
+def resolved_dependency_name(
+    alias: object,
+    spec: object,
+    workspace_dependencies: dict[str, str],
+) -> str:
+    name = str(alias)
+    if isinstance(spec, dict):
+        package = spec.get("package")
+        if isinstance(package, str) and package:
+            return package
+        if spec.get("workspace") is True:
+            return workspace_dependencies.get(name, name)
+    return name
+
+
+def dependency_names(
+    manifest: dict[str, object],
+    workspace_dependencies: dict[str, str],
+) -> set[str]:
     names: set[str] = set()
-    for section in DEPENDENCY_SECTIONS:
-        dependencies = manifest.get(section, {})
-        if not isinstance(dependencies, dict):
-            continue
-        names.update(str(name) for name in dependencies)
+
+    def collect(container: object) -> None:
+        if not isinstance(container, dict):
+            return
+        for section in DEPENDENCY_SECTIONS:
+            dependencies = container.get(section, {})
+            if not isinstance(dependencies, dict):
+                continue
+            for alias, spec in dependencies.items():
+                names.add(resolved_dependency_name(alias, spec, workspace_dependencies))
+
+    collect(manifest)
+
+    targets = manifest.get("target", {})
+    if isinstance(targets, dict):
+        for target in targets.values():
+            collect(target)
+
     return names
 
 
-def load_workspace(root: Path) -> tuple[set[str], dict[str, Path]]:
+def workspace_dependency_names(workspace: dict[str, object]) -> dict[str, str]:
+    workspace_table = workspace.get("workspace", {})
+    if not isinstance(workspace_table, dict):
+        return {}
+    dependencies = workspace_table.get("dependencies", {})
+    if not isinstance(dependencies, dict):
+        return {}
+    resolved: dict[str, str] = {}
+    for alias, spec in dependencies.items():
+        resolved[str(alias)] = resolved_dependency_name(alias, spec, {})
+    return resolved
+
+
+def load_workspace(root: Path) -> tuple[set[str], dict[str, Path], dict[str, str]]:
     workspace_path = root / "Cargo.toml"
     workspace = tomllib.loads(workspace_path.read_text(encoding="utf-8"))
-    members = workspace.get("workspace", {}).get("members", [])
+    workspace_table = workspace.get("workspace", {})
+    members = workspace_table.get("members", []) if isinstance(workspace_table, dict) else []
     if not isinstance(members, list):
         raise ValueError("workspace.members must be a list")
 
@@ -49,7 +114,7 @@ def load_workspace(root: Path) -> tuple[set[str], dict[str, Path]]:
             raise ValueError(f"duplicate workspace package name: {name}")
         names.add(name)
         manifests[name] = manifest_path
-    return names, manifests
+    return names, manifests, workspace_dependency_names(workspace)
 
 
 def validate(root: Path) -> list[str]:
@@ -80,7 +145,7 @@ def validate(root: Path) -> list[str]:
                 )
 
     try:
-        workspace_names, manifests = load_workspace(root)
+        workspace_names, manifests, workspace_dependencies = load_workspace(root)
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         failures.append(f"cannot load workspace for layering validation: {error}")
         return failures
@@ -109,7 +174,7 @@ def validate(root: Path) -> list[str]:
             continue
 
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-        all_dependencies = dependency_names(manifest)
+        all_dependencies = dependency_names(manifest, workspace_dependencies)
         local_dependencies = all_dependencies & workspace_names
         external_dependencies = all_dependencies - workspace_names
 
@@ -145,6 +210,16 @@ def validate(root: Path) -> list[str]:
             failures.append(
                 f"{package} violates transport-neutral boundary via external dependencies: {leaked_external}"
             )
+
+    missing_rules = sorted(EXPECTED_RULE_PACKAGES - seen_packages)
+    unexpected_rules = sorted(seen_packages - EXPECTED_RULE_PACKAGES)
+    if missing_rules:
+        failures.append(f"layering contract missing required package rules: {missing_rules}")
+    if unexpected_rules:
+        failures.append(
+            "layering contract package set changed; explicitly update checker expectations for: "
+            f"{unexpected_rules}"
+        )
 
     markers = contract.get("markers", [])
     if not isinstance(markers, list):
