@@ -56,6 +56,14 @@ A plan includes:
 - reversibility/compensation metadata;
 - expected postconditions and independent verification strategy.
 
+## Transaction semantics
+
+**The lifecycle does not require distributed two-phase commit across Linux subsystems.** Many operating-system effects are not atomically reversible and many upstream services do not expose prepare/commit primitives.
+
+Linura's transactional guarantees therefore come from the canonical lifecycle itself: immutable plans, exact authorization binding, durable prepare records, idempotency/deduplication where available, explicit indeterminate states, checkpoints, independent re-observation, postcondition verification, compensation/rollback metadata where a safe inverse exists, and reconciliation when exact rollback is impossible.
+
+A provider or executor must not pretend a non-transactional upstream mechanism is atomic. Cross-provider plans must make ordering, preconditions, failure boundaries and compensation/recovery semantics explicit rather than relying on an implicit distributed transaction.
+
 ## Idempotency and crash recovery
 
 Every mutation has a request ID and immutable plan ID. `prepare` persists the fact that an authorized plan is about to cross the external-effect boundary. Providers/executors define whether retry is naturally idempotent, deduplicated or rejected after ambiguous execution.
