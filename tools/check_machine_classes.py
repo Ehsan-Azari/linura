@@ -46,6 +46,12 @@ def validate(root: Path) -> list[str]:
             f"found {fleet_model!r}"
         )
 
+    roadmap_text = _read_text(
+        root,
+        contract.get("canonical_document"),
+        "canonical_document",
+        failures,
+    )
     machine_profile_text = _read_text(
         root,
         contract.get("machine_profile_document"),
@@ -76,6 +82,20 @@ def validate(root: Path) -> list[str]:
                     failures.append("hardware support matrix root must be an object")
             except Exception as error:
                 failures.append(f"invalid hardware support matrix: {error}")
+
+    required_roadmap_markers = (
+        "Machine classes are support targets, not domains.",
+        "### Machine-class expansion",
+        "| Machine/platform support | Which exact workstation/server/edge + distribution/desktop-or-headless/architecture/hardware profiles are release-qualified? |",
+        "## Target machine classes",
+        "The canonical target classes are `workstation`, `server` and `edge`",
+        "A **developer machine** is normally a workstation profile, not a fourth machine class.",
+        "Fleet/enterprise** is an optional management/control topology",
+        "Machine classes do not become domains or fleet roles.",
+    )
+    for marker in required_roadmap_markers:
+        if roadmap_text and marker not in roadmap_text:
+            failures.append(f"canonical roadmap missing machine-class invariant: {marker}")
 
     required_profile_markers = (
         "## Target machine classes",
@@ -154,8 +174,8 @@ def validate(root: Path) -> list[str]:
                     f"{machine_class}: current release has platform_support=none, so release_qualified_profiles must remain empty"
                 )
 
-    # The current architecture deliberately treats intelligence and fleet as orthogonal
-    # overlays around locally authoritative workstation/server/edge machines.
+    # Intelligence and fleet are orthogonal overlays around locally authoritative
+    # workstation/server/edge machines; neither is a local machine class.
     if isinstance(machine_classes, list):
         if "fleet" in machine_classes or "enterprise" in machine_classes:
             failures.append("fleet/enterprise must not be encoded as a local machine class")
