@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId, ResourceId,
-    RiskClass, SemanticReason, SetupId,
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId,
+    ResourceId, RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
 use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
