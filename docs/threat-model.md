@@ -51,6 +51,17 @@ An imported or synchronized artifact attempts to smuggle commands, unsafe state,
 - unsupported/ambiguous requirements fail closed;
 - provenance distinguishes imported definitions from locally approved/adopted lineage.
 
+### Machine-class spoofing / cross-class adoption confusion
+A malicious or malformed portable profile lies about its source machine class, or attempts to use a workstation/server/edge label to obtain capabilities, support status, weaker policy, or unsafe cross-class replay on the target machine.
+- imported `machine_class` is untrusted declarative source metadata and never an authority, grant, executor selector, or support assertion;
+- the Experimental portable-profile schema accepts only the canonical `workstation`, `server`, and `edge` values and rejects missing/unknown values;
+- the target machine is independently observed and its local capabilities/platform support are resolved from authoritative local evidence rather than trusted from the imported class label;
+- source/target class differences are compatibility inputs that require fresh resolution and a fresh reviewable plan; historical executor effects are never replayed;
+- unsupported, ambiguous, or unsafe cross-class compatibility fails closed rather than coercing one class into another;
+- policy/approval remains bound to the fresh target plan and authenticated local authority context, so changing a class label cannot preserve or manufacture prior approval;
+- release-qualified platform support is established only by release evidence for the exact local class + platform/profile + architecture/hardware boundary, never by a portable artifact declaring a class;
+- provenance retains imported origin so later explanation/audit can distinguish source metadata from locally observed and approved facts.
+
 ### Secret leakage through portability/sync
 A setup/profile export or Library sync accidentally contains credentials.
 - portable domain types expose secret-reference fields only;
