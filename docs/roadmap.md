@@ -16,37 +16,38 @@ The machine-readable companion contract is `contracts/roadmap.toml`. Repository 
 
 ## Canonical managed-mutation architecture
 
-The architectural spine is intentionally stable even when future milestone packaging changes:
+Linura already locks the authoritative eleven-stage managed-mutation lifecycle. Roadmap changes may refine how a stage is implemented or split its proof across releases, but they must not silently redefine this lifecycle:
 
 ```text
-human / agent
-    ↓
-typed intent / IntentProposal boundary
-    ↓
-requirements
-    ↓
-capability resolution
-    ↓
-desired state
-    ↓
-authoritative observation
-    ↓
-deterministic plan / diff
-    ↓
-policy + authorization
-    ↓
-durable prepare
-    ↓
-narrow execution
-    ↓
-independent authoritative re-observation + verification
-    ↓
-commit
-    ↓
-audit / reconciliation
+request / intent
+→ observe
+→ plan
+→ validate
+→ authorize
+→ prepare
+→ execute
+→ verify
+→ commit
+→ audit
+→ reconcile
 ```
 
-Linura's canonical eleven-stage managed-mutation lifecycle groups the proposal boundary outside the authoritative lifecycle and treats audit/reconciliation as the final lifecycle stage. Domain implementations must compose through these primitives instead of bypassing them.
+Canonical compact form: `request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile`.
+
+Human/model proposal handling is upstream of the authoritative lifecycle. Requirements, capability resolution, normalized desired state, deterministic diffing, policy evaluation, persistence mechanics and provider routing are typed implementation machinery *inside* the relevant lifecycle stages; they do not create alternative lifecycle stages.
+
+For example, the v0.2 planning implementation expands the `plan`/`validate` portion approximately as:
+
+```text
+request / intent
+→ requirements + capability resolution
+→ normalized desired state
++ authoritative observation
+→ deterministic diff / plan
+→ structural validation
+```
+
+Domain implementations must compose through the canonical lifecycle rather than bypassing or replacing it.
 
 ## Release spine
 
@@ -138,20 +139,20 @@ Target capabilities:
 **Status:** planned  
 **Target claim class:** Experimental
 
-Prove the first complete end-to-end managed-mutation lifecycle for one narrow capability:
+Prove the first complete end-to-end execution of Linura's already-canonical lifecycle for one narrow capability:
 
 ```text
-intent
-→ requirements
-→ capability resolution
-→ authoritative observation
-→ deterministic plan
-→ policy / authorization
-→ durable prepare
+request / intent
+→ observe
+→ plan
+→ validate
+→ authorize
+→ prepare
 → execute
-→ independent verify
+→ verify
 → commit
-→ audit / reconcile
+→ audit
+→ reconcile
 ```
 
 The release must exercise success, denial, stale-evidence, crash/restart, executor failure, verification failure, indeterminate outcome and reconciliation paths in disposable system acceptance.
@@ -271,7 +272,7 @@ Linura currently uses disposable QEMU/KVM virtual machines as **qualification in
 
 Linura-managed virtualization remains a future system domain. A future virtualization provider may support libvirt/QEMU/KVM, Incus or other backends through provider-neutral typed VM resources and capabilities. No backend becomes a mandatory Linura architectural dependency.
 
-Product VM lifecycle support requires the same trust path as every other mutating domain: observe → desired state → plan → policy/authorization → durable prepare → narrow execution → independent verification → commit/audit/reconciliation.
+A future VM lifecycle must use the same canonical eleven stages: request/intent → observe VM state → plan typed desired VM state/diff → validate → authorize → prepare → execute through a narrow provider executor → verify through independent re-observation → commit → audit → reconcile.
 
 ## Dependency gates
 
