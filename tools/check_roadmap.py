@@ -9,7 +9,8 @@ import tomllib
 VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 VALID_STATUS = {"released", "planned"}
 VALID_CLAIM_CLASS = {"Experimental", "Preview", "Stable"}
-VALID_MUTATION = {"none", "narrow", "complete-narrow-slice"}
+VALID_EXECUTOR_STATE = {"none", "isolated-qualified", "integrated-narrow"}
+VALID_MUTATION_SUPPORT = {"none", "narrow-experimental"}
 VALID_AGENT_ROLE = {"none", "proposal-only"}
 VALID_PLATFORM_SUPPORT = {"none", "reference-experimental"}
 CANONICAL_LIFECYCLE = (
@@ -56,7 +57,10 @@ def validate(root: Path) -> list[str]:
         "status",
         "claim_class",
         "depends_on",
-        "mutation_authority",
+        "durable_recovery",
+        "executor_state",
+        "complete_lifecycle",
+        "managed_mutation_support",
         "agent_role",
         "platform_support",
     }
@@ -80,7 +84,10 @@ def validate(root: Path) -> list[str]:
         status = milestone.get("status")
         claim_class = milestone.get("claim_class")
         depends_on = milestone.get("depends_on")
-        mutation = milestone.get("mutation_authority")
+        durable_recovery = milestone.get("durable_recovery")
+        executor_state = milestone.get("executor_state")
+        complete_lifecycle = milestone.get("complete_lifecycle")
+        mutation_support = milestone.get("managed_mutation_support")
         agent_role = milestone.get("agent_role")
         platform = milestone.get("platform_support")
 
@@ -103,8 +110,14 @@ def validate(root: Path) -> list[str]:
             failures.append(f"{version}: unsupported claim_class {claim_class!r}")
         if not isinstance(depends_on, list) or not all(isinstance(item, str) for item in depends_on):
             failures.append(f"{version}: depends_on must be an array of milestone versions")
-        if mutation not in VALID_MUTATION:
-            failures.append(f"{version}: unsupported mutation_authority {mutation!r}")
+        if not isinstance(durable_recovery, bool):
+            failures.append(f"{version}: durable_recovery must be boolean")
+        if executor_state not in VALID_EXECUTOR_STATE:
+            failures.append(f"{version}: unsupported executor_state {executor_state!r}")
+        if not isinstance(complete_lifecycle, bool):
+            failures.append(f"{version}: complete_lifecycle must be boolean")
+        if mutation_support not in VALID_MUTATION_SUPPORT:
+            failures.append(f"{version}: unsupported managed_mutation_support {mutation_support!r}")
         if agent_role not in VALID_AGENT_ROLE:
             failures.append(f"{version}: unsupported agent_role {agent_role!r}")
         if platform not in VALID_PLATFORM_SUPPORT:
@@ -222,19 +235,33 @@ def validate(root: Path) -> list[str]:
         return visited
 
     # These are deliberate architectural gates, not estimates. Changing them requires
-    # an explicit roadmap rebaseline rather than silently moving privilege earlier.
+    # an explicit roadmap rebaseline rather than silently moving product authority earlier.
     expected_gates = {
-        "v0.0.0": ("none", "none", "none"),
-        "v0.1.0": ("none", "none", "none"),
-        "v0.2.0": ("none", "none", "none"),
-        "v0.3.0": ("none", "none", "none"),
-        "v0.4.0": ("none", "none", "none"),
-        "v0.5.0": ("narrow", "none", "none"),
-        "v0.6.0": ("complete-narrow-slice", "none", "none"),
-        "v0.7.0": ("complete-narrow-slice", "none", "none"),
-        "v0.8.0": ("complete-narrow-slice", "proposal-only", "none"),
-        "v0.9.0": ("complete-narrow-slice", "proposal-only", "reference-experimental"),
-        "v1.0.0": ("complete-narrow-slice", "proposal-only", "reference-experimental"),
+        "v0.0.0": (False, "none", False, "none", "none", "none"),
+        "v0.1.0": (False, "none", False, "none", "none", "none"),
+        "v0.2.0": (False, "none", False, "none", "none", "none"),
+        "v0.3.0": (False, "none", False, "none", "none", "none"),
+        "v0.4.0": (True, "none", False, "none", "none", "none"),
+        "v0.5.0": (True, "isolated-qualified", False, "none", "none", "none"),
+        "v0.6.0": (True, "integrated-narrow", True, "narrow-experimental", "none", "none"),
+        "v0.7.0": (True, "integrated-narrow", True, "narrow-experimental", "none", "none"),
+        "v0.8.0": (True, "integrated-narrow", True, "narrow-experimental", "proposal-only", "none"),
+        "v0.9.0": (
+            True,
+            "integrated-narrow",
+            True,
+            "narrow-experimental",
+            "proposal-only",
+            "reference-experimental",
+        ),
+        "v1.0.0": (
+            True,
+            "integrated-narrow",
+            True,
+            "narrow-experimental",
+            "proposal-only",
+            "reference-experimental",
+        ),
     }
     if set(by_version) != set(expected_gates):
         failures.append(
@@ -245,7 +272,10 @@ def validate(root: Path) -> list[str]:
         if milestone is None:
             continue
         actual = (
-            milestone.get("mutation_authority"),
+            milestone.get("durable_recovery"),
+            milestone.get("executor_state"),
+            milestone.get("complete_lifecycle"),
+            milestone.get("managed_mutation_support"),
             milestone.get("agent_role"),
             milestone.get("platform_support"),
         )
@@ -253,12 +283,32 @@ def validate(root: Path) -> list[str]:
             failures.append(f"{version}: architectural gate changed from {expected} to {actual}")
 
     for version, milestone in by_version.items():
-        mutation = milestone.get("mutation_authority")
         closure = dependency_closure(version)
-        if mutation in {"narrow", "complete-narrow-slice"} and "v0.4.0" not in closure:
-            failures.append(f"{version}: mutation authority requires durable v0.4.0 foundation")
-        if mutation == "complete-narrow-slice" and "v0.5.0" not in closure:
-            failures.append(f"{version}: complete lifecycle authority requires v0.5.0 executor/verifier proof")
+        durable_recovery = milestone.get("durable_recovery") is True
+        executor_state = milestone.get("executor_state")
+        complete_lifecycle = milestone.get("complete_lifecycle") is True
+        mutation_support = milestone.get("managed_mutation_support")
+
+        if durable_recovery and version != "v0.4.0" and "v0.4.0" not in closure:
+            failures.append(f"{version}: durable recovery requires the v0.4.0 foundation")
+        if executor_state in {"isolated-qualified", "integrated-narrow"} and not durable_recovery:
+            failures.append(f"{version}: executor qualification requires durable recovery semantics")
+        if executor_state == "integrated-narrow" and "v0.5.0" not in closure:
+            failures.append(f"{version}: integrated executor requires v0.5.0 isolated executor/verifier qualification")
+        if complete_lifecycle:
+            if not durable_recovery or executor_state != "integrated-narrow":
+                failures.append(f"{version}: complete lifecycle requires durable recovery and integrated narrow executor")
+            if version != "v0.6.0" and "v0.6.0" not in closure:
+                failures.append(f"{version}: complete lifecycle requires the v0.6.0 integration milestone")
+        if mutation_support != "none":
+            if not complete_lifecycle:
+                failures.append(f"{version}: supported managed mutation requires complete lifecycle proof")
+            if executor_state != "integrated-narrow":
+                failures.append(f"{version}: supported managed mutation requires an integrated narrow executor")
+            if not durable_recovery:
+                failures.append(f"{version}: supported managed mutation requires durable recovery")
+            if version != "v0.6.0" and "v0.6.0" not in closure:
+                failures.append(f"{version}: supported managed mutation cannot precede v0.6.0")
         if milestone.get("agent_role") == "proposal-only" and "v0.7.0" not in closure:
             failures.append(f"{version}: agent interpretation requires the persistent trusted core through v0.7.0")
         if milestone.get("platform_support") == "reference-experimental" and "v0.8.0" not in closure:
@@ -282,6 +332,8 @@ def validate(root: Path) -> list[str]:
         "## Roadmap-change procedure",
         "Code presence is not support",
         "Models are untrusted proposers",
+        "v0.5 may exercise a narrow executor/verifier only through disposable qualification authority",
+        "no supported managed external mutation may appear before v0.6",
         CANONICAL_LIFECYCLE,
     )
     for marker in required_roadmap_markers:
