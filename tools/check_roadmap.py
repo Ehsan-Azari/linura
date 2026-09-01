@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+VALID_STATUS = {"released", "planned"}
+VALID_CLAIM_CLASS = {"Experimental", "Preview", "Stable"}
+VALID_MUTATION = {"none", "narrow", "complete-narrow-slice"}
+VALID_AGENT_ROLE = {"none", "proposal-only"}
+VALID_PLATFORM_SUPPORT = {"none", "reference-experimental"}
+
+
+def version_key(value: str) -> tuple[int, int, int]:
+    match = VERSION_RE.fullmatch(value)
+    if match is None:
+        raise ValueError(f"invalid semantic milestone version: {value!r}")
+    return tuple(int(part) for part in match.groups())
+
+
+def validate(root: Path) -> list[str]:
+    failures: list[str] = []
+    contract_path = root / "contracts/roadmap.toml"
+    if not contract_path.is_file():
+        return ["missing contracts/roadmap.toml"]
+
+    try:
+        contract = tomllib.loads(contract_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        return [f"invalid contracts/roadmap.toml: {error}"]
+
+    if contract.get("schema_version") != 1:
+        failures.append("roadmap schema_version must be 1")
+
+    milestones = contract.get("milestone")
+    if not isinstance(milestones, list) or not milestones:
+        return failures + ["roadmap contract must define at least one [[milestone]]"]
+
+    required_fields = {
+        "version",
+        "title",
+        "status",
+        "claim_class",
+        "depends_on",
+        "mutation_authority",
+        "agent_role",
+        "platform_support",
+    }
+
+    by_version: dict[str, dict[str, object]] = {}
+    ordered_versions: list[str] = []
+    seen_planned = False
+
+    for index, milestone in enumerate(milestones):
+        if not isinstance(milestone, dict):
+            failures.append(f"milestone #{index + 1} must be a table")
+            continue
+
+        missing = sorted(required_fields - milestone.keys())
+        if missing:
+            failures.append(f"milestone #{index + 1} missing fields: {missing}")
+            continue
+
+        version = milestone.get("version")
+        title = milestone.get("title")
+        status = milestone.get("status")
+        claim_class = milestone.get("claim_class")
+        depends_on = milestone.get("depends_on")
+        mutation = milestone.get("mutation_authority")
+        agent_role = milestone.get("agent_role")
+        platform = milestone.get("platform_support")
+
+        if not isinstance(version, str):
+            failures.append(f"milestone #{index + 1} version must be a string")
+            continue
+        try:
+            version_key(version)
+        except ValueError as error:
+            failures.append(str(error))
+            continue
+        if version in by_version:
+            failures.append(f"duplicate roadmap milestone: {version}")
+            continue
+        if not isinstance(title, str) or not title.strip():
+            failures.append(f"{version}: title must be a non-empty string")
+        if status not in VALID_STATUS:
+            failures.append(f"{version}: unsupported status {status!r}")
+        if claim_class not in VALID_CLAIM_CLASS:
+            failures.append(f"{version}: unsupported claim_class {claim_class!r}")
+        if not isinstance(depends_on, list) or not all(isinstance(item, str) for item in depends_on):
+            failures.append(f"{version}: depends_on must be an array of milestone versions")
+        if mutation not in VALID_MUTATION:
+            failures.append(f"{version}: unsupported mutation_authority {mutation!r}")
+        if agent_role not in VALID_AGENT_ROLE:
+            failures.append(f"{version}: unsupported agent_role {agent_role!r}")
+        if platform not in VALID_PLATFORM_SUPPORT:
+            failures.append(f"{version}: unsupported platform_support {platform!r}")
+
+        if status == "planned":
+            seen_planned = True
+        elif status == "released" and seen_planned:
+            failures.append(f"{version}: released milestones must form a contiguous prefix")
+
+        by_version[version] = milestone
+        ordered_versions.append(version)
+
+    try:
+        ordered_keys = [version_key(version) for version in ordered_versions]
+        if ordered_keys != sorted(ordered_keys) or len(set(ordered_keys)) != len(ordered_keys):
+            failures.append("roadmap milestones must be strictly increasing by semantic version")
+    except ValueError:
+        pass
+
+    for version, milestone in by_version.items():
+        depends_on = milestone.get("depends_on")
+        if not isinstance(depends_on, list):
+            continue
+        for dependency in depends_on:
+            if dependency not in by_version:
+                failures.append(f"{version}: unknown dependency {dependency}")
+                continue
+            try:
+                if version_key(dependency) >= version_key(version):
+                    failures.append(f"{version}: dependency {dependency} must precede the milestone")
+            except ValueError:
+                continue
+
+    released = [
+        version
+        for version in ordered_versions
+        if by_version.get(version, {}).get("status") == "released"
+    ]
+    planned = [
+        version
+        for version in ordered_versions
+        if by_version.get(version, {}).get("status") == "planned"
+    ]
+
+    current_release = contract.get("current_release")
+    next_release = contract.get("next_release")
+    if not released:
+        failures.append("roadmap must identify at least one released milestone")
+    elif current_release != released[-1]:
+        failures.append(
+            f"current_release must equal the last released milestone {released[-1]}, found {current_release!r}"
+        )
+    if not planned:
+        failures.append("roadmap must identify at least one planned milestone")
+    elif next_release != planned[0]:
+        failures.append(
+            f"next_release must equal the first planned milestone {planned[0]}, found {next_release!r}"
+        )
+
+    canonical_document = contract.get("canonical_document")
+    domain_document = contract.get("domain_document")
+    if not isinstance(canonical_document, str):
+        failures.append("canonical_document must be a string path")
+        roadmap_text = ""
+    else:
+        roadmap_path = root / canonical_document
+        if not roadmap_path.is_file():
+            failures.append(f"canonical roadmap document missing: {canonical_document}")
+            roadmap_text = ""
+        else:
+            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+
+    if not isinstance(domain_document, str):
+        failures.append("domain_document must be a string path")
+    elif not (root / domain_document).is_file():
+        failures.append(f"domain roadmap document missing: {domain_document}")
+
+    for version, milestone in by_version.items():
+        title = milestone.get("title")
+        if isinstance(title, str) and roadmap_text:
+            heading = f"## {version} — {title}"
+            if heading not in roadmap_text:
+                failures.append(f"canonical roadmap missing exact heading: {heading}")
+
+        if milestone.get("status") == "released":
+            release_contract = milestone.get("release_contract")
+            if not isinstance(release_contract, str):
+                failures.append(f"{version}: released milestone must name release_contract")
+            elif not (root / release_contract).is_file():
+                failures.append(f"{version}: release contract does not exist: {release_contract}")
+
+        qualification = milestone.get("qualification")
+        if qualification is not None:
+            if not isinstance(qualification, str) or not (root / qualification).is_file():
+                failures.append(f"{version}: qualification document does not exist: {qualification!r}")
+
+    def dependency_closure(version: str) -> set[str]:
+        visited: set[str] = set()
+        stack = list(by_version.get(version, {}).get("depends_on", []))
+        while stack:
+            dependency = stack.pop()
+            if not isinstance(dependency, str) or dependency in visited:
+                continue
+            visited.add(dependency)
+            nested = by_version.get(dependency, {}).get("depends_on", [])
+            if isinstance(nested, list):
+                stack.extend(nested)
+        return visited
+
+    # These are deliberate architectural gates, not estimates. Changing them requires
+    # an explicit roadmap rebaseline rather than silently moving privilege earlier.
+    expected_gates = {
+        "v0.0.0": ("none", "none", "none"),
+        "v0.1.0": ("none", "none", "none"),
+        "v0.2.0": ("none", "none", "none"),
+        "v0.3.0": ("none", "none", "none"),
+        "v0.4.0": ("none", "none", "none"),
+        "v0.5.0": ("narrow", "none", "none"),
+        "v0.6.0": ("complete-narrow-slice", "none", "none"),
+        "v0.7.0": ("complete-narrow-slice", "none", "none"),
+        "v0.8.0": ("complete-narrow-slice", "proposal-only", "none"),
+        "v0.9.0": ("complete-narrow-slice", "proposal-only", "reference-experimental"),
+        "v1.0.0": ("complete-narrow-slice", "proposal-only", "reference-experimental"),
+    }
+    if set(by_version) != set(expected_gates):
+        failures.append(
+            "roadmap milestone set changed; perform an explicit roadmap-contract rebaseline and update checker gates"
+        )
+    for version, expected in expected_gates.items():
+        milestone = by_version.get(version)
+        if milestone is None:
+            continue
+        actual = (
+            milestone.get("mutation_authority"),
+            milestone.get("agent_role"),
+            milestone.get("platform_support"),
+        )
+        if actual != expected:
+            failures.append(f"{version}: architectural gate changed from {expected} to {actual}")
+
+    for version, milestone in by_version.items():
+        mutation = milestone.get("mutation_authority")
+        closure = dependency_closure(version)
+        if mutation in {"narrow", "complete-narrow-slice"} and version != "v0.4.0":
+            if "v0.4.0" not in closure:
+                failures.append(f"{version}: mutation authority requires durable v0.4.0 foundation")
+        if mutation == "complete-narrow-slice" and "v0.5.0" not in closure:
+            failures.append(f"{version}: complete lifecycle authority requires v0.5.0 executor/verifier proof")
+        if milestone.get("agent_role") == "proposal-only" and "v0.7.0" not in closure:
+            failures.append(f"{version}: agent interpretation requires the persistent trusted core through v0.7.0")
+        if milestone.get("platform_support") == "reference-experimental" and "v0.8.0" not in closure:
+            failures.append(f"{version}: reference platform support requires the v0.8.0 proposal boundary")
+
+    v1 = by_version.get("v1.0.0")
+    if v1 is not None and v1.get("claim_class") != "Experimental":
+        failures.append("v1.0.0 must remain Experimental unless an explicit future stability rebaseline is reviewed")
+
+    required_roadmap_markers = (
+        "## Independent maturity axes",
+        "## VM and virtualization boundary",
+        "## Dependency gates",
+        "## Anti-drift governance",
+        "## Roadmap-change procedure",
+        "Code presence is not support",
+        "Models are untrusted proposers",
+    )
+    for marker in required_roadmap_markers:
+        if roadmap_text and marker not in roadmap_text:
+            failures.append(f"canonical roadmap missing governance marker: {marker}")
+
+    return failures
+
+
+def main(argv: list[str]) -> int:
+    root = Path(argv[1]).resolve() if len(argv) > 1 else Path(__file__).resolve().parents[1]
+    failures = validate(root)
+    if failures:
+        for failure in failures:
+            print(f"ERROR: {failure}", file=sys.stderr)
+        return 1
+    print("roadmap contract checks passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
