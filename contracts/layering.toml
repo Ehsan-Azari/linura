@@ -62,13 +62,13 @@ forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-policy"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-lifecycle"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 

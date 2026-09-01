@@ -13,6 +13,7 @@ EXPECTED_SEMANTICS = {
     "transport_role": "adapter-only",
 }
 DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
+DBUS_TRANSPORT_PACKAGES = {"zbus", "dbus", "dbus-tokio", "dbus-crossroads"}
 EXPECTED_RULE_PACKAGES = {
     "linura-core",
     "linura-intent",
@@ -187,7 +188,9 @@ def validate(root: Path) -> list[str]:
 
         forbidden_local = string_list("forbid_local")
         forbidden_prefixes = string_list("forbid_local_prefixes")
-        forbidden_external = string_list("forbid_external")
+        forbidden_external = set(string_list("forbid_external"))
+        if "zbus" in forbidden_external:
+            forbidden_external.update(DBUS_TRANSPORT_PACKAGES)
 
         leaked_local = sorted(local_dependencies & set(forbidden_local))
         if leaked_local:
@@ -205,7 +208,7 @@ def validate(root: Path) -> list[str]:
                 f"{package} violates concrete executor/provider boundary via local dependencies: {leaked_prefixed}"
             )
 
-        leaked_external = sorted(external_dependencies & set(forbidden_external))
+        leaked_external = sorted(external_dependencies & forbidden_external)
         if leaked_external:
             failures.append(
                 f"{package} violates transport-neutral boundary via external dependencies: {leaked_external}"
