@@ -33,11 +33,11 @@ Implemented:
 
 No root authority is required by the observation surface.
 
-## Phase 2 — deterministic intent → desired state → non-executable plan, no AI
+## Phase 2 — deterministic intent → desired state → non-executable plan, no AI (complete for v0.2.0)
 
-This phase is the implementation target for [v0.2.0](milestones/v0.2.0.md).
+This phase was completed by [v0.2.0](milestones/v0.2.0.md).
 
-Create hand-authored intents and capability blueprints and prove:
+Implemented with hand-authored intents and capability blueprints to prove:
 
 ```text
 Intent → requirements → capability resolution → conflicts → desired state

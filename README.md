@@ -4,7 +4,7 @@
 
 **Linura is an intent-driven, agent-native Linux system that turns human goals into declarative, policy-controlled, verified machine state.**
 
-Status: `v0.1.0` release candidate — Experimental authenticated read-only Linux observation and causal graph. Linura is not yet production-ready and v0.1.0 declares no supported distribution or hardware profile; the repository is implementing the boundaries required to reach production readiness without giving an AI unrestricted authority over the machine.
+Status: `v0.2.0` release candidate — Experimental authenticated deterministic desired-state and non-executable plan previews on top of authoritative Linux observation. Linura is not yet production-ready and v0.2.0 declares no supported distribution or hardware profile; the public planning surface cannot apply a preview and does not grant an AI, client, or transport mutation authority.
 
 ## The product idea
 
@@ -185,7 +185,7 @@ The name is inspired by **Linux + aura**: Linux underneath, with a coherent, int
 
 ## First platform profile
 
-The first planned platform target stays deliberately narrow: Arch Linux + systemd + Wayland/Hyprland + NetworkManager + PipeWire/WirePlumber + BlueZ + UDisks2 + Polkit + Btrfs/Snapper. This is a **planned platform profile**, not an architectural dependency of the core model and not a v0.1.0 support claim.
+The first planned platform target stays deliberately narrow: Arch Linux + systemd + Wayland/Hyprland + NetworkManager + PipeWire/WirePlumber + BlueZ + UDisks2 + Polkit + Btrfs/Snapper. This is a **planned platform profile**, not an architectural dependency of the core model and not a v0.2.0 support claim.
 
 ## Development order
 

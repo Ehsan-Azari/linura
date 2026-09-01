@@ -47,7 +47,7 @@ env:
 
 jobs:
   vm:
-    name: exact-source authoritative observation
+    name: exact-source disposable VM acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -84,7 +84,7 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
 
-      - name: Build exact-source observation clients
+      - name: Build exact-source acceptance clients
         run: cargo build --release --locked -p linurad -p linuractl
 
       - name: Install disposable VM harness dependencies
@@ -217,7 +217,7 @@ jobs:
           ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
             'sudo -n install -o root -g root -m 0755 /tmp/linurad /usr/local/bin/linurad && sudo -n install -o root -g root -m 0755 /tmp/linuractl /usr/local/bin/linuractl && rm -f /tmp/linurad /tmp/linuractl'
 
-      - name: Run repository authoritative observation acceptance
+      - name: Run repository acceptance scenario
         run: |
           set -euo pipefail
           python3 tools/acceptance.py run "$ACCEPTANCE_SCENARIO" \
@@ -321,7 +321,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: linura-vm-acceptance-${{ github.event.pull_request.head.sha || github.sha }}
+          name: linura-vm-acceptance-${{ inputs.scenario || 'authoritative-observation' }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: ${{ runner.temp }}/linura-vm-artifacts/
           if-no-files-found: warn
           retention-days: 30
