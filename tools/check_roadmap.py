@@ -41,6 +41,10 @@ def validate(root: Path) -> list[str]:
         failures.append(
             "roadmap product_stability must remain experimental unless an explicit stability rebaseline is reviewed"
         )
+    if contract.get("canonical_lifecycle") != CANONICAL_LIFECYCLE:
+        failures.append(
+            "roadmap canonical_lifecycle changed; the locked eleven-stage lifecycle requires an explicit architecture rebaseline"
+        )
 
     milestones = contract.get("milestone")
     if not isinstance(milestones, list) or not milestones:
@@ -265,6 +269,12 @@ def validate(root: Path) -> list[str]:
         failures.append("v1.0.0 must remain Experimental unless an explicit future stability rebaseline is reviewed")
 
     required_roadmap_markers = (
+        "## Beyond v1.0 — production hardening and broader support",
+        "## Post-v1 strategic tracks",
+        "### Personal operating environment",
+        "### Extension and sharing ecosystem",
+        "### General-purpose provider breadth",
+        "### Optional fleet and enterprise",
         "## Independent maturity axes",
         "## VM and virtualization boundary",
         "## Dependency gates",
