@@ -229,11 +229,65 @@ Expected v1.0 experience includes:
 - diagnostics, explanation and audit surfaces appropriate to the supported scope;
 - explicit unsupported-domain, platform and compatibility boundaries.
 
-## Beyond v1.0 — hardening and broader support
+## Beyond v1.0 — production hardening and broader support
 
-Production support is an evidence-backed maturity track, not a date or version-number assumption. Post-v1.0 work may include broader provider/domain coverage, Stable contract promotion, longer-lived upgrade guarantees, disaster-recovery qualification, wider distribution/hardware matrices, richer accessibility/UX, release channels, fleet controls and enterprise integrations.
+Production support is an evidence-backed maturity track, not a date or version-number assumption. Reaching v1.0 does not waive the need for contract, platform, security, recovery and operational qualification.
+
+Production-hardening work includes, as applicable to the supported scope:
+
+- explicit promotion of individual contracts from Experimental/Preview to Stable;
+- long-lived migration, backup/restore and downgrade/rollback guarantees;
+- installer/update/recovery qualification across declared supported platform profiles;
+- fault injection, crash/restart, power-loss and indeterminate-operation testing;
+- privilege-boundary and threat-model review for every supported mutating provider;
+- performance/resource bounds, soak testing and daemon resilience;
+- corruption detection/repair and disaster-recovery procedures;
+- diagnostics/support bundles with privacy/redaction guarantees;
+- compatibility/deprecation policy and release-channel discipline;
+- wider distribution, desktop and hardware qualification matrices only where evidence supports them.
 
 No later capability may weaken the local-first authority model merely to enable remote, hosted or enterprise operation.
+
+## Post-v1 strategic tracks
+
+These tracks preserve Linura's long-term product ambitions without assigning speculative version numbers. Exact release inclusion must be chosen explicitly through future milestone rebaselines.
+
+### Personal operating environment
+
+- machine profile/personality composition;
+- profile/setup capture from managed causal state;
+- reusable workflow/Library integration and replay UX;
+- coherent shell surfaces and design system;
+- declarative workflows and constrained derived UI surfaces;
+- accessibility and keyboard/mouse parity.
+
+### Extension and sharing ecosystem
+
+- capability-isolated extensions;
+- signed manifests and update policy;
+- canonical setup/profile serialization, content digests and optional signatures;
+- optional Git, user-owned, hosted and enterprise Library sync providers;
+- UI/workflow extension points;
+- local, hosted and enterprise model adapters that retain proposal-only authority.
+
+### General-purpose provider breadth
+
+- deeper networking, packages/apps, firewall, storage/recovery and boot providers;
+- containers such as Docker/Podman through typed provider contracts;
+- virtualization through provider-neutral VM resources with optional libvirt/QEMU/KVM, Incus or future adapters;
+- users/sessions, credentials, printers/scanners, diagnostics and other domain providers;
+- domain-specific verification, recovery and policy semantics proportional to risk.
+
+### Optional fleet and enterprise
+
+- enrollment and mTLS identity;
+- central policy and audit export;
+- enterprise setup/profile catalog policy;
+- fleet desired-state orchestration;
+- staged deployment, health gates and rollback;
+- enterprise model/provider controls.
+
+Fleet, hosted sync and enterprise services remain optional integrations. They never become prerequisites for local authority, local Library use, setup adoption or recovery.
 
 ## Independent maturity axes
 
