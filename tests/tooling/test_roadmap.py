@@ -72,7 +72,7 @@ class RoadmapContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("canonical roadmap missing exact heading", result.stderr)
 
-    def test_privilege_cannot_move_before_durable_foundation(self) -> None:
+    def test_supported_mutation_cannot_move_before_complete_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
@@ -84,16 +84,51 @@ class RoadmapContractTests(unittest.TestCase):
                 'status = "planned"\n'
                 'claim_class = "Experimental"\n'
                 'depends_on = ["v0.2.0"]\n'
-                'mutation_authority = "none"'
+                'durable_recovery = false\n'
+                'executor_state = "none"\n'
+                'complete_lifecycle = false\n'
+                'managed_mutation_support = "none"'
             )
-            new = old.replace('mutation_authority = "none"', 'mutation_authority = "narrow"')
+            new = old.replace(
+                'managed_mutation_support = "none"',
+                'managed_mutation_support = "narrow-experimental"',
+            )
             self.assertIn(old, text)
             contract.write_text(text.replace(old, new, 1), encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("architectural gate changed", result.stderr)
-            self.assertIn("durable v0.4.0 foundation", result.stderr)
+            self.assertIn("supported managed mutation requires complete lifecycle proof", result.stderr)
+
+    def test_v05_executor_qualification_cannot_self_promote_to_supported_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8")
+            old = (
+                'version = "v0.5.0"\n'
+                'title = "first narrow privileged executor and independent verifier"\n'
+                'status = "planned"\n'
+                'claim_class = "Experimental"\n'
+                'depends_on = ["v0.4.0"]\n'
+                'durable_recovery = true\n'
+                'executor_state = "isolated-qualified"\n'
+                'complete_lifecycle = false\n'
+                'managed_mutation_support = "none"'
+            )
+            new = old.replace(
+                'managed_mutation_support = "none"',
+                'managed_mutation_support = "narrow-experimental"',
+            )
+            self.assertIn(old, text)
+            contract.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("architectural gate changed", result.stderr)
+            self.assertIn("supported managed mutation requires complete lifecycle proof", result.stderr)
 
     def test_product_stability_cannot_be_promoted_by_roadmap_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -111,7 +146,23 @@ class RoadmapContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("product_stability must remain experimental", result.stderr)
 
-    def test_canonical_eleven_stage_lifecycle_cannot_silently_drift(self) -> None:
+    def test_machine_contract_cannot_redefine_canonical_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8").replace(
+                "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile",
+                "request/intent → plan → execute",
+                1,
+            )
+            contract.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("canonical_lifecycle changed", result.stderr)
+
+    def test_canonical_eleven_stage_lifecycle_cannot_silently_drift_in_docs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
