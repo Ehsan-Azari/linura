@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProfileId, ProviderId, RequestId,
-    ResourceId, RiskClass, SemanticReason, SetupId,
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId, ResourceId,
+    RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
-use linura_intent::{Intent, IntentProposal, MachineClass, MachineProfile, Setup};
+use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
 use linura_observation::{FreshnessState, ObservationEnvelope, ProviderHealth};
 use linura_provenance::WhyChain;
 
@@ -261,6 +261,8 @@ pub struct ProfileAdoptionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use linura_core::ProfileId;
+    use linura_intent::MachineClass;
 
     #[test]
     fn preview_contract_names_are_explicitly_non_executable() {
