@@ -70,23 +70,27 @@ Future releases promote only the exact bounded slices they qualify.
 
 ## VM qualification versus VM management
 
-Linura already has repository-owned disposable QEMU/KVM guest infrastructure for system acceptance and release qualification. That is **test infrastructure**, not a product virtualization capability.
+Linura already has repository-owned disposable QEMU/KVM guest infrastructure for system acceptance and release qualification. That is **test infrastructure, not a product virtualization capability**.
 
 Product virtualization is a future provider domain. Linura must represent virtual machines through provider-neutral typed resources/capabilities rather than binding its architecture to one backend. Potential adapters may include libvirt/QEMU/KVM, Incus or other local/remote implementations, but all remain optional providers.
 
-A future VM lifecycle capability must use the same managed-mutation path as other domains:
+A future VM lifecycle capability must preserve Linura's canonical eleven-stage lifecycle:
 
 ```text
-observe VM state
-→ desired VM state
-→ deterministic plan
-→ policy / authorization
-→ durable prepare
-→ narrow provider executor
-→ independent re-observation / verification
+request / intent
+→ observe VM state
+→ plan typed desired VM state / diff
+→ validate
+→ authorize
+→ prepare
+→ execute through a narrow provider executor
+→ verify through independent re-observation
 → commit
-→ audit / reconciliation
+→ audit
+→ reconcile
 ```
+
+Planning internals may resolve VM requirements, provider capabilities, images, networks, storage, devices and desired state, but those remain implementation details of `plan`/`validate`; they do not redefine the lifecycle.
 
 Destructive operations such as VM deletion, disk replacement, snapshot rollback or host-device/GPU passthrough require explicit risk classification, authorization and recovery semantics; they must not be exposed through a generic privileged command path.
 
