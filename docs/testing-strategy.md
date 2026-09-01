@@ -46,6 +46,27 @@ Agent-native UX is incomplete without:
 - specialist disagreement;
 - first boot using deterministic default/import path.
 
+## Future context-query/probe acceptance contract
+
+When a generalized context-query runtime is implemented, its work is incomplete without repeatable negative-path coverage for:
+
+- per-probe timeout/deadline enforcement;
+- cancellation without orphaned unbounded work;
+- bounded concurrency/fan-out and resource budgets;
+- provider unavailability and deterministic partial-result semantics;
+- stale/future/mismatched cached evidence rejection when current authority is required;
+- query coalescing that preserves caller isolation, freshness and provenance;
+- bounded cache/history growth and deterministic eviction;
+- backpressure and bounded response/result size;
+- deterministic aggregation for contracts that require deterministic output;
+- per-result source/provenance/freshness retention;
+- retries that do not silently exceed the caller's budget;
+- transport/provider failure without leaking implementation-specific authority into the domain model;
+- proof that retrieval/RAG output cannot become authoritative observed state or an authority grant;
+- fleet/cluster federation, when introduced, preserving local-machine authority and explicit partial-failure semantics.
+
+These requirements are a future implementation contract, not a current release capability claim. They do not add a stage to the canonical managed-mutation lifecycle.
+
 ## Acceptance principle
 
 A demo is not an acceptance test. Supported release claims require repeatable evidence from clean/disposable machines and recovery from injected failures.

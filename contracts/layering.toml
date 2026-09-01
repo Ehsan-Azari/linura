@@ -1,0 +1,107 @@
+version = 1
+
+[semantics]
+actor_term = "authenticated-principal"
+canonical_observation = "linura-observation::ObservationEnvelope"
+query_orchestration = "control-plane-owned"
+transport_role = "adapter-only"
+
+[[rules]]
+package = "linura-core"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-intent"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-capability-sdk"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-planner"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-observation"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-provider-sdk"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-graph"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-observation-control"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-protocol"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-policy"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-lifecycle"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-agent-runtime"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-control"
+forbid_local = ["linura-dbus", "linura-linux-observation"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-dbus"
+forbid_local = ["linura-planner", "linura-policy", "linura-provider-sdk", "linura-linux-observation"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = []
+
+[[markers]]
+path = "docs/terminology.md"
+contains = "**Actor:** authenticated principal requesting an operation."
+
+[[markers]]
+path = "docs/provider-model.md"
+contains = "Providers expose bounded mechanisms; Linura owns orchestration."
+
+[[markers]]
+path = "docs/state-model.md"
+contains = "Retrieval context is not observed state."
+
+[[markers]]
+path = "crates/linura-provider-sdk/src/lib.rs"
+contains = "MUST NOT become a second canonical observation model"

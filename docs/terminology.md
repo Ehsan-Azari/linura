@@ -18,7 +18,12 @@
 - **Semantic provenance:** evidence explaining why managed state exists.
 - **Actor:** authenticated principal requesting an operation.
 - **Resource:** typed system object such as a unit, interface, device, package or disk.
+- **Probe:** one bounded provider-backed attempt to acquire evidence for a resource/capability; it is not an actor or authority.
 - **Observation:** provider-backed snapshot of actual current state.
+- **Context query:** semantic request for the evidence/context needed to answer a bounded question; it may require one or many probes.
+- **Query runtime:** control-plane orchestration responsible for budgets, deadlines, cancellation, concurrency, coalescing, cache/freshness policy, aggregation and partial-result semantics for context queries.
+- **Context projection:** normalized derived view assembled for a planner, UI, agent or diagnostic consumer; it does not become authoritative observed state merely because it contains authoritative observations.
+- **Retrieval context:** documentation, historical evidence, indexed material or RAG results supplied to reasoning; it is advisory context, not machine-state authority.
 - **Desired state:** persistent intended resource state derived from approved intent/capabilities.
 - **Diff:** deterministic difference between observed and desired state.
 - **Action request:** typed request to change state.
@@ -32,3 +37,5 @@
 - **Derived surface:** constrained UI generated from typed resources/actions.
 - **Platform profile:** supported composition of distro/subsystems/providers.
 - **Grant:** scoped authority assigned to an actor, especially agents.
+
+`Actor` is reserved for authenticated human/service/agent principals. Backend query workers, provider adapters and probe implementations must not reuse that term for a separate execution model.

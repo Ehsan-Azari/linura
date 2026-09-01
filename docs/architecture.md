@@ -83,6 +83,50 @@ Conversation / API / saved Setup / imported Profile
 
 Saved setup/profile adoption does not enter below intent/planning. It is never an executor replay mechanism.
 
+## Context acquisition and query plane
+
+Linura must answer increasingly broad semantic questions without turning D-Bus, shell calls or any other transport into its model of the machine. The observation side therefore follows a separate transport-neutral flow:
+
+```text
+Semantic context query
+        │
+        ▼
+query planning/orchestration
+        │
+        ▼
+   bounded probes
+        │
+   ┌────┼───────────────┬─────────────┐
+   ▼    ▼               ▼             ▼
+systemd hardware     containers     storage/...
+provider provider      provider       provider
+   │    │               │             │
+ D-Bus sysfs/...   socket/API/...   native/...
+   └────┴───────────────┴─────────────┘
+        │
+        ▼
+ ObservationEnvelope
+        │
+        ▼
+ObservationCoordinator
+        │
+        ▼
+    System Graph
+        │
+        ▼
+ Context Projection
+    │            │
+ planner       agent/RAG
+```
+
+A **probe** is one bounded provider-backed acquisition attempt. A **context query** may require one or many probes. A future query runtime may own deadlines, cancellation, bounded concurrency/fan-out, retries, query coalescing, cache/freshness policy, backpressure, partial-result semantics and aggregate resource budgets.
+
+This query plane is not a second authority plane and does not add a stage to the managed-mutation lifecycle. When planning, policy or verification requires current machine truth, the required authoritative observation/freshness contract still applies.
+
+D-Bus has two permitted adapter roles: local Linura client/control transport and provider-internal transport to upstream Linux services. D-Bus object paths, interfaces, signals, Unix file descriptors and wire values remain adapter details in both roles.
+
+Cached observations, context projections and retrieval/RAG may improve efficiency or reasoning, but they do not become current machine truth merely by being available. Retrieval cannot manufacture observed state or grant authority.
+
 ## Layering
 
 1. `linura-core`: stable IDs, action/effect/risk primitives and semantic reasons, including setup identity.
@@ -100,7 +144,14 @@ Saved setup/profile adoption does not enter below intent/planning. It is never a
 13. narrow privileged executors.
 14. client applications.
 
-Dependencies point inward. UI, Library adapters and agents do not import distro/provider implementations.
+The observation path refines those layers without changing their authority direction:
+
+- `linura-observation` owns the canonical authoritative observation envelope/freshness primitives;
+- `linura-observation-control` owns provider-neutral observation coordination and bounded in-process retained evidence;
+- `linura-linux-observation` contains concrete Linux observation adapters and may depend on transport libraries such as `zbus`;
+- `linura-dbus` contains the local D-Bus transport and must delegate authority/planning semantics inward rather than owning them.
+
+Dependencies point inward. UI, Library adapters and agents do not import distro/provider implementations. Semantic/planning crates do not import transport libraries or concrete Linux providers. The machine-readable layering contract under `contracts/layering.toml` is validated in repository checks to prevent transport/provider coupling from silently creeping inward.
 
 ## Persistence boundary
 
