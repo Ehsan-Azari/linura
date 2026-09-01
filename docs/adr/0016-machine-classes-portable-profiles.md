@@ -25,6 +25,16 @@ Linura adopts these invariants:
 8. Fleet/enterprise remains an optional management overlay across workstation/server/edge machines. It is not a fourth machine class and cannot replace local authority, recovery or Library semantics.
 9. AI/agent interpretation remains an upstream proposal plane, not a machine class or authority source.
 
+## Security assessment
+
+This decision changes reusable profile import/export semantics and therefore triggers a threat-model review under `SECURITY.md`.
+
+The new `machine_class` value is treated as **untrusted declarative source metadata** when a portable profile is imported. It does not grant authority, select an executor, establish platform support, weaken policy, or carry approval from the source machine. The schema restricts the value to the three canonical classes, but syntactic validity does not make the value trusted.
+
+Adoption must continue to derive target truth from authoritative local observation and local capability/platform-support resolution. A source/target class difference is a compatibility input requiring a fresh plan and review; unsupported or ambiguous compatibility fails closed. Historical executor effects and source-machine approvals are never replayed. Release-qualified support is determined from evidence for the target's exact class + platform/profile + architecture/hardware boundary, never from the imported class declaration.
+
+`docs/threat-model.md` records the corresponding **Machine-class spoofing / cross-class adoption confusion** threat and mitigations. This preserves the existing malicious-profile trust boundary while making the new class-specific attack surface explicit.
+
 ## Consequences
 
 - Portable profiles retain enough semantic information to detect and review cross-class adoption.
