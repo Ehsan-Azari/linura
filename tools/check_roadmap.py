@@ -10,9 +10,9 @@ VERSION_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 VALID_STATUS = {"released", "planned"}
 VALID_CLAIM_CLASS = {"Experimental", "Preview", "Stable"}
 VALID_EXECUTOR_STATE = {"none", "isolated-qualified", "integrated-narrow"}
-VALID_MUTATION_SUPPORT = {"none", "narrow-experimental"}
+VALID_MUTATION_SUPPORT = {"none", "narrow-experimental", "reference-stable"}
 VALID_AGENT_ROLE = {"none", "proposal-only"}
-VALID_PLATFORM_SUPPORT = {"none", "reference-experimental"}
+VALID_PLATFORM_SUPPORT = {"none", "reference-experimental", "reference-stable"}
 CANONICAL_LIFECYCLE = (
     "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
 )
@@ -40,7 +40,7 @@ def validate(root: Path) -> list[str]:
         failures.append("roadmap schema_version must be 1")
     if contract.get("product_stability") != "experimental":
         failures.append(
-            "roadmap product_stability must remain experimental unless an explicit stability rebaseline is reviewed"
+            "roadmap product_stability must describe the current product as experimental until a future explicit Stable release transition"
         )
     if contract.get("canonical_lifecycle") != CANONICAL_LIFECYCLE:
         failures.append(
@@ -180,6 +180,8 @@ def validate(root: Path) -> list[str]:
 
     canonical_document = contract.get("canonical_document")
     domain_document = contract.get("domain_document")
+    versioning_document = contract.get("versioning_document")
+
     if not isinstance(canonical_document, str):
         failures.append("canonical_document must be a string path")
         roadmap_text = ""
@@ -201,6 +203,17 @@ def validate(root: Path) -> list[str]:
             domain_text = ""
         else:
             domain_text = domain_path.read_text(encoding="utf-8")
+
+    if not isinstance(versioning_document, str):
+        failures.append("versioning_document must be a string path")
+        versioning_text = ""
+    else:
+        versioning_path = root / versioning_document
+        if not versioning_path.is_file():
+            failures.append(f"versioning policy document missing: {versioning_document}")
+            versioning_text = ""
+        else:
+            versioning_text = versioning_path.read_text(encoding="utf-8")
 
     for version, milestone in by_version.items():
         title = milestone.get("title")
@@ -254,13 +267,21 @@ def validate(root: Path) -> list[str]:
             "proposal-only",
             "reference-experimental",
         ),
-        "v1.0.0": (
+        "v0.10.0": (
             True,
             "integrated-narrow",
             True,
             "narrow-experimental",
             "proposal-only",
             "reference-experimental",
+        ),
+        "v1.0.0": (
+            True,
+            "integrated-narrow",
+            True,
+            "reference-stable",
+            "proposal-only",
+            "reference-stable",
         ),
     }
     if set(by_version) != set(expected_gates):
@@ -288,6 +309,8 @@ def validate(root: Path) -> list[str]:
         executor_state = milestone.get("executor_state")
         complete_lifecycle = milestone.get("complete_lifecycle") is True
         mutation_support = milestone.get("managed_mutation_support")
+        platform_support = milestone.get("platform_support")
+        claim_class = milestone.get("claim_class")
 
         if durable_recovery and version != "v0.4.0" and "v0.4.0" not in closure:
             failures.append(f"{version}: durable recovery requires the v0.4.0 foundation")
@@ -309,17 +332,47 @@ def validate(root: Path) -> list[str]:
                 failures.append(f"{version}: supported managed mutation requires durable recovery")
             if version != "v0.6.0" and "v0.6.0" not in closure:
                 failures.append(f"{version}: supported managed mutation cannot precede v0.6.0")
+        if mutation_support == "reference-stable":
+            if claim_class != "Stable":
+                failures.append(f"{version}: Stable mutation support requires a Stable milestone claim")
+            if platform_support != "reference-stable":
+                failures.append(f"{version}: Stable mutation support requires a Stable reference platform")
+            if "v0.10.0" not in closure:
+                failures.append(f"{version}: Stable mutation support requires the v0.10.0 Experimental end-user milestone")
         if milestone.get("agent_role") == "proposal-only" and "v0.7.0" not in closure:
             failures.append(f"{version}: agent interpretation requires the persistent trusted core through v0.7.0")
-        if milestone.get("platform_support") == "reference-experimental" and "v0.8.0" not in closure:
-            failures.append(f"{version}: reference platform support requires the v0.8.0 proposal boundary")
+        if platform_support == "reference-experimental" and "v0.8.0" not in closure:
+            failures.append(f"{version}: Experimental reference platform support requires the v0.8.0 proposal boundary")
+        if platform_support == "reference-stable":
+            if claim_class != "Stable":
+                failures.append(f"{version}: Stable reference platform support requires a Stable milestone claim")
+            if "v0.10.0" not in closure:
+                failures.append(f"{version}: Stable reference platform support requires v0.10.0 experience evidence")
+
+    v010 = by_version.get("v0.10.0")
+    if v010 is not None and v010.get("claim_class") != "Experimental":
+        failures.append("v0.10.0 must remain the explicitly Experimental end-user milestone")
 
     v1 = by_version.get("v1.0.0")
-    if v1 is not None and v1.get("claim_class") != "Experimental":
-        failures.append("v1.0.0 must remain Experimental unless an explicit future stability rebaseline is reviewed")
+    if v1 is not None:
+        if v1.get("claim_class") != "Stable":
+            failures.append("v1.0.0 is reserved for the first Stable supported end-user contract")
+        if v1.get("depends_on") != ["v0.10.0"]:
+            failures.append("v1.0.0 must follow the v0.10.0 Experimental end-user milestone")
+
+    required_versioning_markers = (
+        "`v1.0.0` is the first stable end-user contract.",
+        "The 1.0 release contract must have evidence appropriate to a stable system layer",
+        "After 1.0, normal Semantic Versioning applies",
+    )
+    for marker in required_versioning_markers:
+        if versioning_text and marker not in versioning_text:
+            failures.append(f"versioning policy missing Stable v1 invariant: {marker}")
 
     required_roadmap_markers = (
-        "## Beyond v1.0 — production hardening and broader support",
+        "## v0.10.0 — meaningful end-user Experimental Linura",
+        "## v1.0.0 — first Stable supported end-user Linura",
+        "## Beyond v1.0 — broader support and product expansion",
         "## Post-v1 strategic tracks",
         "### Personal operating environment",
         "### Extension and sharing ecosystem",
@@ -334,6 +387,7 @@ def validate(root: Path) -> list[str]:
         "Models are untrusted proposers",
         "v0.5 may exercise a narrow executor/verifier only through disposable qualification authority",
         "no supported managed external mutation may appear before v0.6",
+        "v1.0 is reserved for the first Stable supported end-user contract",
         CANONICAL_LIFECYCLE,
     )
     for marker in required_roadmap_markers:
