@@ -21,6 +21,8 @@ Linura may retain, aggregate or retrieve additional context without creating new
 
 When planning, policy or verification requires current authoritative state, Linura must use an `ObservationEnvelope` satisfying the required provider/resource/capability identity and freshness contract. Cached evidence may be reused only when it still satisfies that exact contract.
 
+A probabilistic **confidence** score belongs to derived/retrieval context unless it is explicitly provider-native quality/uncertainty evidence defined by a domain contract. Confidence assigned by a model, retriever or aggregator cannot upgrade an inferred/cached fact into authoritative observed state. If a required authoritative fact is unavailable or ambiguous, mutation paths fail closed rather than substituting a high-confidence inference.
+
 This keeps the hierarchy explicit:
 
 ```text
