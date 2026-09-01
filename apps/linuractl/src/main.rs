@@ -1,9 +1,14 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use linura_sdk::{LocalControlClient, ProtocolVersion};
+use linura_sdk::{
+    ActorKind, CapabilityId, IntentId, LocalControlClient, PlanDesiredStateRequest, PlanId,
+    PlanPreview, ProtocolVersion, ProviderId, RequestId, RequirementId, ResourceId, RiskClass,
+    SemanticReason,
+};
 
 #[derive(Clone, Copy)]
 struct CommandInfo {
@@ -46,6 +51,21 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "explain",
         summary: "Explain the authoritative evidence for one resource",
+        offline: false,
+    },
+    CommandInfo {
+        name: "plan-preview",
+        summary: "Create an evidence-bound non-executable desired-state preview",
+        offline: false,
+    },
+    CommandInfo {
+        name: "get-plan-preview",
+        summary: "Read one retained non-executable preview",
+        offline: false,
+    },
+    CommandInfo {
+        name: "explain-plan-preview",
+        summary: "Explain one retained non-executable preview",
         offline: false,
     },
     CommandInfo {
@@ -173,6 +193,23 @@ fn run() -> Result<(), Box<dyn Error>> {
             field("evidence_id", &evidence_id);
             field("authority", &authority);
         }
+        Some("plan-preview") => {
+            let request = parse_plan_preview_args(&args)?;
+            let preview = LocalControlClient::connect()?.plan_desired_state(&request)?;
+            print_plan_preview(&preview);
+        }
+        Some("get-plan-preview") => {
+            require_arity(&args, 2, "get-plan-preview <plan-id>")?;
+            let plan_id = PlanId::new(args[1].clone())?;
+            let preview = LocalControlClient::connect()?.get_plan_preview(&plan_id)?;
+            print_plan_preview(&preview);
+        }
+        Some("explain-plan-preview") => {
+            require_arity(&args, 2, "explain-plan-preview <plan-id>")?;
+            let plan_id = PlanId::new(args[1].clone())?;
+            let preview = LocalControlClient::connect()?.explain_plan_preview(&plan_id)?;
+            print_plan_preview(&preview);
+        }
         Some("help") | Some("--help") | Some("-h") | None => print_help(),
         Some(other) => {
             return Err(Box::new(CliError(format!(
@@ -195,6 +232,88 @@ fn parse_observe_args(args: &[String]) -> Result<(&str, &str, &str), Box<dyn Err
                 .into(),
         ))),
     }
+}
+
+fn parse_plan_preview_args(args: &[String]) -> Result<PlanDesiredStateRequest, Box<dyn Error>> {
+    if args.len() < 6 {
+        return Err(Box::new(CliError(plan_preview_usage().into())));
+    }
+    let request_id = RequestId::new(args[1].clone())?;
+    let resource = ResourceId::new(args[2].clone())?;
+    let (provider_name, capability_name) = infer_route(resource.as_str())?;
+    let provider = ProviderId::new(provider_name)?;
+    let observation_capability = CapabilityId::new(capability_name)?;
+    let summary = args[3].clone();
+
+    let mut intent_ids = Vec::new();
+    let mut requirement_ids = Vec::new();
+    let mut capability_ids = Vec::new();
+    let mut desired_state = BTreeMap::new();
+    let mut index = 4;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        let value = args
+            .get(index + 1)
+            .ok_or_else(|| Box::new(CliError(plan_preview_usage().into())) as Box<dyn Error>)?;
+        match flag {
+            "--intent" => intent_ids.push(IntentId::new(value.clone())?),
+            "--requirement" => requirement_ids.push(RequirementId::new(value.clone())?),
+            "--capability-origin" => capability_ids.push(CapabilityId::new(value.clone())?),
+            "--set" => {
+                let (key, desired) = value.split_once('=').ok_or_else(|| {
+                    Box::new(CliError(format!(
+                        "invalid --set value {value:?}; expected key=value"
+                    ))) as Box<dyn Error>
+                })?;
+                if key.is_empty() {
+                    return Err(Box::new(CliError(
+                        "desired-state attribute key cannot be empty".into(),
+                    )));
+                }
+                if desired_state
+                    .insert(key.to_string(), desired.to_string())
+                    .is_some()
+                {
+                    return Err(Box::new(CliError(format!(
+                        "duplicate desired-state attribute {key:?}"
+                    ))));
+                }
+            }
+            _ => {
+                return Err(Box::new(CliError(format!(
+                    "unknown plan-preview option {flag:?}; {}",
+                    plan_preview_usage()
+                ))));
+            }
+        }
+        index += 2;
+    }
+
+    let reason = SemanticReason {
+        summary,
+        intent_ids,
+        requirement_ids,
+        capability_ids,
+    };
+    reason.validate()?;
+    if desired_state.is_empty() {
+        return Err(Box::new(CliError(
+            "plan-preview requires at least one --set key=value".into(),
+        )));
+    }
+
+    Ok(PlanDesiredStateRequest {
+        request_id,
+        provider,
+        resource,
+        observation_capability,
+        reason,
+        desired_state,
+    })
+}
+
+fn plan_preview_usage() -> &'static str {
+    "usage: linuractl plan-preview <request-id> <resource> <summary> [--intent <id>] [--requirement <id>] [--capability-origin <id>] --set <key=value> [--set <key=value> ...]"
 }
 
 fn infer_route(resource: &str) -> Result<(&'static str, &'static str), Box<dyn Error>> {
@@ -220,9 +339,87 @@ fn require_arity(args: &[String], expected: usize, usage: &str) -> Result<(), Bo
     }
 }
 
+fn print_plan_preview(preview: &PlanPreview) {
+    field("plan_id", preview.plan_id.as_str());
+    field("request_id", preview.request_id.as_str());
+    field("actor_id", preview.actor.id.as_str());
+    field("actor_kind", actor_kind_name(preview.actor.kind));
+    field(
+        "actor_interactive",
+        if preview.actor.interactive {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    field("provider", preview.provider.as_str());
+    field("resource", preview.resource.as_str());
+    field("capability", preview.observation_capability.as_str());
+    field("evidence_id", &preview.observed_evidence_id);
+    field("prospective_risk", risk_name(preview.prospective_risk));
+    field("status", preview.status.as_str());
+    field(
+        "execution_authorized",
+        if preview.execution_authorized {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    field("reason.summary", &preview.reason.summary);
+    for (index, id) in preview.reason.intent_ids.iter().enumerate() {
+        field(&format!("reason.intent.{index}"), id.as_str());
+    }
+    for (index, id) in preview.reason.requirement_ids.iter().enumerate() {
+        field(&format!("reason.requirement.{index}"), id.as_str());
+    }
+    for (index, id) in preview.reason.capability_ids.iter().enumerate() {
+        field(&format!("reason.capability.{index}"), id.as_str());
+    }
+    for (index, change) in preview.changes.iter().enumerate() {
+        field(&format!("change.{index}.key"), &change.key);
+        field(
+            &format!("change.{index}.current_present"),
+            if change.current.is_some() {
+                "true"
+            } else {
+                "false"
+            },
+        );
+        if let Some(current) = &change.current {
+            field(&format!("change.{index}.current"), current);
+        }
+        field(&format!("change.{index}.desired"), &change.desired);
+    }
+    for (index, finding) in preview.findings.iter().enumerate() {
+        field(&format!("finding.{index}.code"), &finding.code);
+        field(&format!("finding.{index}.level"), finding.level.as_str());
+        field(&format!("finding.{index}.message"), &finding.message);
+    }
+}
+
+const fn actor_kind_name(kind: ActorKind) -> &'static str {
+    match kind {
+        ActorKind::Human => "human",
+        ActorKind::Service => "service",
+        ActorKind::Agent => "agent",
+        ActorKind::Remote => "remote",
+    }
+}
+
+const fn risk_name(risk: RiskClass) -> &'static str {
+    match risk {
+        RiskClass::ReadOnly => "read-only",
+        RiskClass::UserState => "user-state",
+        RiskClass::SystemMutation => "system-mutation",
+        RiskClass::SecuritySensitive => "security-sensitive",
+        RiskClass::Destructive => "destructive",
+    }
+}
+
 fn print_commands() {
     for command in COMMANDS {
-        println!("{:<14} {}", command.name, command.summary);
+        println!("{:<22} {}", command.name, command.summary);
     }
 }
 
@@ -288,7 +485,7 @@ fn escaped(value: &str) -> String {
 
 fn print_help() {
     println!("linuractl {}", env!("CARGO_PKG_VERSION"));
-    println!("Read-only Linura authoritative observation client.");
+    println!("Authenticated Linura observation and non-executable planning client.");
     println!();
     println!("Commands:");
     println!("  version");
@@ -299,7 +496,14 @@ fn print_help() {
     println!("  observe <provider> <capability> <resource>");
     println!("  graph");
     println!("  explain <resource>");
+    println!(
+        "  plan-preview <request-id> <resource> <summary> [origin flags] --set <key=value> ..."
+    );
+    println!("  get-plan-preview <plan-id>");
+    println!("  explain-plan-preview <plan-id>");
     println!("  help");
+    println!();
+    println!("Plan preview origin flags: --intent, --requirement, --capability-origin");
 }
 
 #[derive(Debug)]
@@ -319,6 +523,10 @@ mod tests {
 
     use super::*;
 
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
     #[test]
     fn built_in_resource_routes_are_deterministic() {
         assert_eq!(
@@ -333,6 +541,51 @@ mod tests {
     }
 
     #[test]
+    fn plan_preview_parser_is_typed_and_deterministic() {
+        let args = strings(&[
+            "plan-preview",
+            "request:test",
+            "systemd:unit:sshd.service",
+            "keep SSH active",
+            "--intent",
+            "intent:ssh",
+            "--capability-origin",
+            "remote.ssh",
+            "--set",
+            "active_state=active",
+        ]);
+        let request =
+            parse_plan_preview_args(&args).unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(request.request_id.as_str(), "request:test");
+        assert_eq!(request.provider.as_str(), "systemd");
+        assert_eq!(
+            request
+                .desired_state
+                .get("active_state")
+                .map(String::as_str),
+            Some("active")
+        );
+        assert_eq!(request.reason.intent_ids[0].as_str(), "intent:ssh");
+    }
+
+    #[test]
+    fn plan_preview_parser_rejects_duplicate_desired_keys() {
+        let args = strings(&[
+            "plan-preview",
+            "request:test",
+            "systemd:unit:sshd.service",
+            "keep SSH active",
+            "--intent",
+            "intent:ssh",
+            "--set",
+            "active_state=active",
+            "--set",
+            "active_state=inactive",
+        ]);
+        assert!(parse_plan_preview_args(&args).is_err());
+    }
+
+    #[test]
     fn output_escaping_is_line_safe() {
         assert_eq!(escaped("a\nb\\c\t"), "a\\nb\\\\c\\t");
     }
@@ -343,12 +596,16 @@ mod tests {
         assert_eq!(names.len(), COMMANDS.len());
         assert!(names.contains("commands"));
         assert!(names.contains("observe"));
+        assert!(names.contains("plan-preview"));
+        assert!(names.contains("get-plan-preview"));
+        assert!(names.contains("explain-plan-preview"));
 
         let json = commands_json();
         assert!(json.starts_with('['));
         assert!(json.ends_with(']'));
         assert!(json.contains("\"name\":\"commands\""));
         assert!(json.contains("\"name\":\"observe\""));
+        assert!(json.contains("\"name\":\"plan-preview\""));
         assert!(json.contains("\"offline\":true"));
         assert!(json.contains("\"offline\":false"));
     }

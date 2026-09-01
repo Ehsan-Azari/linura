@@ -25,6 +25,7 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("security-baseline", result.stdout)
         self.assertIn("recovery-native-path", result.stdout)
         self.assertIn("authoritative-observation", result.stdout)
+        self.assertIn("control1-plan-preview", result.stdout)
 
     def test_acceptance_scenario_commands_are_valid_bash(self) -> None:
         scenario_ids: set[str] = set()
@@ -118,6 +119,14 @@ class ToolingTests(unittest.TestCase):
         self.assertIn("cloud-localds", workflow)
         self.assertIn("cargo build --release --locked -p linurad -p linuractl", workflow)
         self.assertIn("VM-ACCEPTANCE-EVIDENCE.json", workflow)
+
+    def test_control1_plan_preview_uses_reusable_exact_source_vm(self) -> None:
+        workflow = (ROOT / ".github/workflows/control1-plan-preview-vm.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("uses: ./.github/workflows/vm-acceptance.yml", workflow)
+        self.assertIn("scenario: control1-plan-preview", workflow)
+        self.assertIn('"tests/acceptance/008-control1-plan-preview.json"', workflow)
 
     def test_hosted_vm_acceptance_is_tcg_and_fail_fast(self) -> None:
         workflow = (ROOT / ".github/workflows/vm-acceptance.yml").read_text(encoding="utf-8")

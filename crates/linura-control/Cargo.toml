@@ -11,6 +11,8 @@ linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
 linura-intent = { path = "../linura-intent" }
 linura-lifecycle = { path = "../linura-lifecycle" }
+linura-observation = { path = "../linura-observation" }
+linura-observation-control = { path = "../linura-observation-control" }
 linura-planner = { path = "../linura-planner" }
 linura-policy = { path = "../linura-policy" }
 linura-protocol = { path = "../linura-protocol" }

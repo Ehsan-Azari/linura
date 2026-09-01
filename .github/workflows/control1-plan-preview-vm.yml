@@ -1,0 +1,36 @@
+name: Control1 plan-preview VM acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/control1-plan-preview-vm.yml"
+      - ".github/workflows/vm-acceptance.yml"
+      - "apps/linurad/**"
+      - "apps/linuractl/**"
+      - "crates/linura-control/**"
+      - "crates/linura-core/**"
+      - "crates/linura-dbus/**"
+      - "crates/linura-graph/**"
+      - "crates/linura-linux-observation/**"
+      - "crates/linura-observation/**"
+      - "crates/linura-observation-control/**"
+      - "crates/linura-planner/**"
+      - "crates/linura-protocol/**"
+      - "crates/linura-sdk/**"
+      - "interfaces/dbus/**"
+      - "tests/acceptance/008-control1-plan-preview.json"
+      - "tools/acceptance.py"
+      - "tools/vm.py"
+      - "tools/codex/versions.env"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+permissions:
+  contents: read
+
+jobs:
+  plan-preview-vm:
+    uses: ./.github/workflows/vm-acceptance.yml
+    with:
+      scenario: control1-plan-preview
