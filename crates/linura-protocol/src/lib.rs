@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId,
+    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProfileId, ProviderId, RequestId,
     ResourceId, RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
-use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
+use linura_intent::{Intent, IntentProposal, MachineClass, MachineProfile, Setup};
 use linura_observation::{FreshnessState, ObservationEnvelope, ProviderHealth};
 use linura_provenance::WhyChain;
 
@@ -231,7 +231,9 @@ pub struct SetupAdoptionResponse {
 }
 
 /// A portable machine profile export is self-contained: the profile references
-/// setup/intent IDs while this bundle carries those definitions for replay.
+/// setup/intent IDs while this bundle carries those definitions for replay. The
+/// profile's canonical machine class is retained in the typed profile itself so
+/// adoption can detect and review cross-class replay.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PortableProfileExport {
     pub profile: MachineProfile,
@@ -292,5 +294,27 @@ mod tests {
             desired_state: BTreeMap::from([("active_state".into(), "active".into())]),
         };
         assert_eq!(request.request_id.as_str(), "request:test");
+    }
+
+    #[test]
+    fn portable_profile_export_retains_machine_class() {
+        let bundle = PortableProfileExport {
+            profile: MachineProfile {
+                id: ProfileId::new("profile:edge-gateway")
+                    .unwrap_or_else(|error| unreachable!("{error}")),
+                name: "Edge gateway".into(),
+                machine_class: MachineClass::Edge,
+                setup_ids: vec![],
+                intent_ids: vec![],
+                portable_constraints: vec!["intermittent-connectivity".into()],
+                hardware_hints: vec![],
+            },
+            setups: vec![],
+            intents: vec![],
+            format_version: 1,
+        };
+
+        assert_eq!(bundle.profile.machine_class, MachineClass::Edge);
+        assert_eq!(bundle.profile.machine_class.as_str(), "edge");
     }
 }
