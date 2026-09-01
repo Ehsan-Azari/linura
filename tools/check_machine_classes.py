@@ -21,6 +21,22 @@ def _read_text(root: Path, value: object, label: str, failures: list[str]) -> st
     return path.read_text(encoding="utf-8")
 
 
+def _read_json(root: Path, relative: str, label: str, failures: list[str]) -> dict[str, object]:
+    path = root / relative
+    if not path.is_file():
+        failures.append(f"{label} missing: {relative}")
+        return {}
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as error:
+        failures.append(f"invalid {label}: {error}")
+        return {}
+    if not isinstance(loaded, dict):
+        failures.append(f"{label} root must be an object")
+        return {}
+    return loaded
+
+
 def validate(root: Path) -> list[str]:
     failures: list[str] = []
     contract_path = root / "contracts/roadmap.toml"
@@ -70,18 +86,7 @@ def validate(root: Path) -> list[str]:
     if not isinstance(support_path_value, str) or not support_path_value:
         failures.append("hardware_support_matrix must be a non-empty string path")
     else:
-        support_path = root / support_path_value
-        if not support_path.is_file():
-            failures.append(f"hardware_support_matrix missing: {support_path_value}")
-        else:
-            try:
-                loaded = json.loads(support_path.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    support = loaded
-                else:
-                    failures.append("hardware support matrix root must be an object")
-            except Exception as error:
-                failures.append(f"invalid hardware support matrix: {error}")
+        support = _read_json(root, support_path_value, "hardware support matrix", failures)
 
     required_roadmap_markers = (
         "Machine classes are support targets, not domains.",
@@ -172,6 +177,62 @@ def validate(root: Path) -> list[str]:
             if isinstance(entry, dict) and entry.get("release_qualified_profiles"):
                 failures.append(
                     f"{machine_class}: current release has platform_support=none, so release_qualified_profiles must remain empty"
+                )
+
+    # The typed intent/profile domain and portable schema must preserve machine
+    # class end to end. Documentation alone cannot support cross-class adoption
+    # checks because replay must retain the source class as data.
+    intent_path = root / "crates/linura-intent/src/lib.rs"
+    if not intent_path.is_file():
+        failures.append("machine-class intent contract missing: crates/linura-intent/src/lib.rs")
+    else:
+        intent_text = intent_path.read_text(encoding="utf-8")
+        for marker in (
+            "pub enum MachineClass",
+            "Workstation,",
+            "Server,",
+            "Edge,",
+            "pub machine_class: MachineClass,",
+        ):
+            if marker not in intent_text:
+                failures.append(f"typed machine profile missing machine-class contract marker: {marker}")
+
+    sdk_path = root / "crates/linura-sdk/src/lib.rs"
+    if not sdk_path.is_file():
+        failures.append("machine-class SDK contract missing: crates/linura-sdk/src/lib.rs")
+    else:
+        sdk_text = sdk_path.read_text(encoding="utf-8")
+        if "MachineClass, MachineProfile" not in sdk_text:
+            failures.append("public SDK must re-export MachineClass with MachineProfile")
+
+    portable_schema = _read_json(
+        root,
+        "schemas/portable-profile.v1.schema.json",
+        "portable profile schema",
+        failures,
+    )
+    properties = portable_schema.get("properties") if portable_schema else None
+    profile_schema = properties.get("profile") if isinstance(properties, dict) else None
+    if not isinstance(profile_schema, dict):
+        failures.append("portable profile schema must define properties.profile")
+    else:
+        required = profile_schema.get("required")
+        if not isinstance(required, list) or "machine_class" not in required:
+            failures.append("portable profile schema must require profile.machine_class")
+        profile_properties = profile_schema.get("properties")
+        machine_class_schema = (
+            profile_properties.get("machine_class") if isinstance(profile_properties, dict) else None
+        )
+        if not isinstance(machine_class_schema, dict):
+            failures.append("portable profile schema must define profile.machine_class")
+        else:
+            if machine_class_schema.get("type") != "string":
+                failures.append("portable profile profile.machine_class must be a string")
+            values = machine_class_schema.get("enum")
+            if values != list(EXPECTED_MACHINE_CLASSES):
+                failures.append(
+                    "portable profile machine_class enum must remain exactly workstation, server, edge; "
+                    f"found {values!r}"
                 )
 
     # Intelligence and fleet are orthogonal overlays around locally authoritative
