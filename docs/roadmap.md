@@ -2,7 +2,7 @@
 
 This document is Linura's canonical forward-looking roadmap. Released capability claims are defined by the frozen release contracts and qualification evidence under `docs/releases/` and `docs/qualification/`; this roadmap must never be used to expand a published release claim retroactively.
 
-The machine-readable companion contract is `contracts/roadmap.toml`. Repository validation requires the release spine in this document and that contract to stay synchronized.
+The machine-readable companion contract is `contracts/roadmap.toml`. Repository validation requires the release spine in this document and that contract to stay synchronized. Version meaning is additionally constrained by [Versioning and public release policy](versioning-and-release-policy.md).
 
 ## Roadmap principles
 
@@ -12,7 +12,7 @@ The machine-readable companion contract is `contracts/roadmap.toml`. Repository 
 4. **No generic privileged escape hatch.** System domains use narrow typed capabilities and provider-specific executors rather than a generic privileged shell runner.
 5. **Independent observation proves effects.** Executor success is never sufficient evidence that intended machine state was reached.
 6. **Local authority remains standalone.** Remote control, hosted Library sync, model providers and enterprise services remain optional integrations rather than prerequisites for local operation or recovery.
-7. **Version numbers describe proven capability slices.** Pre-1.0 minor releases may introduce externally testable Experimental capability slices; patch releases repair an already-published minor line.
+7. **Version numbers describe proven capability/support slices.** Pre-1.0 minor releases may introduce externally testable Experimental capability slices; patch releases repair an already-published minor line; v1.0 is reserved for the first Stable supported end-user contract.
 
 ## Canonical managed-mutation architecture
 
@@ -202,7 +202,7 @@ A model never receives direct executor, policy-admin or unrestricted system auth
 **Status:** planned  
 **Target claim class:** Experimental
 
-Prove a coherent install/adoption/recovery path on an explicitly bounded reference environment.
+Prove a coherent install/adoption/recovery path on an explicitly bounded Experimental reference environment.
 
 Target capabilities:
 
@@ -213,43 +213,55 @@ Target capabilities:
 - initial Control Center and shell surfaces;
 - upgrade/migration qualification for persistent Linura state.
 
-## v1.0.0 — meaningful end-user Experimental Linura
+## v0.10.0 — meaningful end-user Experimental Linura
 
 **Status:** planned  
 **Target claim class:** Experimental
 
-Deliver the first coherent end-user Linura experience that combines the trustworthy managed-mutation core, persistent local intent/Library state, proposal-only agent interpretation, First Boot and a supported Experimental reference platform.
+Deliver the first coherent end-user Linura experience while keeping the product/support contract explicitly Experimental.
 
-`v1.0.0` is a product milestone, not an automatic declaration of Stable or production-supported contracts. Stability is promoted explicitly through Linura's contract-stability policy and evidence, never inferred from the version number.
+Target experience:
 
-Expected v1.0 experience includes:
-
-- a coherent local end-to-end intent → reviewed change → verified state workflow;
+- coherent local end-to-end intent → reviewed change → verified state workflows;
 - manual operation that remains fully usable without AI;
 - bounded agent-assisted intent interpretation;
-- supported install/update/recovery path for the reference environment;
+- supported Experimental install/update/recovery path for the reference environment;
 - setup/profile Library workflows;
 - diagnostics, explanation and audit surfaces appropriate to the supported scope;
-- explicit unsupported-domain, platform and compatibility boundaries.
+- explicit unsupported-domain, platform and compatibility boundaries;
+- user-facing acceptance evidence sufficient to discover the remaining gaps before Stable support is attempted.
 
-## Beyond v1.0 — production hardening and broader support
+v0.10.0 is where Linura should become meaningfully usable by external experimental users. It is deliberately **not** the point where Stable/production support is declared.
 
-Production support is an evidence-backed maturity track, not a date or version-number assumption. Reaching v1.0 does not waive the need for contract, platform, security, recovery and operational qualification.
+## v1.0.0 — first Stable supported end-user Linura
 
-Production-hardening work includes, as applicable to the supported scope:
+**Status:** planned  
+**Target claim class:** Stable
 
-- explicit promotion of individual contracts from Experimental/Preview to Stable;
-- long-lived migration, backup/restore and downgrade/rollback guarantees;
-- installer/update/recovery qualification across declared supported platform profiles;
-- fault injection, crash/restart, power-loss and indeterminate-operation testing;
-- privilege-boundary and threat-model review for every supported mutating provider;
-- performance/resource bounds, soak testing and daemon resilience;
-- corruption detection/repair and disaster-recovery procedures;
+Promote Linura to its first Stable supported end-user contract only when the declared reference scope has production-support evidence appropriate to a system layer. This preserves Linura's existing Semantic Versioning policy rather than making `1.0` a cosmetic product milestone.
+
+The v1.0 release contract must bound exactly what is Stable and supported. Experimental providers/extensions may still coexist outside that boundary, but they must be visibly separate and cannot silently inherit the Stable claim.
+
+Required v1.0 evidence includes, at minimum:
+
+- explicitly declared supported distribution/desktop/hardware profiles and qualification matrix;
+- install/bootstrap, First Boot, update, migration and upgrade behavior for supported persistent state;
+- backup/restore, recovery, rollback and indeterminate-operation procedures exercised under failure injection;
+- complete privilege-boundary and threat-model review for every Stable mutating path;
+- the canonical eleven-stage lifecycle proven for the Stable supported mutation scope;
+- stable compatibility/deprecation policy for the public contracts on which the supported experience depends;
+- resource bounds, long-running daemon resilience, fault/crash/power-loss testing and corruption handling appropriate to the supported scope;
+- independently verified release provenance/reproducibility and rollback/recovery release procedures;
 - diagnostics/support bundles with privacy/redaction guarantees;
-- compatibility/deprecation policy and release-channel discipline;
-- wider distribution, desktop and hardware qualification matrices only where evidence supports them.
+- documented security-response, support and known-limitations expectations.
 
-No later capability may weaken the local-first authority model merely to enable remote, hosted or enterprise operation.
+`v1.0.0` does not mean every Linura domain, provider, model adapter or enterprise feature is Stable. It means the exact end-user reference contract named by the release has crossed the Stable support threshold with evidence.
+
+## Beyond v1.0 — broader support and product expansion
+
+After the first Stable supported reference contract, Linura can broaden Stable provider/domain coverage, supported platform matrices, compatibility guarantees and enterprise/fleet capabilities without weakening the local-first authority model.
+
+No later capability may make remote control, hosted Library sync, model providers or enterprise services prerequisites for local operation, setup adoption or recovery.
 
 ## Post-v1 strategic tracks
 
@@ -304,7 +316,7 @@ Release versions are only one axis. Linura tracks the following independently:
 | Platform support | Which exact distribution/desktop/hardware profiles are release-qualified? |
 | Product experience | Which end-user workflows are coherent and supported? |
 
-A domain can be implemented in source while still having no supported platform claim. A contract can remain Experimental even when the product version reaches 1.0. A VM can be used for qualification without VM lifecycle management being a Linura product capability.
+A domain can be implemented in source while still having no supported platform claim. Experimental contracts/providers may coexist with a future Stable product scope when they are explicitly excluded from that Stable boundary. A VM can be used for qualification without VM lifecycle management being a Linura product capability.
 
 ## Domain maturity levels
 
@@ -342,6 +354,8 @@ These gates are architectural, not merely scheduling preferences:
 - broader domain mutation must not become normal scope before the complete v0.6 lifecycle is proven;
 - agent interpretation must remain proposal-only and must not bypass deterministic planning, policy or authorization;
 - First Boot/support claims require an explicit platform profile and install/update/recovery evidence;
+- v0.10 remains Experimental even when it becomes meaningfully usable;
+- v1.0 must not ship until its exact supported reference scope satisfies the Stable contract requirements in `docs/versioning-and-release-policy.md`;
 - high-risk domains such as storage, boot, security posture and virtualization must define domain-specific recovery/verification semantics before mutation support;
 - fleet/remote authority must remain optional and must not replace local authority or recovery.
 
@@ -349,7 +363,7 @@ These gates are architectural, not merely scheduling preferences:
 
 1. **Released milestone meaning is immutable.** A published version's capability meaning comes from its frozen release contract and evidence. Later roadmap edits may summarize it but may not broaden it.
 2. **Future milestones may be rebaselined only explicitly.** A scope change requires a dedicated roadmap change in review with rationale, dependency impact and any necessary ADR or milestone-contract updates.
-3. **The machine-readable roadmap contract must change atomically.** `contracts/roadmap.toml` and this document are validated together.
+3. **The machine-readable roadmap contract must change atomically.** `contracts/roadmap.toml`, this document and the versioning policy are validated together where their invariants intersect.
 4. **Scope absorption is recorded, not duplicated.** If an earlier milestone legitimately completes work previously expected later, the later milestone is redefined explicitly rather than implementing redundant work to preserve an obsolete label.
 5. **Implementation does not self-promote.** Existing code, schemas, binaries or tests do not change the support matrix unless a release contract explicitly claims and qualifies them.
 6. **Every active milestone gets a bounded milestone contract.** It must define goal, dependencies, required capabilities, trust invariants, explicit non-goals, evidence and exit criteria before release preparation.
@@ -357,6 +371,7 @@ These gates are architectural, not merely scheduling preferences:
 8. **Domains do not own release numbers.** Domain sequencing lives in `docs/system-domains.md`; exact release inclusion belongs in milestone/release contracts.
 9. **Architecture shortcuts require explicit review.** Any proposal that bypasses typed capability resolution, policy, durable prepare, independent verification or local authority requires an ADR-level decision before implementation.
 10. **Evidence wins over aspiration.** If qualification cannot support a planned claim, the claim is reduced or deferred; tests are never weakened to preserve roadmap optics.
+11. **Stable is never implied by implementation volume.** Stable support requires an explicit contract promotion and qualification; conversely, the `v1.0.0` product version is reserved for the first such supported end-user contract rather than an Experimental marketing milestone.
 
 ## Roadmap-change procedure
 
@@ -367,7 +382,8 @@ A roadmap rebaseline should answer all of the following in the reviewing PR:
 - Which future milestone goals/dependencies move?
 - Does any domain sequencing change?
 - Does the change introduce or move mutation authority, persistence, agent authority, platform support or remote authority?
-- Are milestone, domain, architecture, qualification and machine-readable roadmap documents still consistent?
+- Does it change the meaning of `v1.0.0` or any stability threshold defined by the versioning policy?
+- Are milestone, domain, architecture, qualification, versioning and machine-readable roadmap documents still consistent?
 - Can repository validation detect accidental reintroduction of the superseded roadmap shape?
 
 The purpose of this process is not to prevent learning. It is to ensure that learning becomes an explicit architectural decision rather than silent roadmap drift.
