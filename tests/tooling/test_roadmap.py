@@ -95,6 +95,54 @@ class RoadmapContractTests(unittest.TestCase):
             self.assertIn("architectural gate changed", result.stderr)
             self.assertIn("durable v0.4.0 foundation", result.stderr)
 
+    def test_product_stability_cannot_be_promoted_by_roadmap_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8").replace(
+                'product_stability = "experimental"',
+                'product_stability = "stable"',
+                1,
+            )
+            contract.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("product_stability must remain experimental", result.stderr)
+
+    def test_canonical_eleven_stage_lifecycle_cannot_silently_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            roadmap = root / "docs/roadmap.md"
+            text = roadmap.read_text(encoding="utf-8").replace(
+                "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile",
+                "request/intent → plan → execute",
+                1,
+            )
+            roadmap.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("canonical roadmap missing governance marker", result.stderr)
+
+    def test_vm_management_cannot_be_confused_with_vm_test_infrastructure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            domains = root / "docs/system-domains.md"
+            text = domains.read_text(encoding="utf-8").replace(
+                "test infrastructure, not a product virtualization capability",
+                "supported VM product capability",
+                1,
+            )
+            domains.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("system domain map missing virtualization boundary marker", result.stderr)
+
     def test_v1_does_not_imply_stable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
