@@ -180,40 +180,23 @@ def validate(root: Path) -> list[str]:
 
     canonical_document = contract.get("canonical_document")
     domain_document = contract.get("domain_document")
+    development_document = contract.get("development_document")
     versioning_document = contract.get("versioning_document")
 
-    if not isinstance(canonical_document, str):
-        failures.append("canonical_document must be a string path")
-        roadmap_text = ""
-    else:
-        roadmap_path = root / canonical_document
-        if not roadmap_path.is_file():
-            failures.append(f"canonical roadmap document missing: {canonical_document}")
-            roadmap_text = ""
-        else:
-            roadmap_text = roadmap_path.read_text(encoding="utf-8")
+    def read_contract_document(value: object, label: str) -> str:
+        if not isinstance(value, str):
+            failures.append(f"{label} must be a string path")
+            return ""
+        path = root / value
+        if not path.is_file():
+            failures.append(f"{label} missing: {value}")
+            return ""
+        return path.read_text(encoding="utf-8")
 
-    if not isinstance(domain_document, str):
-        failures.append("domain_document must be a string path")
-        domain_text = ""
-    else:
-        domain_path = root / domain_document
-        if not domain_path.is_file():
-            failures.append(f"domain roadmap document missing: {domain_document}")
-            domain_text = ""
-        else:
-            domain_text = domain_path.read_text(encoding="utf-8")
-
-    if not isinstance(versioning_document, str):
-        failures.append("versioning_document must be a string path")
-        versioning_text = ""
-    else:
-        versioning_path = root / versioning_document
-        if not versioning_path.is_file():
-            failures.append(f"versioning policy document missing: {versioning_document}")
-            versioning_text = ""
-        else:
-            versioning_text = versioning_path.read_text(encoding="utf-8")
+    roadmap_text = read_contract_document(canonical_document, "canonical_document")
+    domain_text = read_contract_document(domain_document, "domain_document")
+    development_text = read_contract_document(development_document, "development_document")
+    versioning_text = read_contract_document(versioning_document, "versioning_document")
 
     for version, milestone in by_version.items():
         title = milestone.get("title")
@@ -368,6 +351,19 @@ def validate(root: Path) -> list[str]:
     for marker in required_versioning_markers:
         if versioning_text and marker not in versioning_text:
             failures.append(f"versioning policy missing Stable v1 invariant: {marker}")
+
+    required_development_markers = (
+        "## Phase 5 — first narrow privileged executor and independent verifier (target v0.5.0)",
+        "**Phase 5 remains qualification-only:**",
+        "Phase 6 is the first milestone allowed to publish a bounded Experimental supported managed external effect.",
+        "## Phase 10 — meaningful end-user Experimental Linura (target v0.10.0)",
+        "## Phase 11 — Stable support qualification (target v1.0.0)",
+        "`v1.0.0` is reserved by Linura's versioning policy for the first Stable supported end-user contract.",
+        "## Phase 12 — broader system domains (post-v1 strategic expansion)",
+    )
+    for marker in required_development_markers:
+        if development_text and marker not in development_text:
+            failures.append(f"development plan missing roadmap alignment marker: {marker}")
 
     required_roadmap_markers = (
         "## v0.10.0 — meaningful end-user Experimental Linura",
