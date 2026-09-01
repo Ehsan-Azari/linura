@@ -6,7 +6,7 @@ Domain sequencing is intentionally independent of product release numbers. Exact
 
 Shipping a domain requires more than UI or code presence: a provider contract, typed capability/resource model, policy semantics, authoritative observation, validation, recovery/verification appropriate to risk, tests, documentation and release evidence are required for the supported slice.
 
-See [Roadmap](roadmap.md) for the canonical trust-boundary release spine and domain maturity levels.
+See [Roadmap](roadmap.md) for the canonical trust-boundary release spine and domain maturity levels, and [Machine profiles](machine-profiles.md) for the workstation/server/edge machine-class model.
 
 ## Sequencing classes
 
@@ -57,6 +57,51 @@ See [Roadmap](roadmap.md) for the canonical trust-boundary release spine and dom
 | Extensions | manifests, capabilities, lifecycle, updates | Ecosystem |
 | Remote/fleet | enrollment, inventory, desired state, central policy | Optional enterprise |
 
+## Machine-class applicability
+
+Workstation, server and edge are **machine classes**, not domains and not replacements for D0–D7. The table below records typical applicability only; it is not a support matrix and does not imply that a capability is implemented, qualified or supported on any class.
+
+| Domain | Workstation | Server | Edge |
+|---|---|---|---|
+| System identity | core | core | core |
+| Health/readiness | core | core | core |
+| Network | core | core | core |
+| Bluetooth | common | optional | optional/specialized |
+| Audio/media | common | optional | specialized |
+| Displays | common | rare | specialized |
+| Input | common | rare | specialized |
+| Power/session | common | important | critical |
+| Storage | common | core | core/constraint-sensitive |
+| Snapshots/recovery | important | important | critical |
+| Packages/apps | common | core | core/image-dependent |
+| Services | core | core | core |
+| Processes | useful | useful | useful |
+| Firewall | important | core | important |
+| Remote access | optional | important | important |
+| Users/sessions | common | common | deployment-specific |
+| Credentials | common | core | core |
+| Security posture | important | core | core |
+| Updates | important | core | critical |
+| Boot | important | important | critical |
+| Containers | useful | common/core | possible |
+| Virtualization | useful | common for hosts | possible/specialized |
+| Printers/scanners | possible | rare | specialized |
+| Time/locale | common | useful | useful |
+| Accessibility | core UX | rare | specialized |
+| Desktop/session | core UX | rare | specialized |
+| Notifications | common | optional | specialized |
+| Diagnostics | core | core | core |
+| Audit | core | core | core |
+| Agent permissions | core when agents enabled | core when agents enabled | core when agents enabled |
+| Extensions | ecosystem | ecosystem | ecosystem/constraint-sensitive |
+| Remote/fleet | optional overlay | optional overlay | optional overlay |
+
+`core`, `common`, `important`, `optional`, `rare`, `possible` and `specialized` describe expected product relevance only. They are **not maturity or support levels**.
+
+A domain capability can be at one D0–D7 maturity level while support differs across concrete machine/platform profiles. For example, a future `network.read` implementation may be D6 for one release-qualified workstation profile, D5 for one server profile, and D3 for an edge profile. The release contract and machine/platform qualification evidence determine those support boundaries.
+
+Fleet is intentionally shown as an optional overlay for every class. It is not a fourth machine class and never replaces each node's local Linura authority.
+
 ## Current release-qualified slices
 
 This inventory must not be read as a support matrix. Current published evidence is deliberately much narrower:
@@ -64,7 +109,7 @@ This inventory must not be read as a support matrix. Current published evidence 
 - v0.1.0 release-qualified authenticated authoritative read-only observation and causal-graph behavior for the bounded provider/scenario claims stated in its release contract;
 - v0.2.0 release-qualified deterministic desired-state/planning behavior over the bounded authoritative observation route used by its plan-preview claim;
 - no published release currently supports Linura-managed external mutation;
-- no published release currently declares a supported Linux distribution, desktop, hardware or virtualization product profile.
+- no published release currently declares a supported workstation, server, edge, Linux distribution, desktop, hardware or virtualization product profile.
 
 Future releases promote only the exact bounded slices they qualify.
 
@@ -109,6 +154,8 @@ The roadmap defines the canonical domain maturity scale:
 
 A domain can have different maturity per capability. For example, `service.read` can be release-qualified while `service.start` remains unsupported. Do not assign one maturity level to an entire domain when only a subset is proven.
 
+Machine-class applicability and platform qualification are orthogonal to this scale. Do not create a second D-like maturity ladder for workstation/server/edge.
+
 ## Boundary rule
 
 Domains share core primitives but not implementation shortcuts. Package installation, firewall changes, storage operations and VM lifecycle may all require privilege, but they must not be routed through a generic privileged command runner.
@@ -146,8 +193,10 @@ Avoid monolithic grants such as `system.admin`, `virtualization.admin` or unrest
 ## Domain roadmap rules
 
 1. Domain inventory entries do not imply implementation or support.
-2. Exact version targeting is recorded in active milestone contracts, not permanently baked into this long-term inventory.
-3. High-risk mutation requires the generic durable/recovery lifecycle plus domain-specific failure and recovery semantics.
-4. New providers must not bypass capability resolution, policy, authorization, prepare, verification or audit boundaries.
-5. Backend adapters remain replaceable. Linura's source of truth is its typed intent/desired-state/evidence model, not libvirt, Incus, Docker, NetworkManager or any other external provider.
-6. Remote/fleet providers and hosted services remain optional; loss of them must not destroy local authority, local recovery or the user's portable Library definitions.
+2. Machine-class applicability does not imply implementation or support.
+3. Exact version targeting is recorded in active milestone contracts, not permanently baked into this long-term inventory.
+4. High-risk mutation requires the generic durable/recovery lifecycle plus domain-specific failure and recovery semantics.
+5. New providers must not bypass capability resolution, policy, authorization, prepare, verification or audit boundaries.
+6. Backend adapters remain replaceable. Linura's source of truth is its typed intent/desired-state/evidence model, not libvirt, Incus, Docker, NetworkManager or any other external provider.
+7. Remote/fleet providers and hosted services remain optional; loss of them must not destroy local authority, local recovery or the user's portable Library definitions.
+8. Workstation, server and edge support claims require exact machine/platform profiles and evidence; never promote an entire class from one passing configuration.
