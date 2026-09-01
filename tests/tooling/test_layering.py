@@ -27,6 +27,9 @@ class LayeringContractTests(unittest.TestCase):
             "docs/terminology.md",
             "docs/provider-model.md",
             "docs/state-model.md",
+            "docs/system-graph.md",
+            "docs/action-lifecycle.md",
+            "agents/skills/providers.md",
             "crates/linura-provider-sdk/src/lib.rs",
         ):
             source = ROOT / rel
@@ -52,6 +55,17 @@ class LayeringContractTests(unittest.TestCase):
             text += "\n[dependencies]\n" + dependency
         manifest.write_text(text, encoding="utf-8")
 
+    def _add_target_dependency(self, manifest: Path, name: str, spec: str) -> None:
+        text = manifest.read_text(encoding="utf-8")
+        text += f'\n[target."cfg(unix)".dependencies]\n{name} = {spec}\n'
+        manifest.write_text(text, encoding="utf-8")
+
+    def _add_workspace_dependency(self, root: Path, alias: str, spec: str) -> None:
+        workspace = root / "Cargo.toml"
+        text = workspace.read_text(encoding="utf-8")
+        text += f"\n[workspace.dependencies]\n{alias} = {spec}\n"
+        workspace.write_text(text, encoding="utf-8")
+
     def test_repository_layering_contract_is_valid(self) -> None:
         result = self._run_checker(ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -62,6 +76,48 @@ class LayeringContractTests(unittest.TestCase):
             self._copy_fixture(root)
             manifest = root / "crates/linura-planner/Cargo.toml"
             self._add_dependency(manifest, "zbus", '"5"')
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-planner violates transport-neutral boundary", result.stderr)
+
+    def test_aliased_transport_dependency_is_resolved_to_package_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "crates/linura-planner/Cargo.toml"
+            self._add_dependency(manifest, "bus", '{ package = "zbus", version = "5" }')
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-planner violates transport-neutral boundary", result.stderr)
+
+    def test_target_specific_transport_dependency_is_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "crates/linura-planner/Cargo.toml"
+            self._add_target_dependency(
+                manifest,
+                "bus",
+                '{ package = "zbus", version = "5" }',
+            )
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-planner violates transport-neutral boundary", result.stderr)
+
+    def test_workspace_aliased_transport_dependency_is_resolved(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            self._add_workspace_dependency(
+                root,
+                "bus",
+                '{ package = "zbus", version = "5" }',
+            )
+            manifest = root / "crates/linura-planner/Cargo.toml"
+            self._add_dependency(manifest, "bus", "{ workspace = true }")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
@@ -97,6 +153,38 @@ class LayeringContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("linura-core violates concrete executor/provider boundary", result.stderr)
 
+    def test_provenance_is_a_required_protected_semantic_crate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "crates/linura-provenance/Cargo.toml"
+            self._add_dependency(manifest, "zbus", '"5"')
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-provenance violates transport-neutral boundary", result.stderr)
+
+    def test_required_package_rule_cannot_be_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/layering.toml"
+            text = contract.read_text(encoding="utf-8")
+            block = (
+                '[[rules]]\n'
+                'package = "linura-provenance"\n'
+                'forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]\n'
+                'forbid_local_prefixes = ["linura-executor-"]\n'
+                'forbid_external = ["zbus"]\n\n'
+            )
+            self.assertIn(block, text)
+            contract.write_text(text.replace(block, "", 1), encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("layering contract missing required package rules", result.stderr)
+            self.assertIn("linura-provenance", result.stderr)
+
     def test_observation_control_cannot_gain_concrete_linux_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -114,6 +202,51 @@ class LayeringContractTests(unittest.TestCase):
                 "linura-observation-control violates inward dependency boundary",
                 result.stderr,
             )
+
+    def test_concrete_observer_cannot_gain_control_plane_orchestration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "crates/linura-linux-observation/Cargo.toml"
+            self._add_dependency(
+                manifest,
+                "linura-control",
+                '{ path = "../linura-control" }',
+            )
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-linux-observation violates inward dependency boundary", result.stderr)
+
+    def test_public_sdk_cannot_gain_provider_authority_internals(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "crates/linura-sdk/Cargo.toml"
+            self._add_dependency(
+                manifest,
+                "linura-provider-sdk",
+                '{ path = "../linura-provider-sdk" }',
+            )
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-sdk violates inward dependency boundary", result.stderr)
+
+    def test_narrow_executor_cannot_gain_control_plane_orchestration(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            manifest = root / "executors/linura-executor-systemd/Cargo.toml"
+            self._add_dependency(
+                manifest,
+                "linura-control",
+                '{ path = "../../crates/linura-control" }',
+            )
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("linura-executor-systemd violates inward dependency boundary", result.stderr)
 
     def test_actor_terminology_cannot_be_repurposed_for_backend_workers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
