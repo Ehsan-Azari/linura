@@ -24,6 +24,7 @@ class RoadmapContractTests(unittest.TestCase):
             "contracts/roadmap.toml",
             "docs/roadmap.md",
             "docs/system-domains.md",
+            "docs/versioning-and-release-policy.md",
             "docs/releases/v0.0.0.md",
             "docs/releases/v0.1.0.md",
             "docs/releases/v0.2.0.md",
@@ -144,7 +145,7 @@ class RoadmapContractTests(unittest.TestCase):
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("product_stability must remain experimental", result.stderr)
+            self.assertIn("product_stability must describe the current product as experimental", result.stderr)
 
     def test_machine_contract_cannot_redefine_canonical_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -194,14 +195,14 @@ class RoadmapContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("system domain map missing virtualization boundary marker", result.stderr)
 
-    def test_v1_does_not_imply_stable(self) -> None:
+    def test_v010_remains_explicitly_experimental(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8")
             marker = (
-                'version = "v1.0.0"\n'
+                'version = "v0.10.0"\n'
                 'title = "meaningful end-user Experimental Linura"\n'
                 'status = "planned"\n'
                 'claim_class = "Experimental"'
@@ -212,7 +213,43 @@ class RoadmapContractTests(unittest.TestCase):
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("v1.0.0 must remain Experimental", result.stderr)
+            self.assertIn("v0.10.0 must remain the explicitly Experimental", result.stderr)
+
+    def test_v1_is_reserved_for_stable_supported_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            contract = root / "contracts/roadmap.toml"
+            text = contract.read_text(encoding="utf-8")
+            marker = (
+                'version = "v1.0.0"\n'
+                'title = "first Stable supported end-user Linura"\n'
+                'status = "planned"\n'
+                'claim_class = "Stable"'
+            )
+            replacement = marker.replace('claim_class = "Stable"', 'claim_class = "Experimental"')
+            self.assertIn(marker, text)
+            contract.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("v1.0.0 is reserved for the first Stable supported end-user contract", result.stderr)
+
+    def test_versioning_policy_cannot_silently_redefine_v1_as_experimental(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            policy = root / "docs/versioning-and-release-policy.md"
+            text = policy.read_text(encoding="utf-8").replace(
+                "`v1.0.0` is the first stable end-user contract.",
+                "`v1.0.0` is an experimental end-user milestone.",
+                1,
+            )
+            policy.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("versioning policy missing Stable v1 invariant", result.stderr)
 
 
 if __name__ == "__main__":
