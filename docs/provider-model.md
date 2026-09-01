@@ -27,11 +27,13 @@ Providers/executors/verifiers cannot skip `authorize`, `prepare`, `commit`, `aud
 
 **Providers expose bounded mechanisms; Linura owns orchestration.**
 
-A provider/observer may perform a narrow probe against its authoritative upstream subsystem. Cross-provider fan-out, global retry policy, query deadlines, cancellation, concurrency limits, query coalescing, cache policy, backpressure, partial-result policy and aggregate resource budgets belong to Linura's control-plane query orchestration rather than to individual providers.
+A provider/observer may perform a narrow probe against its authoritative upstream subsystem. Cross-provider fan-out, global retry policy, query deadlines, cancellation, concurrency limits, admission control, query coalescing, cache policy, backpressure, partial-result policy and aggregate resource budgets belong to Linura's control-plane query orchestration rather than to individual providers.
 
 The current `Observer` interface is intentionally small and synchronous. ADR 0017 defines the boundary for a future context-query runtime without requiring a speculative runtime today. When that runtime is introduced, it may wrap or evolve observer calls to carry explicit budgets/cancellation while preserving the existing authority and freshness semantics.
 
-Provider implementations must not turn a bounded request into unbounded polling or silently widen a caller's resource/freshness budget.
+The probe boundary should remain narrow and stable: semantic request/result types cross it, while D-Bus objects, file descriptors, sockets, process/session handles and other implementation-specific handles remain provider-owned and lifetime-bounded. They are not portable Linura resource identities.
+
+Provider implementations must not turn a bounded request into unbounded polling or silently widen a caller's deadline, resource, freshness or partial-result contract. If the runtime cannot satisfy a requested service bound, it should reject or return an explicit degraded/partial outcome rather than allow a provider to exceed the bound invisibly.
 
 ## Transport boundary
 
@@ -51,6 +53,8 @@ The same rule applies to Unix sockets, subprocesses, filesystem/kernel interface
 The compact `linura_provider_sdk::Observation` used by the current planning contract is transitional architecture debt. It must converge on `ObservationEnvelope` end-to-end rather than becoming a second canonical state representation.
 
 Caching and aggregation may retain observations for bounded reuse, history, coalescing and context projection. Cached evidence keeps its provenance and freshness semantics. Cache presence cannot satisfy a consumer that requires a fresh authoritative observation unless the cached envelope still satisfies that exact authority/freshness contract.
+
+Probabilistic confidence from a model/retriever/aggregator is context metadata, not an authority upgrade. Provider-native quality/uncertainty may be represented as typed evidence where a domain requires it, but a required authoritative fact still has to satisfy the provider/resource/capability/freshness contract.
 
 Context projections and future RAG/retrieval may combine observations with historical evidence, documentation or indexed material for reasoning. Retrieval output cannot manufacture authoritative observed state, authorize an effect or replace required post-effect verification.
 
