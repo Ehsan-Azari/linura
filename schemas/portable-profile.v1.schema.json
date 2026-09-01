@@ -20,6 +20,7 @@
       "required": [
         "id",
         "name",
+        "machine_class",
         "setups",
         "intents",
         "constraints",
@@ -33,6 +34,14 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "machine_class": {
+          "type": "string",
+          "enum": [
+            "workstation",
+            "server",
+            "edge"
+          ]
         },
         "setups": {
           "type": "array",
