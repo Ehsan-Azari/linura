@@ -4,6 +4,13 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+### Added
+- Canonical `workstation`, `server`, and `edge` machine classes, with developer/AI development machines represented as workstation profiles and fleet/enterprise retained as an optional management overlay.
+- Typed `MachineClass` in the intent domain, public SDK exposure, machine-class support/applicability governance, and ADR 0016.
+
+### Changed
+- Experimental portable machine profiles now preserve a required `machine_class` through `MachineProfile` and `portable-profile.v1`, enabling future cross-class adoption checks without implying any current platform-support claim.
+
 ## [0.2.0] - 2026-09-01
 
 Experimental deterministic desired-state and non-executable planning milestone. Full release contract: [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md).
