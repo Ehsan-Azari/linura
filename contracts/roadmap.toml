@@ -1,6 +1,7 @@
 schema_version = 1
 canonical_document = "docs/roadmap.md"
 domain_document = "docs/system-domains.md"
+versioning_document = "docs/versioning-and-release-policy.md"
 canonical_lifecycle = "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
 current_release = "v0.2.0"
 next_release = "v0.3.0"
@@ -142,7 +143,7 @@ agent_role = "proposal-only"
 platform_support = "reference-experimental"
 
 [[milestone]]
-version = "v1.0.0"
+version = "v0.10.0"
 title = "meaningful end-user Experimental Linura"
 status = "planned"
 claim_class = "Experimental"
@@ -153,3 +154,16 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "proposal-only"
 platform_support = "reference-experimental"
+
+[[milestone]]
+version = "v1.0.0"
+title = "first Stable supported end-user Linura"
+status = "planned"
+claim_class = "Stable"
+depends_on = ["v0.10.0"]
+durable_recovery = true
+executor_state = "integrated-narrow"
+complete_lifecycle = true
+managed_mutation_support = "reference-stable"
+agent_role = "proposal-only"
+platform_support = "reference-stable"
