@@ -12,6 +12,9 @@ VALID_CLAIM_CLASS = {"Experimental", "Preview", "Stable"}
 VALID_MUTATION = {"none", "narrow", "complete-narrow-slice"}
 VALID_AGENT_ROLE = {"none", "proposal-only"}
 VALID_PLATFORM_SUPPORT = {"none", "reference-experimental"}
+CANONICAL_LIFECYCLE = (
+    "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
+)
 
 
 def version_key(value: str) -> tuple[int, int, int]:
@@ -34,6 +37,10 @@ def validate(root: Path) -> list[str]:
 
     if contract.get("schema_version") != 1:
         failures.append("roadmap schema_version must be 1")
+    if contract.get("product_stability") != "experimental":
+        failures.append(
+            "roadmap product_stability must remain experimental unless an explicit stability rebaseline is reviewed"
+        )
 
     milestones = contract.get("milestone")
     if not isinstance(milestones, list) or not milestones:
@@ -169,8 +176,14 @@ def validate(root: Path) -> list[str]:
 
     if not isinstance(domain_document, str):
         failures.append("domain_document must be a string path")
-    elif not (root / domain_document).is_file():
-        failures.append(f"domain roadmap document missing: {domain_document}")
+        domain_text = ""
+    else:
+        domain_path = root / domain_document
+        if not domain_path.is_file():
+            failures.append(f"domain roadmap document missing: {domain_document}")
+            domain_text = ""
+        else:
+            domain_text = domain_path.read_text(encoding="utf-8")
 
     for version, milestone in by_version.items():
         title = milestone.get("title")
@@ -238,9 +251,8 @@ def validate(root: Path) -> list[str]:
     for version, milestone in by_version.items():
         mutation = milestone.get("mutation_authority")
         closure = dependency_closure(version)
-        if mutation in {"narrow", "complete-narrow-slice"} and version != "v0.4.0":
-            if "v0.4.0" not in closure:
-                failures.append(f"{version}: mutation authority requires durable v0.4.0 foundation")
+        if mutation in {"narrow", "complete-narrow-slice"} and "v0.4.0" not in closure:
+            failures.append(f"{version}: mutation authority requires durable v0.4.0 foundation")
         if mutation == "complete-narrow-slice" and "v0.5.0" not in closure:
             failures.append(f"{version}: complete lifecycle authority requires v0.5.0 executor/verifier proof")
         if milestone.get("agent_role") == "proposal-only" and "v0.7.0" not in closure:
@@ -260,10 +272,21 @@ def validate(root: Path) -> list[str]:
         "## Roadmap-change procedure",
         "Code presence is not support",
         "Models are untrusted proposers",
+        CANONICAL_LIFECYCLE,
     )
     for marker in required_roadmap_markers:
         if roadmap_text and marker not in roadmap_text:
             failures.append(f"canonical roadmap missing governance marker: {marker}")
+
+    required_domain_markers = (
+        "## VM qualification versus VM management",
+        "test infrastructure, not a product virtualization capability",
+        "libvirt/QEMU/KVM, Incus",
+        "→ validate\n→ authorize\n→ prepare\n→ execute through a narrow provider executor\n→ verify through independent re-observation\n→ commit\n→ audit\n→ reconcile",
+    )
+    for marker in required_domain_markers:
+        if domain_text and marker not in domain_text:
+            failures.append(f"system domain map missing virtualization boundary marker: {marker}")
 
     return failures
 
