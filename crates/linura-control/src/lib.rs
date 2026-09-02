@@ -13,9 +13,11 @@
 //! establishes durable prepare/recovery semantics.
 
 mod plan_preview;
+mod policy_review;
 
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
     MAX_PREVIEW_ENTRY_BYTES, MAX_PREVIEW_TOTAL_BYTES, MAX_REQUEST_BYTES, MAX_SUMMARY_BYTES,
     MAX_TOTAL_ORIGINS, PlanPreviewControl, PlanPreviewControlError,
 };
+pub use policy_review::{PolicySubjectError, policy_subject_from_plan};
