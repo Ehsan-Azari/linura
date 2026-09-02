@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
 use linura_core::{
-    ActorKind, CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId, RequestId,
-    ResourceId, RiskClass,
+    Actor, ActorKind, CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId,
+    RequestId, ResourceId, RiskClass, SemanticReason,
 };
-use linura_planner::{PlanStatus, ReconciliationPlan};
+use linura_planner::{PlanFinding, PlanStatus, ReconciliationPlan, StateChange};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ApprovalClass {
@@ -19,16 +19,27 @@ pub struct PolicySnapshot {
     pub revision_id: PolicyRevisionId,
 }
 
-/// Exact immutable subject presented to policy review.
+/// Canonical policy-review projection derived from a `ReconciliationPlan`.
 ///
-/// The canonical reconciliation plan is retained intact rather than re-created
-/// as a second policy-owned plan model. The authenticated principal is bound
-/// alongside it so caller identity cannot be inferred from client-supplied
-/// provenance alone.
+/// External callers cannot assemble this type field-by-field. Linura Control must
+/// obtain it from the canonical planner output plus an authenticated principal,
+/// preventing policy evaluation from drifting onto a second independently
+/// authored plan model.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicySubject {
     principal: PrincipalId,
-    plan: ReconciliationPlan,
+    plan_id: PlanId,
+    request_id: RequestId,
+    actor: Actor,
+    provider: ProviderId,
+    resource: ResourceId,
+    capability: CapabilityId,
+    reason: SemanticReason,
+    observed_evidence_id: String,
+    prospective_risk: RiskClass,
+    status: PlanStatus,
+    changes: Vec<StateChange>,
+    findings: Vec<PlanFinding>,
 }
 
 impl PolicySubject {
@@ -36,7 +47,18 @@ impl PolicySubject {
     pub fn from_plan(principal: PrincipalId, plan: &ReconciliationPlan) -> Self {
         Self {
             principal,
-            plan: plan.clone(),
+            plan_id: plan.id.clone(),
+            request_id: plan.request_id.clone(),
+            actor: plan.actor.clone(),
+            provider: plan.provider.clone(),
+            resource: plan.resource.clone(),
+            capability: plan.observation_capability.clone(),
+            reason: plan.reason.clone(),
+            observed_evidence_id: plan.observed_evidence_id.clone(),
+            prospective_risk: plan.prospective_risk,
+            status: plan.status,
+            changes: plan.changes.clone(),
+            findings: plan.findings.clone(),
         }
     }
 
@@ -46,12 +68,74 @@ impl PolicySubject {
     }
 
     #[must_use]
-    pub fn plan(&self) -> &ReconciliationPlan {
-        &self.plan
+    pub fn plan_id(&self) -> &PlanId {
+        &self.plan_id
+    }
+
+    #[must_use]
+    pub fn request_id(&self) -> &RequestId {
+        &self.request_id
+    }
+
+    #[must_use]
+    pub fn actor(&self) -> &Actor {
+        &self.actor
+    }
+
+    #[must_use]
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    #[must_use]
+    pub fn resource(&self) -> &ResourceId {
+        &self.resource
+    }
+
+    #[must_use]
+    pub fn capability(&self) -> &CapabilityId {
+        &self.capability
+    }
+
+    #[must_use]
+    pub fn reason(&self) -> &SemanticReason {
+        &self.reason
+    }
+
+    #[must_use]
+    pub fn observed_evidence_id(&self) -> &str {
+        &self.observed_evidence_id
+    }
+
+    #[must_use]
+    pub const fn prospective_risk(&self) -> RiskClass {
+        self.prospective_risk
+    }
+
+    #[must_use]
+    pub const fn status(&self) -> PlanStatus {
+        self.status
+    }
+
+    #[must_use]
+    pub fn changes(&self) -> &[StateChange] {
+        &self.changes
+    }
+
+    #[must_use]
+    pub fn findings(&self) -> &[PlanFinding] {
+        &self.findings
+    }
+
+    #[must_use]
+    pub fn has_blockers(&self) -> bool {
+        self.findings
+            .iter()
+            .any(|finding| finding.level == linura_planner::PlanFindingLevel::Blocker)
     }
 }
 
-/// Identity binding for a policy evaluation.
+/// Identity binding for one policy evaluation.
 ///
 /// v0.3 approval evidence must match this exact binding. A different principal,
 /// plan, authoritative evidence identity, policy revision, resource or capability
@@ -96,17 +180,16 @@ pub trait PolicyEngine {
 
     #[must_use]
     fn evaluate(&self, subject: &PolicySubject) -> PolicyEvaluation {
-        let plan = subject.plan();
         let snapshot = self.snapshot();
         PolicyEvaluation {
             binding: ReviewBinding {
                 principal: subject.principal().clone(),
-                plan_id: plan.id.clone(),
-                request_id: plan.request_id.clone(),
-                observed_evidence_id: plan.observed_evidence_id.clone(),
-                provider: plan.provider.clone(),
-                resource: plan.resource.clone(),
-                capability: plan.observation_capability.clone(),
+                plan_id: subject.plan_id().clone(),
+                request_id: subject.request_id().clone(),
+                observed_evidence_id: subject.observed_evidence_id().to_owned(),
+                provider: subject.provider().clone(),
+                resource: subject.resource().clone(),
+                capability: subject.capability().clone(),
                 policy_id: snapshot.policy_id.clone(),
                 policy_revision_id: snapshot.revision_id.clone(),
             },
@@ -139,26 +222,26 @@ impl PolicyEngine for BaselinePolicy {
     }
 
     fn evaluate_decision(&self, subject: &PolicySubject) -> PolicyDecision {
-        let plan = subject.plan();
-
-        if plan.status == PlanStatus::Blocked || plan.has_blockers() {
+        if subject.status() == PlanStatus::Blocked || subject.has_blockers() {
             return PolicyDecision::Blocked {
                 reason: "plan contains blockers and cannot enter approval review".into(),
             };
         }
-        if plan.actor.kind == ActorKind::Remote {
+        if subject.actor().kind == ActorKind::Remote {
             return PolicyDecision::Deny {
                 reason: "remote actors are disabled in the initial profile".into(),
             };
         }
-        if plan.actor.kind == ActorKind::Agent && plan.prospective_risk >= RiskClass::SystemMutation {
+        if subject.actor().kind == ActorKind::Agent
+            && subject.prospective_risk() >= RiskClass::SystemMutation
+        {
             return PolicyDecision::RequireApproval {
                 class: ApprovalClass::InteractiveUser,
                 reason: "agents are untrusted proposers and cannot authorize system mutations"
                     .into(),
             };
         }
-        match plan.prospective_risk {
+        match subject.prospective_risk() {
             RiskClass::ReadOnly | RiskClass::UserState => PolicyDecision::Allow,
             RiskClass::SystemMutation => PolicyDecision::RequireApproval {
                 class: ApprovalClass::InteractiveUser,
@@ -179,10 +262,8 @@ impl PolicyEngine for BaselinePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use linura_core::{
-        Actor, ActorId, IntentId, SemanticReason, ValidationError,
-    };
-    use linura_planner::{PlanFinding, PlanFindingLevel, StateChange};
+    use linura_core::{ActorId, IntentId, ValidationError};
+    use linura_planner::{PlanFindingLevel, StateChange};
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
@@ -191,41 +272,39 @@ mod tests {
     fn subject(kind: ActorKind, risk: RiskClass, status: PlanStatus) -> PolicySubject {
         PolicySubject {
             principal: id(PrincipalId::new("uid:1000")),
-            plan: ReconciliationPlan::for_policy_test(
-                id(PlanId::new("plan:test")),
-                id(RequestId::new("req:test")),
-                Actor {
-                    id: id(ActorId::new("actor:test")),
-                    kind,
-                    interactive: kind == ActorKind::Human,
-                },
-                id(ProviderId::new("systemd")),
-                id(ResourceId::new("systemd:unit:test.service")),
-                id(CapabilityId::new("systemd.unit.observe")),
-                SemanticReason {
-                    summary: "test intent".into(),
-                    intent_ids: vec![id(IntentId::new("intent:test"))],
-                    requirement_ids: vec![],
-                    capability_ids: vec![],
-                },
-                "evidence:test".into(),
-                risk,
-                status,
-                vec![StateChange {
-                    key: "active_state".into(),
-                    current: Some("inactive".into()),
-                    desired: "active".into(),
-                }],
-                if status == PlanStatus::Blocked {
-                    vec![PlanFinding {
-                        code: "blocked".into(),
-                        level: PlanFindingLevel::Blocker,
-                        message: "blocked for test".into(),
-                    }]
-                } else {
-                    vec![]
-                },
-            ),
+            plan_id: id(PlanId::new("plan:test")),
+            request_id: id(RequestId::new("req:test")),
+            actor: Actor {
+                id: id(ActorId::new("actor:test")),
+                kind,
+                interactive: kind == ActorKind::Human,
+            },
+            provider: id(ProviderId::new("systemd")),
+            resource: id(ResourceId::new("systemd:unit:test.service")),
+            capability: id(CapabilityId::new("systemd.unit.observe")),
+            reason: SemanticReason {
+                summary: "test intent".into(),
+                intent_ids: vec![id(IntentId::new("intent:test"))],
+                requirement_ids: vec![],
+                capability_ids: vec![],
+            },
+            observed_evidence_id: "evidence:test".into(),
+            prospective_risk: risk,
+            status,
+            changes: vec![StateChange {
+                key: "active_state".into(),
+                current: Some("inactive".into()),
+                desired: "active".into(),
+            }],
+            findings: if status == PlanStatus::Blocked {
+                vec![PlanFinding {
+                    code: "blocked".into(),
+                    level: PlanFindingLevel::Blocker,
+                    message: "blocked for test".into(),
+                }]
+            } else {
+                vec![]
+            },
         }
     }
 
