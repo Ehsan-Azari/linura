@@ -55,8 +55,8 @@ pub trait Observer: Send + Sync {
     }
 }
 
-/// Privileged executor and independent verifier contracts are intentionally not
-/// speculated here before their roadmap milestones. The narrow executor package
-/// scaffolds remain in-tree, but v0.4 must first establish the durable prepared
-/// transaction/binding model and v0.5 must qualify executor/verifier interfaces
-/// against that exact model before they become provider-SDK authority contracts.
+// Privileged executor and independent verifier contracts are intentionally not
+// speculated here before their roadmap milestones. The narrow executor package
+// scaffolds remain in-tree, but v0.4 must first establish the durable prepared
+// transaction/binding model and v0.5 must qualify executor/verifier interfaces
+// against that exact model before they become provider-SDK authority contracts.
