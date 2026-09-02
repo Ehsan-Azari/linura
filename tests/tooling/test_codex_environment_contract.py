@@ -35,7 +35,7 @@ class CodexEnvironmentContractTests(unittest.TestCase):
         self.assertNotIn("rustup", host_loop.group("commands").split())
         self.assertIn("if ! command -v rustup", setup)
 
-    def test_fresh_host_contract_requires_glibc_and_linker(self) -> None:
+    def test_fresh_host_contract_requires_supported_glibc_and_linker(self) -> None:
         for script_name in (
             "scripts/setup_codex_environment.sh",
             "scripts/preflight_codex_environment.sh",
@@ -51,13 +51,29 @@ class CodexEnvironmentContractTests(unittest.TestCase):
             self.assertIn("cc", commands, script_name)
             self.assertIn("getconf", commands, script_name)
             self.assertIn("getconf GNU_LIBC_VERSION", script, script_name)
-            self.assertIn("expected glibc", script, script_name)
+            self.assertIn("MIN_GLIBC_MAJOR=2", script, script_name)
+            self.assertIn("MIN_GLIBC_MINOR=17", script, script_name)
+            self.assertIn("unsupported glibc version", script, script_name)
+
+    def test_custom_cargo_home_is_the_rust_tool_bin_root(self) -> None:
+        for script_name in (
+            "scripts/setup_codex_environment.sh",
+            "scripts/preflight_codex_environment.sh",
+        ):
+            script = (ROOT / script_name).read_text(encoding="utf-8")
+            self.assertIn(
+                'readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"',
+                script,
+                script_name,
+            )
+            self.assertIn('export CARGO_HOME="$CARGO_ROOT"', script, script_name)
+            self.assertIn('${CARGO_ROOT}/bin:', script, script_name)
 
     def test_rustup_cannot_self_update_during_pinned_toolchain_install(self) -> None:
         setup = (ROOT / "scripts/setup_codex_environment.sh").read_text(encoding="utf-8")
-        disable = 'rustup set auto-self-update disable'
+        disable = "rustup set auto-self-update disable"
         install = (
-            'rustup toolchain install "$RUST_VERSION" --profile minimal '
+            'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal '
             '--component clippy --component rustfmt --no-self-update'
         )
         self.assertIn(disable, setup)
@@ -68,6 +84,23 @@ class CodexEnvironmentContractTests(unittest.TestCase):
             2,
         )
         self.assertIn("rustup self-updated during toolchain setup", setup)
+
+    def test_rust_toolchain_host_is_fully_qualified_and_verified(self) -> None:
+        setup = (ROOT / "scripts/setup_codex_environment.sh").read_text(encoding="utf-8")
+        preflight = (ROOT / "scripts/preflight_codex_environment.sh").read_text(encoding="utf-8")
+        for script in (setup, preflight):
+            self.assertIn(
+                'readonly RUST_TOOLCHAIN="${RUST_VERSION}-${RUSTUP_TARGET}"',
+                script,
+            )
+        self.assertIn('rustup set default-host "$RUSTUP_TARGET"', setup)
+        self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN"', setup)
+        self.assertIn('rustup default "$RUST_TOOLCHAIN"', setup)
+        self.assertIn('active_toolchain="$(rustup show active-toolchain', setup)
+        self.assertIn('active_toolchain="$(rustup show active-toolchain', preflight)
+        self.assertIn('$1 == toolchain', preflight)
+        self.assertIn('rustup which --toolchain "$RUST_TOOLCHAIN" rustc', preflight)
+        self.assertIn('rustup which --toolchain "$RUST_TOOLCHAIN" cargo', preflight)
 
     def test_task_preflight_requires_exact_rustup_version(self) -> None:
         preflight = (ROOT / "scripts/preflight_codex_environment.sh").read_text(encoding="utf-8")

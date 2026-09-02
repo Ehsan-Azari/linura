@@ -22,12 +22,14 @@ bash scripts/setup_codex_environment.sh
 
 The setup script:
 
-- requires a **glibc-based Linux x86_64** host with the repository-declared Python major/minor and basic host primitives already available, including Bash, curl, Git, SHA-256 tooling, tar, `getconf`, and a working C compiler/linker exposed as `cc`;
-- intentionally rejects musl-only hosts such as a default Alpine environment because the pinned bootstrap target is `x86_64-unknown-linux-gnu`;
+- requires a **glibc-based Linux x86_64 host with glibc >= 2.17** and the repository-declared Python major/minor;
+- requires basic host primitives already available, including Bash, curl, Git, SHA-256 tooling, tar, `getconf`, and a working C compiler/linker exposed as `cc`;
+- intentionally rejects musl-only hosts such as a default Alpine environment because the pinned bootstrap and Rust toolchain target are `x86_64-unknown-linux-gnu`;
+- honors a caller-provided `CARGO_HOME`; when unset it uses `$HOME/.cargo`, and it exposes that exact Cargo home `bin` directory on `PATH`;
 - never uses `apt install`, Homebrew, or an unversioned language/tool installer;
-- bootstraps exactly rustup 1.28.2 from its versioned `rustup-init` archive and verifies the repository-pinned SHA-256 before execution, so the Codex base image does not need to ship Rust or rustup;
-- disables rustup automatic self-updates persistently and for the toolchain-install invocation, then re-verifies the exact rustup pin after toolchain installation;
-- installs the exact Rust toolchain declared by both `rust-toolchain.toml` and `tools/codex/versions.env`, including rustfmt and Clippy;
+- bootstraps exactly rustup 1.28.2 from its versioned GNU `rustup-init` archive and verifies the repository-pinned SHA-256 before execution, so the Codex base image does not need to ship Rust or rustup;
+- disables rustup automatic self-updates, sets the rustup default host to `x86_64-unknown-linux-gnu`, installs and selects exactly `1.98.0-x86_64-unknown-linux-gnu`, and re-verifies both rustup and the active fully qualified toolchain after installation;
+- installs the exact Rust language version declared by both `rust-toolchain.toml` and `tools/codex/versions.env`, including rustfmt and Clippy, while the setup contract fixes the host triple independently;
 - installs exactly `cargo-audit` 0.22.2 with Cargo's locked install mode; this source build uses the host-provided `cc` linker;
 - downloads exactly actionlint 1.7.12 and verifies the same SHA-256 used by CI before extracting it;
 - fetches only the locked Cargo dependency graph;
@@ -39,11 +41,11 @@ The canonical task-time preflight is:
 bash scripts/preflight_codex_environment.sh
 ```
 
-Use `--full` when a task should also run the complete `cargo xtask check` quality gate during preflight. The normal preflight is intentionally non-installing and non-mutating: it verifies host architecture, glibc compatibility, `cc`, Python major/minor, the exact rustup and Rust toolchain, cargo-audit, actionlint, offline locked Cargo metadata, workflow semantics and clean tracked state. A mismatch is reported as an environment defect rather than repaired during delegated implementation.
+Use `--full` when a task should also run the complete `cargo xtask check` quality gate during preflight. The normal preflight is intentionally non-installing and non-mutating: it verifies host architecture, glibc >= 2.17, `cc`, Python major/minor, the exact rustup version, the exact fully qualified GNU Rust toolchain, cargo-audit, actionlint, offline locked Cargo metadata, workflow semantics and clean tracked state. A mismatch is reported as an environment defect rather than repaired during delegated implementation.
 
 Repository-owned versions and integrity pins are declared in `tools/codex/versions.env`. Changing those pins is a reviewed development-infrastructure change and should remain aligned with CI/release tooling where the same tool is security-relevant.
 
-The Codex product-side environment still has to be created/selected for `linura-org/linura`; the repository cannot create that account-level object by committing a setup script. Configure that environment to execute the canonical setup command during environment creation. The selected base image must satisfy the glibc and `cc` prerequisites above. Setup-phase network access should be narrowly allowed for the pinned tool and dependency upstreams, including:
+The Codex product-side environment still has to be created/selected for `linura-org/linura`; the repository cannot create that account-level object by committing a setup script. Configure that environment to execute the canonical setup command during environment creation. The selected base image must satisfy the glibc >= 2.17 and `cc` prerequisites above. Setup-phase network access should be narrowly allowed for the pinned tool and dependency upstreams, including:
 
 - `static.rust-lang.org` for the pinned rustup bootstrap and Rust toolchain;
 - `index.crates.io`, `static.crates.io`, and `crates.io` for locked Cargo dependencies and the pinned cargo-audit install;

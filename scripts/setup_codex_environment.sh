@@ -24,12 +24,16 @@ source "$VERSION_CONTRACT"
 : "${HOST_ARCH:?}"
 
 readonly RUSTUP_TARGET="x86_64-unknown-linux-gnu"
+readonly RUST_TOOLCHAIN="${RUST_VERSION}-${RUSTUP_TARGET}"
+readonly MIN_GLIBC_MAJOR=2
+readonly MIN_GLIBC_MINOR=17
 readonly RUSTUP_INIT_URL="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_TARGET}/rustup-init"
 readonly ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
 readonly ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
 readonly TOOL_ROOT="${HOME}/.local/linura-tools"
 readonly ACTIONLINT_ROOT="${TOOL_ROOT}/actionlint/${ACTIONLINT_VERSION}"
 readonly BIN_ROOT="${HOME}/.local/bin"
+readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"
 
 require_command() {
   local command_name="$1"
@@ -55,6 +59,24 @@ reports_exact_version() {
   return 1
 }
 
+require_supported_glibc() {
+  local version_text major minor
+  version_text="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  if [[ ! "$version_text" =~ ^glibc[[:space:]]+([0-9]+)\.([0-9]+)([^0-9].*)?$ ]]; then
+    printf 'unsupported C runtime: %s; expected glibc >= %d.%d for %s\n' \
+      "${version_text:-unknown}" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if (( 10#$major < MIN_GLIBC_MAJOR || (10#$major == MIN_GLIBC_MAJOR && 10#$minor < MIN_GLIBC_MINOR) )); then
+    printf 'unsupported glibc version: %s; expected >= %d.%d for %s\n' \
+      "$version_text" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  printf '%s\n' "$version_text"
+}
+
 for command_name in bash cc curl getconf git python3 sha256sum tar uname; do
   require_command "$command_name"
 done
@@ -67,12 +89,7 @@ if [[ "$actual_os" != "$HOST_OS" || "$actual_arch" != "$HOST_ARCH" ]]; then
   exit 1
 fi
 
-glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
-if [[ "$glibc_version" != glibc\ * ]]; then
-  printf 'unsupported C runtime: %s; expected glibc for %s\n' \
-    "${glibc_version:-unknown}" "$RUSTUP_TARGET" >&2
-  exit 1
-fi
+glibc_version="$(require_supported_glibc)"
 
 actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
@@ -80,11 +97,13 @@ if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
   exit 1
 fi
 
-mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT"
-export PATH="${HOME}/.cargo/bin:${BIN_ROOT}:${PATH}"
+mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT" "$CARGO_ROOT/bin"
+export CARGO_HOME="$CARGO_ROOT"
+export PATH="${CARGO_ROOT}/bin:${BIN_ROOT}:${PATH}"
 
-# rust-toolchain.toml remains the language-toolchain source of truth. The Codex
-# contract must match it exactly so environment setup cannot silently diverge.
+# rust-toolchain.toml remains the language-version source of truth. The Codex
+# contract fixes the host triple independently so an existing rustup default-host
+# cannot silently select a musl or otherwise incompatible toolchain.
 repo_rust_version="$(python3 - <<'PY'
 import pathlib
 import re
@@ -104,7 +123,7 @@ fi
 
 # A fresh Codex base image is not required to ship rustup. Bootstrap the exact
 # repository-pinned rustup-init binary, verify its digest, and only then install
-# the exact Rust toolchain. Re-running setup is idempotent.
+# the exact GNU Rust toolchain. Re-running setup is idempotent.
 if ! command -v rustup >/dev/null 2>&1 || ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
   rustup_init_path="$(mktemp)"
   curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
@@ -127,13 +146,19 @@ if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
   exit 1
 fi
 
-# Keep the pinned bootstrap pinned. Rustup normally permits self-update during
-# toolchain installation, so disable it persistently and on this invocation.
+# Keep both the rustup version and host selection deterministic even when the
+# base image already carried a differently configured rustup installation.
 rustup set auto-self-update disable
-rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt --no-self-update
-rustup default "$RUST_VERSION"
+rustup set default-host "$RUSTUP_TARGET"
+rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --component rustfmt --no-self-update
+rustup default "$RUST_TOOLCHAIN"
 if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
   printf 'rustup self-updated during toolchain setup; expected exactly %s\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
+active_toolchain="$(rustup show active-toolchain | awk '{print $1}')"
+if [[ "$active_toolchain" != "$RUST_TOOLCHAIN" ]]; then
+  printf 'unexpected active Rust toolchain: %s; expected %s\n' "$active_toolchain" "$RUST_TOOLCHAIN" >&2
   exit 1
 fi
 
@@ -187,6 +212,7 @@ printf 'Linura Codex environment ready.\n'
 printf '  host: %s-%s (%s)\n' "$actual_os" "$actual_arch" "$glibc_version"
 printf '  python: %s\n' "$(python3 --version)"
 printf '  rustup: %s\n' "$(rustup --version | head -1)"
+printf '  toolchain: %s\n' "$active_toolchain"
 printf '  rustc: %s\n' "$(rustc --version)"
 printf '  cargo: %s\n' "$(cargo --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
