@@ -133,9 +133,9 @@ class ApprovalStrengthContractGuardTests(unittest.TestCase):
             )
             text = text.replace(
                 "let decision = policy.evaluate(&subject(actor_kind, risk)).decision;",
-                "let decision = policy.evaluate(&subject(actor_kind, risk)).decision;\n"
-                "            let _quote = '\\"';\n"
-                '            let _decoy = "assert_eq!(class, expected_class,";',
+                """let decision = policy.evaluate(&subject(actor_kind, risk)).decision;
+            let _quote = '"';
+            let _decoy = "assert_eq!(class, expected_class,";""",
                 1,
             )
             semantic_test.write_text(text, encoding="utf-8")
