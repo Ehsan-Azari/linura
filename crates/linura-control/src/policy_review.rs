@@ -78,7 +78,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use linura_core::{Actor, ActorId, ActorKind, IntentId, RequestId, SemanticReason};
-    use linura_planner::{DesiredResource, DesiredState, DeterministicPlanner, PlanningFreshness, PlanningObservation};
+    use linura_planner::{DesiredResource, DeterministicPlanner, PlanningFreshness, PlanningObservation};
 
     use super::*;
 
@@ -97,21 +97,18 @@ mod tests {
             .unwrap_or_else(|error| unreachable!("{error}"));
         let capability = linura_core::CapabilityId::new("systemd.unit.observe")
             .unwrap_or_else(|error| unreachable!("{error}"));
-        let reason = SemanticReason {
-            summary: "keep test active".into(),
-            intent_ids: vec![IntentId::new("intent:test")
-                .unwrap_or_else(|error| unreachable!("{error}"))],
-            requirement_ids: vec![],
-            capability_ids: vec![],
-        };
-        let desired = DesiredState {
-            resources: vec![DesiredResource {
-                provider: provider.clone(),
-                resource: resource.clone(),
-                observation_capability: capability.clone(),
-                state: BTreeMap::from([("active_state".into(), "active".into())]),
-                reason,
-            }],
+        let desired = DesiredResource {
+            provider: provider.clone(),
+            resource: resource.clone(),
+            observation_capability: capability.clone(),
+            state: BTreeMap::from([("active_state".into(), "active".into())]),
+            reason: SemanticReason {
+                summary: "keep test active".into(),
+                intent_ids: vec![IntentId::new("intent:test")
+                    .unwrap_or_else(|error| unreachable!("{error}"))],
+                requirement_ids: vec![],
+                capability_ids: vec![],
+            },
         };
         let observation = PlanningObservation {
             provider,
@@ -122,14 +119,9 @@ mod tests {
             freshness: PlanningFreshness::Current,
             attributes: BTreeMap::from([("active_state".into(), "inactive".into())]),
         };
-        let plan = DeterministicPlanner::plan_desired_state(
-            &request_id,
-            &actor,
-            &desired,
-            &observation,
-            linura_core::RiskClass::SystemMutation,
-        )
-        .unwrap_or_else(|error| unreachable!("{error}"));
+        let plan = DeterministicPlanner
+            .plan_resource(request_id, actor, desired, &observation)
+            .unwrap_or_else(|error| unreachable!("{error}"));
         let principal = AuthenticatedPrincipal::new("uid:1000")
             .unwrap_or_else(|error| unreachable!("{error}"));
 
