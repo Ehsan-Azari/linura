@@ -13,6 +13,8 @@ fi
 # shellcheck disable=SC1090
 source "$VERSION_CONTRACT"
 
+: "${RUSTUP_VERSION:?}"
+: "${RUSTUP_INIT_SHA256:?}"
 : "${RUST_VERSION:?}"
 : "${CARGO_AUDIT_VERSION:?}"
 : "${ACTIONLINT_VERSION:?}"
@@ -21,6 +23,8 @@ source "$VERSION_CONTRACT"
 : "${HOST_OS:?}"
 : "${HOST_ARCH:?}"
 
+readonly RUSTUP_TARGET="x86_64-unknown-linux-gnu"
+readonly RUSTUP_INIT_URL="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_TARGET}/rustup-init"
 readonly ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
 readonly ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
 readonly TOOL_ROOT="${HOME}/.local/linura-tools"
@@ -51,7 +55,7 @@ reports_exact_version() {
   return 1
 }
 
-for command_name in bash curl git python3 rustup sha256sum tar uname; do
+for command_name in bash curl git python3 sha256sum tar uname; do
   require_command "$command_name"
 done
 
@@ -70,6 +74,7 @@ if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
 fi
 
 mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT"
+export PATH="${HOME}/.cargo/bin:${BIN_ROOT}:${PATH}"
 
 # rust-toolchain.toml remains the language-toolchain source of truth. The Codex
 # contract must match it exactly so environment setup cannot silently diverge.
@@ -87,6 +92,31 @@ PY
 if [[ "$repo_rust_version" != "$RUST_VERSION" ]]; then
   printf 'Codex/toolchain drift: contract=%s rust-toolchain.toml=%s\n' \
     "$RUST_VERSION" "$repo_rust_version" >&2
+  exit 1
+fi
+
+# A fresh Codex base image is not required to ship rustup. Bootstrap the exact
+# repository-pinned rustup-init binary, verify its digest, and only then install
+# the exact Rust toolchain. Re-running setup is idempotent.
+if ! command -v rustup >/dev/null 2>&1 || ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  rustup_init_path="$(mktemp)"
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    --output "$rustup_init_path" \
+    "$RUSTUP_INIT_URL"
+  printf '%s  %s\n' "$RUSTUP_INIT_SHA256" "$rustup_init_path" | sha256sum --check --strict
+  chmod 0755 "$rustup_init_path"
+  "$rustup_init_path" \
+    -y \
+    --no-modify-path \
+    --profile minimal \
+    --default-host "$RUSTUP_TARGET" \
+    --default-toolchain none
+  rm -f "$rustup_init_path"
+  hash -r
+fi
+require_command rustup
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'unexpected rustup version after setup; expected exactly %s\n' "$RUSTUP_VERSION" >&2
   exit 1
 fi
 
@@ -115,7 +145,6 @@ fi
 actionlint_bin="$ACTIONLINT_ROOT/actionlint"
 if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
   archive_path="$(mktemp)"
-  trap 'rm -f "${archive_path:-}"' EXIT
   curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
     --output "$archive_path" \
     "$ACTIONLINT_URL"
@@ -123,6 +152,7 @@ if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION"
   rm -rf "$ACTIONLINT_ROOT"
   mkdir -p "$ACTIONLINT_ROOT"
   tar -xzf "$archive_path" -C "$ACTIONLINT_ROOT" actionlint
+  rm -f "$archive_path"
   chmod 0755 "$actionlint_bin"
 fi
 ln -sfn "$actionlint_bin" "$BIN_ROOT/actionlint"
@@ -141,6 +171,7 @@ git diff --cached --exit-code -- .
 printf 'Linura Codex environment ready.\n'
 printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
 printf '  python: %s\n' "$(python3 --version)"
+printf '  rustup: %s\n' "$(rustup --version | head -1)"
 printf '  rustc: %s\n' "$(rustc --version)"
 printf '  cargo: %s\n' "$(cargo --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
