@@ -16,31 +16,102 @@ REQUIRED_CLASS_COMPARISON = re.compile(
 )
 
 
+def strip_rust_comments_and_literals(text: str) -> str:
+    """Replace non-code Rust comments/string contents while preserving layout."""
+    output: list[str] = []
+    index = 0
+    block_depth = 0
+
+    while index < len(text):
+        if block_depth:
+            if text.startswith("/*", index):
+                block_depth += 1
+                output.extend("  ")
+                index += 2
+            elif text.startswith("*/", index):
+                block_depth -= 1
+                output.extend("  ")
+                index += 2
+            else:
+                character = text[index]
+                output.append("\n" if character == "\n" else " ")
+                index += 1
+            continue
+
+        if text.startswith("//", index):
+            while index < len(text) and text[index] != "\n":
+                output.append(" ")
+                index += 1
+            continue
+
+        if text.startswith("/*", index):
+            block_depth = 1
+            output.extend("  ")
+            index += 2
+            continue
+
+        if text[index] == "r":
+            delimiter = index + 1
+            while delimiter < len(text) and text[delimiter] == "#":
+                delimiter += 1
+            if delimiter < len(text) and text[delimiter] == '"':
+                hashes = delimiter - (index + 1)
+                terminator = '"' + ("#" * hashes)
+                end = text.find(terminator, delimiter + 1)
+                stop = len(text) if end < 0 else end + len(terminator)
+                while index < stop:
+                    character = text[index]
+                    output.append("\n" if character == "\n" else " ")
+                    index += 1
+                continue
+
+        if text[index] == '"':
+            output.append(" ")
+            index += 1
+            escaped = False
+            while index < len(text):
+                character = text[index]
+                output.append("\n" if character == "\n" else " ")
+                index += 1
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == '"':
+                    break
+            continue
+
+        output.append(text[index])
+        index += 1
+
+    return "".join(output)
+
+
 def validate(root: Path) -> list[str]:
     path = root / SEMANTIC_TEST
     if not path.is_file():
         return [f"missing executable approval-strength contract: {SEMANTIC_TEST}"]
 
-    text = path.read_text(encoding="utf-8")
-    start = text.find(TEST_NAME)
+    code = strip_rust_comments_and_literals(path.read_text(encoding="utf-8"))
+    start = code.find(TEST_NAME)
     if start < 0:
         return [f"missing executable approval-strength test: {TEST_NAME}"]
 
-    remainder = text[start:]
+    remainder = code[start:]
     next_test = remainder.find(NEXT_TEST_MARKER)
     test_body = remainder if next_test < 0 else remainder[:next_test]
 
     decision_bindings = REQUIRED_DECISION_BINDING.findall(test_body)
     if len(decision_bindings) != 1:
         return [
-            "approval-strength contract must destructure exactly one runtime "
+            "approval-strength contract must destructure exactly one executable runtime "
             "RequireApproval decision into `class`"
         ]
 
     comparisons = REQUIRED_CLASS_COMPARISON.findall(test_body)
     if len(comparisons) != 1:
         return [
-            "approval-strength contract must compare the evaluated runtime `class` "
+            "approval-strength contract must compare the executable evaluated runtime `class` "
             "to the independent `expected_class` oracle exactly once"
         ]
 
