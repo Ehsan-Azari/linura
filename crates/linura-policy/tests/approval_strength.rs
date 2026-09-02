@@ -55,17 +55,16 @@ fn protected_approval_strength_is_actor_invariant() {
 
     for actor_kind in local_actor_kinds {
         for (risk, expected_class) in protected_risks {
-            let evaluation = policy.evaluate(&subject(actor_kind, risk));
-            match evaluation.decision {
-                PolicyDecision::RequireApproval { class, .. } => {
-                    assert_eq!(
-                        class, expected_class,
-                        "actor {actor_kind:?} with risk {risk:?} weakened or changed approval class"
-                    );
-                }
-                decision => panic!(
-                    "actor {actor_kind:?} with risk {risk:?} must require {expected_class:?}, got {decision:?}"
-                ),
+            let decision = policy.evaluate(&subject(actor_kind, risk)).decision;
+            assert!(
+                matches!(&decision, PolicyDecision::RequireApproval { .. }),
+                "actor {actor_kind:?} with risk {risk:?} must require {expected_class:?}, got {decision:?}"
+            );
+            if let PolicyDecision::RequireApproval { class, .. } = decision {
+                assert_eq!(
+                    class, expected_class,
+                    "actor {actor_kind:?} with risk {risk:?} weakened or changed approval class"
+                );
             }
         }
     }
