@@ -16,9 +16,10 @@
 - **Capability discovery:** evidence that the current platform/provider can actually support an operation.
 - **System graph:** causal graph joining setups, intents, requirements, capabilities, workflows and concrete resources.
 - **Semantic provenance:** evidence explaining why managed state exists.
-- **Actor:** authenticated principal requesting an operation.
+- **Principal:** authenticated authority identity used to namespace policy/review/approval state. Transport credentials establish the principal; a model or client cannot self-assert one.
+- **Actor:** request-provenance identity and classification attached to a request/plan (human, service, agent or remote). Actor metadata describes who/what initiated the request but does not itself grant authority.
 - **Resource:** typed system object such as a unit, interface, device, package or disk.
-- **Probe:** one bounded provider-backed attempt to acquire evidence for a resource/capability; it is not an actor or authority.
+- **Probe:** one bounded provider-backed attempt to acquire evidence for a resource/capability; it is not an actor, principal or authority.
 - **Observation:** provider-backed snapshot of actual current state.
 - **Context query:** semantic request for the evidence/context needed to answer a bounded question; it may require one or many probes.
 - **Query runtime:** control-plane orchestration responsible for budgets, deadlines, cancellation, concurrency, coalescing, cache/freshness policy, aggregation and partial-result semantics for context queries.
@@ -26,16 +27,16 @@
 - **Retrieval context:** documentation, historical evidence, indexed material or RAG results supplied to reasoning; it is advisory context, not machine-state authority.
 - **Desired state:** persistent intended resource state derived from approved intent/capabilities.
 - **Diff:** deterministic difference between observed and desired state.
-- **Action request:** typed request to change state.
-- **Plan:** ordered effects, preconditions, risk and verification expectations.
-- **Effect:** one concrete mutation delegated to a provider/executor.
-- **Executor:** narrow component performing privileged effects.
-- **Provider:** adapter from a Linux subsystem to Linura domain contracts.
+- **Plan:** deterministic evidence-bound description of the difference between desired and observed state. In the current planning/review milestones it is explicitly non-executable.
+- **Plan review:** deterministic policy/approval assessment bound to the authenticated principal, exact plan, authoritative evidence and policy revision; it is not execution authority.
+- **Effect:** future typed external mutation operation produced only after the roadmap reaches the prepared/execution boundary; it is not part of the current v0.2/v0.3 plan contract.
+- **Executor:** narrow component performing privileged effects when a later qualified lifecycle stage authorizes them.
+- **Provider:** adapter from a Linux subsystem to Linura domain contracts; providers expose bounded mechanisms and authoritative observations rather than owning global planning/authority orchestration.
 - **Verification:** independent post-effect observation proving expected outcome.
-- **Compensation:** explicit effect attempting to restore/mitigate after failure.
+- **Compensation:** explicit future recovery effect attempting to restore/mitigate after failure when a safe inverse exists.
 - **Workflow:** declarative composition of typed triggers/actions.
 - **Derived surface:** constrained UI generated from typed resources/actions.
 - **Platform profile:** supported composition of distro/subsystems/providers.
-- **Grant:** scoped authority assigned to an actor, especially agents.
+- **Grant:** scoped authority associated with an authenticated principal; a grant never follows merely from actor kind or model identity.
 
-`Actor` is reserved for authenticated human/service/agent principals. Backend query workers, provider adapters and probe implementations must not reuse that term for a separate execution model.
+`Principal` and `Actor` are deliberately distinct. The principal is the authenticated authority identity used for review/approval binding; the actor is immutable request provenance carried through planning and explanation. Backend query workers, provider adapters and probe implementations must not reuse either term for a separate execution model.
