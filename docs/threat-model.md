@@ -28,10 +28,21 @@
 
 ### Confused deputy / privilege laundering
 Low-privilege client or agent convinces Linura to perform privileged work.
-- authenticated OS actor binding;
+- authenticated OS principal binding distinct from client-supplied provenance;
 - explicit grants + policy evaluation;
 - plan/approval before privilege;
 - strict executor revalidation.
+
+### Approval replay, theft or policy substitution
+A caller attempts to reuse approval for a different principal, plan, evidence snapshot, resource/capability or policy revision, or to preserve approval after expiry/revocation.
+- policy review is derived from the canonical `ReconciliationPlan`, not a client-authored executable plan;
+- review binds authenticated principal + request/plan identity + authoritative evidence identity + provider/resource/capability + policy ID/revision;
+- material planned changes/findings and semantic provenance are revalidated against the reviewed subject before approval evidence is accepted;
+- `PlanId` alone is never sufficient authority evidence;
+- approval evidence is authenticated, scoped to an explicit approval requirement, and checked for approver constraints, expiry and revocation at use time;
+- cross-principal approval reuse and changed-policy-revision reuse fail closed;
+- agents/models cannot mint approval evidence or satisfy their own protected human/admin approval requirement;
+- v0.3 approval never creates prepare/executor authority; later prepare must revalidate exact review binding before effects.
 
 ### Prompt injection / model compromise
 External content manipulates an agent into dangerous proposals.
@@ -99,12 +110,14 @@ Malformed capability/setup definitions cause cycles, hidden conflicts or unsafe 
 
 ### TOCTOU/stale plan
 - observed-state freshness and preconditions;
+- review is bound to the exact authoritative evidence and material plan being approved;
+- policy/approval changes invalidate stale review evidence;
 - revalidation immediately before high-risk effects;
 - plan expiry/replan rules;
 - setup/profile adoption always plans against current target state.
 
 ### Approval fatigue/deception
-- aggregate material effect summary;
+- aggregate material effect/change summary;
 - dedicated destructive/security approval classes;
 - no model-generated UI allowed to disguise authoritative approval controls;
 - policy can require step-up authentication.
