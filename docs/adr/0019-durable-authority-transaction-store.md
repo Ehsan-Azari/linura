@@ -78,16 +78,17 @@ Ordinary request reuse rules are fail-closed:
 - a different principal is a different authority namespace;
 - terminal or recovery state does not permit the normal request path to silently rebind the request identity to different authority material.
 
-A new generation with changed authority material is allowed only through the explicit Control-owned recovery transition defined in section 6. That path must atomically prove all of the following against an expected transaction ID, previous generation number and previous state:
+A new generation with changed authority material is allowed only through the explicit Control-owned recovery transition defined in section 6. That path must atomically prove all of the following against an expected transaction ID, previous generation number, previous state and transaction state-version:
 
-- the previous generation is still `Indeterminate`;
+- the previous generation is still the transaction's current generation and is still `Indeterminate`;
 - fresh authoritative recovery observation proves the intended effect absent;
 - current authoritative observation used for the next plan is fresh and fully validated;
 - the canonical plan/review has been recomputed as required from current evidence;
 - current policy is re-evaluated;
 - any required approval is newly/currently valid;
 - the next generation number is exactly the previous generation plus one;
-- the previous generation remains immutable and linked to the new generation by an append-only recovery/audit record.
+- the previous generation is atomically retired to a safe terminal `Aborted` recovery state rather than left transitionable;
+- the previous generation remains immutable and linked to the new generation by append-only recovery/audit records.
 
 The recovery operation is therefore not an idempotency bypass: a caller cannot present a changed binding to ordinary prepare and obtain a new generation. Only the typed recovery path, guarded by fresh no-effect evidence and current authority re-establishment, can append generation N+1 under the existing stable transaction/request namespace.
 
@@ -95,7 +96,7 @@ SQLite uniqueness and foreign-key constraints backstop these semantics so proces
 
 These guarantees assume monotonic continuity of the qualified authority database. A coherent replacement with an older internally valid database copy can erase later idempotency/audit facts and is not detectable by an internal unkeyed hash chain alone. v0.4 therefore does not support authority-database rollback/restore or VM-snapshot rollback as a transparent operation. A future restore protocol must add an independently protected monotonic epoch/anchor or force authority invalidation and fresh re-establishment before such restore can be supported.
 
-### 5. Transaction states model ambiguity explicitly and the pre-dispatch capability is one-shot
+### 5. Transaction states model ambiguity explicitly and the pre-dispatch capability is fresh, single-winner and one-shot
 
 The v0.4 transaction domain includes bounded, validated transitions for each immutable generation:
 
@@ -106,7 +107,19 @@ The v0.4 transaction domain includes bounded, validated transitions for each imm
 - `Aborted` — the generation ended before the durable pre-dispatch ambiguity boundary, or recovery reached an explicitly safe terminal path;
 - `RecoveryBlocked` — authoritative recovery evidence conflicts with safe automatic continuation.
 
-A future executor **must not be callable while the current generation remains `Prepared`**. Before any v0.5/v0.6 executor invocation or effect release, Control must perform an atomic compare-and-swap transition for the exact expected transaction ID + generation + binding digest from `Prepared` → `Indeterminate`, together with its audit event. Exactly one caller may win that transition.
+A future executor **must not be callable while the current generation remains `Prepared`**. A retained prepare row is also not timeless authority: immediately before attempting the handoff, `linura-control` must revalidate the full current authority using Control-owned time and trusted authority paths. That handoff-time validation must cover at least:
+
+- the complete authoritative observation is still current and its exact digest still matches the generation binding;
+- the canonical plan/review material still matches the generation binding;
+- the current policy ID/revision and risk-policy provenance still match and still authorize the same class of action;
+- any required approval is still present, unexpired, unrevoked, correctly bound and sufficient for the required approval class;
+- the authenticated principal still matches the durable binding.
+
+The validation and handoff are one Control-owned authority-use critical section. Approval validation/revocation and other mutable local authority state that can invalidate the handoff must be serialized through the same authority guard/version boundary so a revocation cannot race between successful validation and permit minting. Control derives an internal sealed handoff-authorization value bound to the exact transaction ID + generation + binding digest + sampled trusted authority state/time and consumes it immediately in the durable CAS; it is not exposed to transports, persistence, providers or executors and cannot be reused later.
+
+If handoff-time authority is stale, changed, expired, revoked or otherwise invalid, Control must not transition the generation to `Indeterminate` and must not mint a dispatch permit. Because no effect boundary has been crossed, Control may atomically retire that `Prepared` generation as `Aborted` with an authority-stale reason; continuing with changed authority material requires a fresh authority establishment rather than silently reusing the stale generation.
+
+After successful fresh revalidation, Control must perform an atomic compare-and-swap for the exact expected transaction ID + current generation + current transaction state-version + binding digest from `Prepared` → `Indeterminate`, together with its audit event. Exactly one caller may win that transition.
 
 Only the caller that successfully commits that exact transition may receive the corresponding process-local dispatch permit. The permit contract is deliberately capability-like and narrow:
 
@@ -119,20 +132,24 @@ Only the caller that successfully commits that exact transition may receive the 
 
 The durable database stores the fact that the ambiguity boundary was crossed, not a reusable dispatch credential. Therefore two callers cannot race from the same durable `Indeterminate` row and independently reconstruct permission to dispatch the same non-idempotent effect.
 
-v0.4 exposes and qualifies this pre-dispatch handoff and one-shot permit semantics but does not call an executor. This makes the crash/concurrency boundary part of the durable contract before privileged code is introduced.
+v0.4 exposes and qualifies this fresh pre-dispatch handoff and one-shot permit semantics but does not call an executor. This makes the authority-freshness, crash and concurrency boundaries part of the durable contract before privileged code is introduced.
 
 `Indeterminate` is sticky across restart. Fresh authoritative observation proving the effect absent is necessary but **not sufficient by itself** to create a new prepared generation: Control must also revalidate/re-establish current policy, observation freshness and any required approval before atomically appending the next immutable `Prepared` generation. An expired/revoked approval cannot be revived by recovery evidence.
 
-### 6. Recovery never trusts local persistence as machine truth
+### 6. Recovery never trusts local persistence as machine truth and every resolution serializes on the current generation
 
-An indeterminate generation requires a fresh authoritative recovery observation. Recovery classifies the observation as one of:
+Each stable transaction has a durable `current_generation` pointer and monotonic transaction `state_version`. Every recovery resolution, generation append, verification, recovery block and subsequent terminal transition must compare-and-swap against the exact current-generation/state-version pair. A historical generation that is no longer current cannot be independently resolved after another recovery outcome has advanced the transaction.
 
-- intended state verified → `Verified` for that exact generation;
-- intended effect proven absent → eligible for current-authority revalidation and an explicit recovery append of generation N+1, but no retry or dispatch authority exists yet;
-- conflicting state → `RecoveryBlocked`;
-- insufficient/stale/ambiguous evidence → remain `Indeterminate`.
+An indeterminate current generation requires a fresh authoritative recovery observation. Recovery classifies the observation as one of:
 
-The no-effect recovery append is an explicit compare-and-swap operation over the stable transaction identity and expected previous generation. It never mutates the previous generation binding. If concurrent recovery callers race, at most one may append the next generation; losers must reload the durable transaction state and cannot create a sibling generation from the same predecessor.
+- intended state verified → atomically CAS the exact current `Indeterminate` generation to `Verified`;
+- intended effect proven absent → eligible for current-authority revalidation and an atomic recovery append of generation N+1, but no retry or dispatch authority exists yet;
+- conflicting state → atomically CAS the exact current `Indeterminate` generation to `RecoveryBlocked`;
+- insufficient/stale/ambiguous evidence → remain `Indeterminate`; if a durable recovery-observation audit record is appended, that write must itself CAS/increment the transaction state-version so it cannot race invisibly with another resolution.
+
+The no-effect recovery append is one atomic transaction over the stable transaction identity and expected previous current-generation/state-version. It must retire generation N to `Aborted` with a recovered-no-effect reason, append immutable generation N+1 as the new `Prepared` generation, advance `current_generation` to N+1, increment `state_version`, and append the corresponding recovery/state audit events together. Generation N is no longer transitionable after this commit.
+
+Consequently all mutually exclusive recovery outcomes compete on the same current-generation/version serialization point. If concurrent callers observe different authoritative outcomes, at most one outcome can commit; every loser must reload current durable state and cannot later transition the superseded historical generation or create a sibling N+1 generation.
 
 A restart alone, retry request, daemon PID change, SQLite row state, lost dispatch permit or executor self-report must never authorize redispatch.
 
@@ -140,7 +157,7 @@ Observed Linux state continues to come from the authoritative observation/provid
 
 ### 7. Commit requires prior verification
 
-`Committed` is reachable only from `Verified`. The commit operation atomically records the verified transaction state plus deterministic references/digests for the desired-state, graph and semantic-provenance material that later lifecycle integration will publish.
+`Committed` is reachable only from `Verified`, and the `Verified` generation must still be the transaction's current generation at the expected state-version. The commit operation atomically records the verified transaction state plus deterministic references/digests for the desired-state, graph and semantic-provenance material that later lifecycle integration will publish.
 
 v0.4 does not claim the full persistent intent/Library model planned for v0.7. It establishes the transactionally verified commit boundary required for later managed effects.
 
@@ -155,6 +172,7 @@ The SQLite schema prevents ordinary UPDATE/DELETE of audit rows. Store-open/inte
 - migration checksum identity;
 - transaction/generation binding digest format;
 - generation continuity and immutability;
+- transaction `current_generation` / `state_version` consistency;
 - audit event sequence and hash-chain continuity;
 - consistency between a transaction's current generation/state and its terminal retained audit event.
 
@@ -183,31 +201,36 @@ The qualification report must name filesystem/storage/hypervisor assumptions and
 This ADR is a security-boundary change. Required negative proofs include:
 
 - request-ID reuse with changed binding through the ordinary prepare path is rejected across process/database reopen;
-- recovery can append generation N+1 only from the expected `Indeterminate` generation after fresh no-effect observation plus complete current authority re-establishment;
-- prior generation bindings remain immutable and concurrent recovery cannot create sibling next generations;
+- recovery can append generation N+1 only from the exact current `Indeterminate` generation/state-version after fresh no-effect observation plus complete current authority re-establishment;
+- appending N+1 atomically retires N, advances the transaction current-generation/version pointer and prevents any later `Verified`/`RecoveryBlocked` transition on N;
+- all mutually exclusive recovery outcomes CAS the same current-generation/state-version serialization point, so concurrent recovery cannot commit contradictory resolutions or sibling next generations;
+- prior generation bindings remain immutable;
 - plan/full-observation/policy/risk/approval substitution changes the exact generation binding and cannot reuse prepare authority;
 - stale/expired authoritative observation cannot create or reuse prepare authority;
+- handoff-time observation/policy/risk/approval/principal state is freshly revalidated by Control immediately before the CAS and mutable local authority invalidation is serialized with that validation/mint path;
+- stale, expired, revoked or changed handoff authority cannot transition `Prepared` to `Indeterminate` or mint a permit;
 - expired/revoked/mismatched required approval cannot create or re-prepare a transaction;
 - deny/blocked/no-change review states cannot become prepared mutation authority;
 - malformed/unsupported/corrupted database state fails closed;
 - ordinary audit UPDATE/DELETE/tampering is rejected or detected within the retained database history;
 - coherent whole-database rollback is documented as unsupported rather than claimed as internally detectable;
 - a crash/reopen cannot turn `Indeterminate` into retry authority or recreate a lost dispatch permit;
-- a future executor cannot be called until the exact current generation is durably `Indeterminate`;
-- exactly one successful `Prepared` → `Indeterminate` compare-and-swap can mint the non-cloneable/non-reconstructible permit for a generation, and the future dispatch API consumes it at most once;
+- a future executor cannot be called until the exact current generation is freshly revalidated and durably `Indeterminate`;
+- exactly one successful fresh-authority `Prepared` → `Indeterminate` compare-and-swap can mint the non-cloneable/non-reconstructible permit for a generation, and the future dispatch API consumes it at most once;
 - fresh authoritative evidence proving no effect permits only recovery reauthorization/re-prepare eligibility, not automatic redispatch;
-- commit before verification is rejected;
+- commit before verification or commit of a non-current generation is rejected;
 - process-kill, abrupt guest-power and write-failure tests demonstrate the qualified SQLite/WAL boundary;
 - no API introduced by v0.4 reaches an executor, Polkit or external Linux mutation.
 
 ## Consequences
 
-- v0.4 makes the review-to-prepare and pre-dispatch crash/concurrency boundaries explicit and durable without prematurely adding execution.
+- v0.4 makes the review-to-prepare, prepare-to-dispatch authority-freshness, crash and concurrency boundaries explicit and durable without prematurely adding execution.
 - SQLite becomes an implementation detail behind a transaction repository contract rather than a dependency of policy/planning semantics.
-- The canonical plan/review lineage gains complete authoritative-observation binding/freshness material sufficient for safe prepare-time revalidation.
+- The canonical plan/review lineage gains complete authoritative-observation binding/freshness material sufficient for safe prepare-time and handoff-time revalidation.
 - Stable request idempotency and immutable per-generation bindings coexist: ordinary changed-binding reuse stays rejected while authoritative no-effect recovery can append a new generation without rewriting history.
-- v0.5 can qualify a narrow executor only after the generation is durably marked indeterminate and only with the one-shot permit returned to the winning handoff caller, eliminating both the unsafe `Prepared`-while-dispatched window and duplicate-dispatch races by construction.
-- v0.6 can integrate the executor/verifier with durable prepare, pre-dispatch handoff, verification, commit, audit and reconciliation through the canonical lifecycle.
+- One transaction-level current-generation/state-version CAS serializes mutually exclusive recovery outcomes, preventing a recovered old generation from contradicting or invalidating a newer generation.
+- v0.5 can qualify a narrow executor only after Control has freshly revalidated the current authority, the generation is durably marked indeterminate, and the caller holds the one-shot permit returned to the winning handoff CAS, eliminating stale-authority, `Prepared`-while-dispatched and duplicate-dispatch races by construction.
+- v0.6 can integrate the executor/verifier with durable prepare, fresh pre-dispatch handoff, verification, commit, audit and reconciliation through the canonical lifecycle.
 - Recovery correctness intentionally depends on authoritative re-observation plus current authorization, not local database confidence.
 - Internal hash chaining strengthens retained-history integrity but is not misrepresented as an external anti-rollback mechanism.
 - The local authority path remains standalone; hosted/fleet databases or services are not prerequisites.
