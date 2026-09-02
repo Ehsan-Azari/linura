@@ -19,3 +19,4 @@ Accepted ADRs are append-only historical decisions. A changed decision is supers
 - [0015 — Isolated and independently reproducible release builds](0015-isolated-reproducible-release-build.md)
 - [0016 — Machine classes and portable profile semantics](0016-machine-classes-portable-profiles.md)
 - [0017 — Bounded probes and control-plane-owned context queries](0017-bounded-probes-context-query.md)
+- [0018 — Canonical plan-review authority and exact approval binding](0018-canonical-plan-review-authority.md)

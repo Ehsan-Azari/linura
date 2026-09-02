@@ -2,17 +2,17 @@
 
 //! Public, non-privileged Linura SDK surface.
 //!
-//! This crate intentionally exposes stable domain and protocol types used by
-//! clients and integrations. It does not expose Linura Control internals,
-//! policy-engine implementation details, providers, or privileged executors.
+//! This crate intentionally exposes domain and protocol types used by clients
+//! and integrations. It does not expose Linura Control internals, policy-engine
+//! implementation details, providers, or privileged executors.
 
 pub use linura_capability_sdk::{
     CapabilityBlueprint, CapabilityCatalog, CapabilityRelation, CapabilityRelationKind,
     DesiredResourceBlueprint, Resolution,
 };
 pub use linura_core::{
-    ActionPlan, Actor, ActorId, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId,
-    PlanId, ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
+    Actor, ActorId, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId, PlanId,
+    ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
     SetupId, SupportLevel, ValidationError, WorkflowId,
 };
 pub use linura_dbus::{Control1Client as LocalControlClient, TransportError as LocalControlError};
@@ -28,11 +28,11 @@ pub use linura_observation::{
     ObservedValue, ProviderAvailability, ProviderHealth,
 };
 pub use linura_protocol::{
-    ActionRequest, CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand,
-    ObservationExplanation, ObservationRequest, ObservationResponse, ObservationSystemSnapshot,
-    PROTOCOL_MAJOR, PlanDesiredStateRequest, PlanPreview, PlanPreviewChange, PlanPreviewFinding,
-    PlanPreviewFindingLevel, PlanPreviewStatus, PlanResponse, PortableProfileExport,
-    PortableSetupExport, ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion,
-    ProviderSnapshot, SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
+    CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand, ObservationExplanation,
+    ObservationRequest, ObservationResponse, ObservationSystemSnapshot, PROTOCOL_MAJOR,
+    PlanDesiredStateRequest, PlanPreview, PlanPreviewChange, PlanPreviewFinding,
+    PlanPreviewFindingLevel, PlanPreviewStatus, PortableProfileExport, PortableSetupExport,
+    ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion, ProviderSnapshot,
+    SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
 };
 pub use linura_provenance::{ProvenanceKind, ProvenanceRecord, WhyChain};

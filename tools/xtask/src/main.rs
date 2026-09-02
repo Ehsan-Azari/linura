@@ -27,6 +27,10 @@ fn release_contracts() -> Result<(), String> {
     )
 }
 
+fn authority_foundation() -> Result<(), String> {
+    run("python3", &["tools/check_authority_foundation.py"])
+}
+
 fn check() -> Result<(), String> {
     run("cargo", &["fmt", "--all", "--check"])?;
     run(
@@ -47,6 +51,7 @@ fn check() -> Result<(), String> {
         &["test", "--workspace", "--all-features", "--locked"],
     )?;
     run("python3", &["scripts/check_repository.py"])?;
+    authority_foundation()?;
     run("python3", &["scripts/validate_assets.py"])?;
     release_contracts()?;
     run(
@@ -64,6 +69,13 @@ fn check() -> Result<(), String> {
     Ok(())
 }
 
+fn repo() -> Result<(), String> {
+    run("python3", &["scripts/check_repository.py"])?;
+    authority_foundation()?;
+    run("python3", &["scripts/validate_assets.py"])?;
+    release_contracts()
+}
+
 fn print_help() {
     println!("Linura development orchestrator");
     println!("\nUSAGE:\n  cargo xtask <command>");
@@ -79,9 +91,7 @@ fn main() -> ExitCode {
     let command = env::args().nth(1).unwrap_or_else(|| "help".into());
     let result = match command.as_str() {
         "check" => check(),
-        "repo" => run("python3", &["scripts/check_repository.py"])
-            .and_then(|_| run("python3", &["scripts/validate_assets.py"]))
-            .and_then(|_| release_contracts()),
+        "repo" => repo(),
         "acceptance-list" => run("python3", &["tools/acceptance.py", "list"]),
         "vm-plan" => run("python3", &["tools/vm.py", "plan"]),
         "image-plan" => run("python3", &["tools/image.py", "plan"]),

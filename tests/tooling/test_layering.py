@@ -248,15 +248,33 @@ class LayeringContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("linura-executor-systemd violates inward dependency boundary", result.stderr)
 
-    def test_actor_terminology_cannot_be_repurposed_for_backend_workers(self) -> None:
+    def test_principal_terminology_cannot_be_downgraded_to_client_claim(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
             terminology = root / "docs/terminology.md"
             terminology.write_text(
                 terminology.read_text(encoding="utf-8").replace(
-                    "**Actor:** authenticated principal requesting an operation.",
-                    "**Actor:** reusable backend worker.",
+                    "**Principal:** authenticated authority identity used to namespace policy/review/approval state.",
+                    "**Principal:** identity supplied by the client.",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("layering marker missing from docs/terminology.md", result.stderr)
+
+    def test_actor_terminology_cannot_be_repurposed_as_authority_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            terminology = root / "docs/terminology.md"
+            terminology.write_text(
+                terminology.read_text(encoding="utf-8").replace(
+                    "**Actor:** request-provenance identity and classification attached to a request/plan",
+                    "**Actor:** authority identity attached to a request/plan",
                     1,
                 ),
                 encoding="utf-8",
@@ -273,8 +291,8 @@ class LayeringContractTests(unittest.TestCase):
             sdk = root / "crates/linura-provider-sdk/src/lib.rs"
             sdk.write_text(
                 sdk.read_text(encoding="utf-8").replace(
-                    "MUST NOT become a second canonical observation model",
-                    "may become a second observation model",
+                    "Result<ObservationEnvelope, ProviderError>",
+                    "Result<String, ProviderError>",
                     1,
                 ),
                 encoding="utf-8",

@@ -7,9 +7,11 @@ import tomllib
 
 EXPECTED_VERSION = 1
 EXPECTED_SEMANTICS = {
-    "actor_term": "authenticated-principal",
+    "principal_term": "authenticated-authority-identity",
+    "actor_term": "request-provenance",
     "canonical_observation": "linura-observation::ObservationEnvelope",
     "query_orchestration": "control-plane-owned",
+    "policy_orchestration": "linura-control-only",
     "transport_role": "adapter-only",
 }
 DEPENDENCY_SECTIONS = ("dependencies", "dev-dependencies", "build-dependencies")
@@ -34,6 +36,8 @@ EXPECTED_RULE_PACKAGES = {
     "linura-dbus",
     "linura-executor-systemd",
 }
+POLICY_ORCHESTRATOR = "linura-control"
+POLICY_PACKAGE = "linura-policy"
 
 
 def resolved_dependency_name(
@@ -150,6 +154,21 @@ def validate(root: Path) -> list[str]:
     except (OSError, ValueError, tomllib.TOMLDecodeError) as error:
         failures.append(f"cannot load workspace for layering validation: {error}")
         return failures
+
+    # Policy is an internal authority domain consumed by Linura Control only.
+    # Keeping this as a global dependency invariant is stronger than relying on
+    # per-package deny lists and prevents a new workspace member from silently
+    # becoming a second policy orchestration path.
+    policy_consumers: set[str] = set()
+    for package, manifest_path in manifests.items():
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        if POLICY_PACKAGE in dependency_names(manifest, workspace_dependencies):
+            policy_consumers.add(package)
+    if policy_consumers != {POLICY_ORCHESTRATOR}:
+        failures.append(
+            "linura-policy must be consumed only by linura-control; found policy consumers: "
+            f"{sorted(policy_consumers)}"
+        )
 
     rules = contract.get("rules", [])
     if not isinstance(rules, list) or not rules:

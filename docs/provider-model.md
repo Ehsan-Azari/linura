@@ -1,27 +1,30 @@
 # Provider model
 
-Providers adapt Linux subsystems to Linura domain contracts. They supply authoritative observation and deterministic planning inputs; they do not own Linura's global authority sequence.
+Providers adapt Linux subsystems to Linura domain contracts. They supply bounded authoritative observation mechanisms and, in later mutation milestones, narrow subsystem-specific execution/verification mechanisms. They do not own Linura's global planning, policy, approval or authority sequence.
 
-A provider declares:
+A provider/observer declares:
 - stable provider ID/version;
-- supported capabilities;
+- supported observation capabilities;
 - resources it can authoritatively observe;
-- deterministic actions it can plan from request + observation;
-- whether an effect can execute unprivileged or needs a narrow privileged executor;
-- expected postconditions and verifier strategy;
-- diagnostic metadata.
+- authoritative typed state/evidence through `ObservationEnvelope`;
+- diagnostic metadata;
+- bounded transport/resource behavior.
+
+Later mutation-capable adapters may additionally declare narrowly typed effect families, required privilege, postconditions, reversibility/recovery constraints and independent verifier strategy. Those authority contracts are introduced only when the durable prepare/execution milestones require them; they are not inferred from the presence of an observer or provider package.
 
 ## Required separation
 
-The provider SDK intentionally separates three concerns:
+The current provider SDK has one implemented authority-neutral role:
 
-1. `Provider::observe` returns an authoritative observation for the requested resource.
-2. `Provider::plan` consumes both the typed request and that observation to produce an immutable `ActionPlan`.
-3. `EffectExecutor` and `EffectVerifier` are separate contracts. Executor success is not accepted as proof that the intended state exists; verification consumes post-execution authoritative observation.
+1. `Observer::observe_authoritative` performs a bounded read-only probe and returns the canonical `linura-observation::ObservationEnvelope`.
 
-A single implementation package may supply more than one of these roles during early development, but the interfaces remain separate so production deployments can isolate privilege and verification independently.
+Planning remains owned by Linura's deterministic planner/control plane. Providers do **not** author an independently executable plan and policy does not evaluate provider-generated effects.
 
-Providers/executors/verifiers cannot skip `authorize`, `prepare`, `commit`, `audit` or `reconcile`; those are owned by Linura Control's canonical mutation lifecycle.
+The old bootstrap `Provider::plan → ActionPlan` path was removed before v0.3 because the released v0.2 architecture established `linura-planner::ReconciliationPlan` as the canonical planning lineage. Preserving both would create competing planning and approval authorities.
+
+Future narrow executors and independent verifiers remain required by the roadmap, but their provider-SDK authority contracts are introduced against the durable prepared-transaction model after v0.4 and qualified in v0.5 rather than freezing the earlier generic scaffold. The existing `executors/linura-executor-systemd` package remains a deliberately narrow future implementation scaffold.
+
+Providers/executors/verifiers cannot skip `authorize`, `prepare`, `commit`, `audit` or `reconcile`; those stages remain owned by Linura Control's canonical mutation lifecycle.
 
 ## Bounded probes and orchestration
 
@@ -50,7 +53,7 @@ The same rule applies to Unix sockets, subprocesses, filesystem/kernel interface
 
 `linura-observation::ObservationEnvelope` is the canonical authoritative observation envelope. It preserves provider/resource/capability identity, authority, timestamp/validity, sequence and typed attributes.
 
-The compact `linura_provider_sdk::Observation` used by the current planning contract is transitional architecture debt. It must converge on `ObservationEnvelope` end-to-end rather than becoming a second canonical state representation.
+There is no second compact provider observation contract. The superseded bootstrap `linura_provider_sdk::Observation` was removed; deterministic planning consumes a validated projection derived from the canonical authoritative envelope rather than allowing a competing state representation to become authority.
 
 Caching and aggregation may retain observations for bounded reuse, history, coalescing and context projection. Cached evidence keeps its provenance and freshness semantics. Cache presence cannot satisfy a consumer that requires a fresh authoritative observation unless the cached envelope still satisfies that exact authority/freshness contract.
 
@@ -58,18 +61,18 @@ Probabilistic confidence from a model/retriever/aggregator is context metadata, 
 
 Context projections and future RAG/retrieval may combine observations with historical evidence, documentation or indexed material for reasoning. Retrieval output cannot manufacture authoritative observed state, authorize an effect or replace required post-effect verification.
 
-Expected first providers:
+Expected first providers/adapters:
 
-| Domain | Provider |
+| Domain | Mechanism/adaptor direction |
 |---|---|
 | Network | NetworkManager over D-Bus |
 | Bluetooth | BlueZ over D-Bus |
 | Audio/media | PipeWire/WirePlumber |
 | Services | systemd D-Bus |
 | Storage | UDisks2 + filesystem-specific helpers |
-| Authorization | Polkit |
+| Authorization | Polkit integration at the appropriate authority milestone |
 | Snapshots | Snapper |
 | Firewall | nftables/firewalld profile, selected by platform profile |
 | Packages | pacman on Arch profile |
 
-Providers must not leak raw command output into public API types. Provider-specific diagnostics may be attached in explicitly namespaced diagnostic fields. Observation and verification evidence should be structured enough to support freshness, correlation and audit without making provider-specific text the source of truth.
+Providers must not leak raw command output into public API types. Provider-specific diagnostics may be attached in explicitly namespaced diagnostic fields. Observation and future verification evidence should be structured enough to support freshness, correlation and audit without making provider-specific text the source of truth.
