@@ -76,6 +76,13 @@ pub fn policy_subject_from_plan(
 /// a public authority constructor would let callers fabricate plan material and
 /// obtain a misleadingly trusted review. The public integration surface will
 /// review a retained canonical plan by identity through Control orchestration.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "sealed until retained-plan Control orchestration is exposed; making this public would permit fabricated authority material"
+    )
+)]
 pub(crate) fn review_plan(
     principal: &AuthenticatedPrincipal,
     plan: &ReconciliationPlan,
@@ -84,6 +91,13 @@ pub(crate) fn review_plan(
     Ok(review_subject_for_control(subject))
 }
 
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "internal trusted-review constructor used by authority tests and the retained-plan review path"
+    )
+)]
 pub(crate) fn review_subject_for_control(subject: PolicySubject) -> TrustedPolicyReview {
     TrustedPolicyReview {
         evaluation: BaselinePolicy::default().evaluate(&subject),

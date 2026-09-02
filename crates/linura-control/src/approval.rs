@@ -41,6 +41,21 @@ impl<C> AuthenticatedApprover<C>
 where
     C: Copy + Ord,
 {
+    /// Construct authority material only after an external trusted boundary has
+    /// authenticated the human principal and derived its approval classes.
+    ///
+    /// v0.3 deliberately does not expose this constructor publicly: the current
+    /// D-Bus caller identity represents a service process and cannot safely be
+    /// promoted to human/admin approval merely from a UID. The constructor is
+    /// retained crate-internally for the upcoming trusted interaction adapter and
+    /// is exercised by authority tests in this increment.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "sealed for the trusted human-approval adapter; public construction would permit approval-class forgery"
+        )
+    )]
     pub(crate) fn new(
         principal: PrincipalId,
         kind: ActorKind,

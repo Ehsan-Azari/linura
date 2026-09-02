@@ -213,13 +213,13 @@ impl ApprovalReviewControl {
         let expired = self
             .tombstones
             .iter()
-            .filter_map(|(request_id, tombstone)| {
-                (tombstone
+            .filter(|(_, tombstone)| {
+                tombstone
                     .retired_at_unix_seconds
                     .saturating_add(APPROVAL_TOMBSTONE_RETENTION_SECONDS)
-                    <= now_unix_seconds)
-                    .then(|| request_id.clone())
+                    <= now_unix_seconds
             })
+            .map(|(request_id, _)| request_id.clone())
             .collect::<Vec<_>>();
 
         for request_id in expired {
@@ -237,16 +237,16 @@ impl ApprovalReviewControl {
         let candidates = self
             .records
             .iter()
-            .filter_map(|(evidence_id, record)| {
-                (record.revocation.is_some()
-                    || record.evidence.expires_at_unix_seconds() <= now_unix_seconds)
-                    .then(|| {
-                        (
-                            evidence_id.clone(),
-                            record.evidence.request_id().clone(),
-                            approval_tombstone_bytes(record.evidence.request_id()),
-                        )
-                    })
+            .filter(|(_, record)| {
+                record.revocation.is_some()
+                    || record.evidence.expires_at_unix_seconds() <= now_unix_seconds
+            })
+            .map(|(evidence_id, record)| {
+                (
+                    evidence_id.clone(),
+                    record.evidence.request_id().clone(),
+                    approval_tombstone_bytes(record.evidence.request_id()),
+                )
             })
             .collect::<Vec<_>>();
 
