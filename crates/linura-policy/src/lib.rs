@@ -171,9 +171,9 @@ impl PolicySubject {
         changes: Vec<ReviewedChange>,
         findings: Vec<ReviewedFinding>,
     ) -> Result<Self, PolicySubjectValidationError> {
-        reason
-            .validate()
-            .map_err(|error| PolicySubjectValidationError::InvalidSemanticReason(error.to_string()))?;
+        reason.validate().map_err(|error| {
+            PolicySubjectValidationError::InvalidSemanticReason(error.to_string())
+        })?;
         if observed_evidence_id.trim().is_empty() {
             return Err(PolicySubjectValidationError::EmptyEvidenceId);
         }
