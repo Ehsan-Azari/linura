@@ -81,12 +81,16 @@ PRESERVED_SCAFFOLD_MARKERS = {
         "code: \"authority-risk-unclassified\".into()",
         "code: \"authority-risk-downgrade-rejected\".into()",
     ),
-    "crates/linura-policy/src/lib.rs": (
-        "agent-proposed system mutation requires interactive approval",
-        "agent-proposed security-sensitive mutation requires administrator approval",
-        "agent-proposed destructive mutation requires dedicated destructive approval",
-    ),
 }
+
+APPROVAL_STRENGTH_MARKERS = (
+    "RiskClass::SystemMutation => PolicyDecision::RequireApproval {\n"
+    "                class: ApprovalClass::InteractiveUser,",
+    "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
+    "                class: ApprovalClass::Administrator,",
+    "RiskClass::Destructive => PolicyDecision::RequireApproval {\n"
+    "                class: ApprovalClass::DestructiveAction,",
+)
 
 REQUIRED_V03_MARKERS = {
     "docs/milestones/v0.3.0.md": (
@@ -217,6 +221,14 @@ def validate(root: Path) -> list[str]:
         for marker in markers:
             if marker not in text:
                 failures.append(f"future authority scaffold missing from {relative}: {marker}")
+
+    policy_text = read_text(root, "crates/linura-policy/src/lib.rs", failures)
+    for marker in APPROVAL_STRENGTH_MARKERS:
+        if marker not in policy_text:
+            failures.append(
+                "risk-derived approval-strength invariant missing from "
+                f"crates/linura-policy/src/lib.rs: {marker}"
+            )
 
     for relative, markers in REQUIRED_V03_MARKERS.items():
         text = read_text(root, relative, failures)
