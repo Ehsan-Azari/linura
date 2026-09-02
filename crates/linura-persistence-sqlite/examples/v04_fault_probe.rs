@@ -14,8 +14,9 @@ use linura_core::{
 };
 use linura_persistence_sqlite::SqliteTransactionStore;
 use linura_transaction::{
-    AuthorityBinding, AuthorizationBasis, ContentDigest, HandoffRequest, PrepareOutcome,
-    TransactionSnapshot, TransactionState, TransactionStore, digest_bytes,
+    AuthorityBinding, AuthorizationBasis, ContentDigest, PrepareOutcome, TransactionAuthorityKey,
+    TransactionAuthoritySigner, TransactionAuthorityVerifier, TransactionSnapshot,
+    TransactionState, TransactionStore, digest_bytes,
 };
 use rusqlite::Connection;
 
@@ -25,6 +26,12 @@ fn id<T>(value: Result<T, ValidationError>) -> Result<T, String> {
 
 fn digest(value: &str) -> ContentDigest {
     digest_bytes("linura.v04-fault-probe.v1", value.as_bytes())
+}
+
+fn authority() -> Result<(TransactionAuthoritySigner, TransactionAuthorityVerifier), String> {
+    TransactionAuthorityKey::new([0x41; 32])
+        .map(TransactionAuthorityKey::split)
+        .map_err(|error| error.to_string())
 }
 
 fn binding(namespace: &str) -> Result<AuthorityBinding, String> {
@@ -58,7 +65,8 @@ fn prepared_snapshot(outcome: PrepareOutcome) -> TransactionSnapshot {
 
 fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let mut store = SqliteTransactionStore::open(path).map_err(|error| error.to_string())?;
+    let mut store =
+        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
     let snapshot = prepared_snapshot(store.prepare(&binding).map_err(|error| error.to_string())?);
     if snapshot.state != TransactionState::Prepared || snapshot.binding_digest != *binding.digest()
     {
@@ -76,7 +84,8 @@ fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
 
 fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let store = SqliteTransactionStore::open(path).map_err(|error| error.to_string())?;
+    let store =
+        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
     let snapshot = store
         .snapshot(&binding.transaction_id())
         .map_err(|error| error.to_string())?;
@@ -85,16 +94,14 @@ fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), S
         return Err("handoff probe expected the exact prepared generation".into());
     }
 
-    let mut store = store;
-    let commit = store
-        .handoff(&HandoffRequest {
-            transaction_id: snapshot.transaction_id.clone(),
-            expected_generation: snapshot.current_generation,
-            expected_state_version: snapshot.state_version,
-            expected_binding_digest: snapshot.binding_digest.clone(),
-            authority_use_digest: digest(&format!("handoff-authority:{namespace}")),
-        })
+    let (authority_signer, verifier) = authority()?;
+    drop(store);
+    let mut store =
+        SqliteTransactionStore::open(path, verifier).map_err(|error| error.to_string())?;
+    let handoff = authority_signer
+        .authorize_handoff(&snapshot, digest(&format!("handoff-authority:{namespace}")))
         .map_err(|error| error.to_string())?;
+    let commit = store.handoff(&handoff).map_err(|error| error.to_string())?;
     if commit.generation != snapshot.current_generation {
         return Err("handoff commit generation mismatch".into());
     }
@@ -136,7 +143,8 @@ fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), S
 
 fn inspect_indeterminate(path: &Path, namespace: &str) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let store = SqliteTransactionStore::open(path).map_err(|error| error.to_string())?;
+    let store =
+        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
     store.integrity_check().map_err(|error| error.to_string())?;
     let snapshot = store
         .snapshot(&binding.transaction_id())

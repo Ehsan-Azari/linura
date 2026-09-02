@@ -13,8 +13,8 @@ mod unix {
     };
     use linura_persistence_sqlite::SqliteTransactionStore;
     use linura_transaction::{
-        AuthorityBinding, AuthorizationBasis, ContentDigest, TransactionStore,
-        TransactionStoreError, TransactionValidationError, digest_bytes,
+        AuthorityBinding, AuthorizationBasis, ContentDigest, TransactionAuthorityKey,
+        TransactionStore, TransactionStoreError, TransactionValidationError, digest_bytes,
     };
 
     static NEXT_DB: AtomicU64 = AtomicU64::new(0);
@@ -56,6 +56,13 @@ mod unix {
         digest_bytes("linura.v04-write-failure-test.v1", value.as_bytes())
     }
 
+    fn verifier() -> linura_transaction::TransactionAuthorityVerifier {
+        TransactionAuthorityKey::new([0x41; 32])
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .split()
+            .1
+    }
+
     fn binding() -> AuthorityBinding {
         AuthorityBinding::try_new(
             id(PrincipalId::new("uid:1000")),
@@ -88,8 +95,8 @@ mod unix {
         let db = directory.db();
         let binding = binding();
         {
-            let mut store =
-                SqliteTransactionStore::open(&db).unwrap_or_else(|error| unreachable!("{error}"));
+            let mut store = SqliteTransactionStore::open(&db, verifier())
+                .unwrap_or_else(|error| unreachable!("{error}"));
             store
                 .prepare(&binding)
                 .unwrap_or_else(|error| unreachable!("{error}"));
@@ -106,7 +113,7 @@ mod unix {
         fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o500))
             .unwrap_or_else(|error| unreachable!("{error}"));
 
-        let result = SqliteTransactionStore::open(&db);
+        let result = SqliteTransactionStore::open(&db, verifier());
         assert!(matches!(
             result,
             Err(TransactionStoreError::Storage(_))
@@ -120,8 +127,8 @@ mod unix {
         let after = fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(before, after);
 
-        let reopened =
-            SqliteTransactionStore::open(&db).unwrap_or_else(|error| unreachable!("{error}"));
+        let reopened = SqliteTransactionStore::open(&db, verifier())
+            .unwrap_or_else(|error| unreachable!("{error}"));
         reopened
             .integrity_check()
             .unwrap_or_else(|error| unreachable!("{error}"));

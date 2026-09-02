@@ -9,9 +9,9 @@ use linura_policy::{ApprovalClass, PolicyDecision, ReviewFindingLevel, ReviewPla
 use linura_protocol::PlanDesiredStateRequest;
 use linura_transaction::{
     AbortRequest, ApprovalAuthority, AuthorityBinding, AuthorizationBasis, ContentDigest,
-    HandoffCommit, HandoffRequest, PrepareOutcome, RecoveryOutcome, RecoveryRequest,
-    RecoveryResolution, TransactionId, TransactionSnapshot, TransactionState, TransactionStore,
-    TransactionStoreError, TransactionValidationError, digest_parts,
+    HandoffCommit, PrepareOutcome, RecoveryOutcome, RecoveryResolution, TransactionAuthoritySigner,
+    TransactionId, TransactionSnapshot, TransactionState, TransactionStore, TransactionStoreError,
+    TransactionValidationError, digest_parts,
 };
 use sha2::{Digest, Sha256};
 
@@ -258,6 +258,7 @@ where
 {
     approvals: crate::ApprovalReviewControl,
     transactions: S,
+    authority_signer: TransactionAuthoritySigner,
     last_authority_unix_ms: u64,
 }
 
@@ -266,10 +267,11 @@ where
     S: TransactionStore,
 {
     #[must_use]
-    pub fn new(store: S) -> Self {
+    pub fn new(store: S, authority_signer: TransactionAuthoritySigner) -> Self {
         Self {
             approvals: crate::ApprovalReviewControl::default(),
             transactions: store,
+            authority_signer,
             last_authority_unix_ms: 0,
         }
     }
@@ -381,10 +383,17 @@ where
     /// `Prepared -> Indeterminate` CAS. Only a successful CAS returns a permit.
     pub fn handoff(
         &mut self,
+        principal: &AuthenticatedPrincipal,
         prepared: &mut PreparedDurableAuthority,
     ) -> Result<DispatchPermit, DurableAuthorityError> {
         if prepared.handed_off {
             return Err(DurableAuthorityError::AlreadyHandedOff);
+        }
+        if principal.as_str() != prepared.candidate.principal.as_str()
+            || principal.as_str() != prepared.binding.principal().as_str()
+            || principal.as_str() != prepared.snapshot.principal.as_str()
+        {
+            return Err(DurableAuthorityError::AuthorityChanged);
         }
         let now_unix_ms = self.authority_now_unix_ms()?;
         let current = self.revalidate_and_bind(
@@ -403,13 +412,10 @@ where
             return Err(DurableAuthorityError::AuthorityChanged);
         }
         let authority_use_digest = digest_authority_use(&durable, now_unix_ms)?;
-        let commit = self.transactions.handoff(&HandoffRequest {
-            transaction_id: durable.transaction_id.clone(),
-            expected_generation: durable.current_generation,
-            expected_state_version: durable.state_version,
-            expected_binding_digest: durable.binding_digest.clone(),
-            authority_use_digest,
-        })?;
+        let handoff = self
+            .authority_signer
+            .authorize_handoff(&durable, authority_use_digest)?;
+        let commit = self.transactions.handoff(&handoff)?;
         prepared.handed_off = true;
         Ok(DispatchPermit::from_commit(commit))
     }
@@ -475,22 +481,16 @@ where
             .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
         let observation_digest = digest_observation(&observation)?;
 
-        let request_base = RecoveryRequest {
-            transaction_id: transaction_id.clone(),
-            expected_generation: anchor.snapshot.current_generation,
-            expected_state_version: anchor.snapshot.state_version,
-            expected_binding_digest: anchor.snapshot.binding_digest.clone(),
-            resolution: RecoveryResolution::Ambiguous {
-                observation_digest: observation_digest.clone(),
-            },
-        };
-
         match plan.status {
             linura_planner::PlanStatus::NoChange => {
-                let outcome = self.transactions.recover(&RecoveryRequest {
-                    resolution: RecoveryResolution::IntendedStateVerified { observation_digest },
-                    ..request_base
-                })?;
+                observation
+                    .require_current(self.authority_now_unix_ms()?)
+                    .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                let recovery = self.authority_signer.authorize_recovery(
+                    &anchor.snapshot,
+                    RecoveryResolution::IntendedStateVerified { observation_digest },
+                )?;
+                let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
                     RecoveryOutcome::Verified(snapshot) => {
                         Ok(DurableRecoveryOutcome::Verified(snapshot))
@@ -501,10 +501,14 @@ where
             linura_planner::PlanStatus::ChangeProposed => {
                 let precondition_digest = digest_plan_precondition(&plan)?;
                 if precondition_digest != anchor.precondition_digest {
-                    let outcome = self.transactions.recover(&RecoveryRequest {
-                        resolution: RecoveryResolution::ConflictingState { observation_digest },
-                        ..request_base
-                    })?;
+                    observation
+                        .require_current(self.authority_now_unix_ms()?)
+                        .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                    let recovery = self.authority_signer.authorize_recovery(
+                        &anchor.snapshot,
+                        RecoveryResolution::ConflictingState { observation_digest },
+                    )?;
+                    let outcome = self.transactions.recover(&recovery)?;
                     return match outcome {
                         RecoveryOutcome::Blocked(snapshot) => {
                             Ok(DurableRecoveryOutcome::Blocked(snapshot))
@@ -522,7 +526,13 @@ where
                 ) || review.subject().status() != ReviewPlanStatus::ChangeProposed
                     || review.subject().has_blockers()
                 {
-                    let outcome = self.transactions.recover(&request_base)?;
+                    let recovery = self.authority_signer.authorize_recovery(
+                        &anchor.snapshot,
+                        RecoveryResolution::Ambiguous {
+                            observation_digest: observation_digest.clone(),
+                        },
+                    )?;
+                    let outcome = self.transactions.recover(&recovery)?;
                     return match outcome {
                         RecoveryOutcome::StillIndeterminate(snapshot) => {
                             Ok(DurableRecoveryOutcome::StillIndeterminate(snapshot))
@@ -548,13 +558,14 @@ where
                     approval_evidence_id.as_ref(),
                     now_unix_ms,
                 )?;
-                let outcome = self.transactions.recover(&RecoveryRequest {
-                    resolution: RecoveryResolution::IntendedEffectAbsent {
+                let recovery = self.authority_signer.authorize_recovery(
+                    &anchor.snapshot,
+                    RecoveryResolution::IntendedEffectAbsent {
                         observation_digest,
                         next_binding: Box::new(next_binding.clone()),
                     },
-                    ..request_base
-                })?;
+                )?;
+                let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
                     RecoveryOutcome::Reprepared(snapshot) => Ok(
                         DurableRecoveryOutcome::Reprepared(Box::new(PreparedDurableAuthority {
@@ -569,7 +580,11 @@ where
                 }
             }
             linura_planner::PlanStatus::Blocked => {
-                let outcome = self.transactions.recover(&request_base)?;
+                let recovery = self.authority_signer.authorize_recovery(
+                    &anchor.snapshot,
+                    RecoveryResolution::Ambiguous { observation_digest },
+                )?;
+                let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
                     RecoveryOutcome::StillIndeterminate(snapshot) => {
                         Ok(DurableRecoveryOutcome::StillIndeterminate(snapshot))
