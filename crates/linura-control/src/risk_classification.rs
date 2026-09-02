@@ -176,8 +176,9 @@ mod tests {
             state: BTreeMap::from([("active_state".into(), "active".into())]),
             reason: SemanticReason {
                 summary: "manage test unit".into(),
-                intent_ids: vec![IntentId::new("intent:risk")
-                    .unwrap_or_else(|error| unreachable!("{error}"))],
+                intent_ids: vec![
+                    IntentId::new("intent:risk").unwrap_or_else(|error| unreachable!("{error}")),
+                ],
                 requirement_ids: vec![],
                 capability_ids: vec![],
             },
@@ -193,11 +194,9 @@ mod tests {
         };
         DeterministicPlanner
             .plan_resource(
-                RequestId::new("request:risk")
-                    .unwrap_or_else(|error| unreachable!("{error}")),
+                RequestId::new("request:risk").unwrap_or_else(|error| unreachable!("{error}")),
                 Actor {
-                    id: ActorId::new("actor:human")
-                        .unwrap_or_else(|error| unreachable!("{error}")),
+                    id: ActorId::new("actor:human").unwrap_or_else(|error| unreachable!("{error}")),
                     kind: ActorKind::Human,
                     interactive: true,
                 },
