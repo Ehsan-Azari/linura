@@ -43,7 +43,7 @@ reports_exact_version() {
   return 1
 }
 
-for command_name in bash cargo-audit git python3 rustup uname; do
+for command_name in bash cargo-audit cc getconf git python3 rustup uname; do
   require_command "$command_name"
 done
 
@@ -51,6 +51,13 @@ actual_os="$(uname -s)"
 actual_arch="$(uname -m)"
 test "$actual_os" = "$HOST_OS"
 test "$actual_arch" = "$HOST_ARCH"
+
+glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+if [[ "$glibc_version" != glibc\ * ]]; then
+  printf 'unsupported C runtime: %s; expected glibc for x86_64-unknown-linux-gnu\n' \
+    "${glibc_version:-unknown}" >&2
+  exit 1
+fi
 
 actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 test "$actual_python" = "$PYTHON_MAJOR_MINOR"
@@ -125,7 +132,7 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 printf 'Linura Codex environment preflight passed.\n'
-printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  host: %s-%s (%s)\n' "$actual_os" "$actual_arch" "$glibc_version"
 printf '  python: %s\n' "$(python3 --version)"
 printf '  rustup: %s\n' "$(rustup --version | head -1)"
 printf '  rustc: %s\n' "$("$rustc_bin" --version)"

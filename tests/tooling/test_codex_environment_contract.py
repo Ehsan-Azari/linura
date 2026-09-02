@@ -35,6 +35,24 @@ class CodexEnvironmentContractTests(unittest.TestCase):
         self.assertNotIn("rustup", host_loop.group("commands").split())
         self.assertIn("if ! command -v rustup", setup)
 
+    def test_fresh_host_contract_requires_glibc_and_linker(self) -> None:
+        for script_name in (
+            "scripts/setup_codex_environment.sh",
+            "scripts/preflight_codex_environment.sh",
+        ):
+            script = (ROOT / script_name).read_text(encoding="utf-8")
+            host_loop = re.search(
+                r"for command_name in (?P<commands>[^;]+); do\n\s+require_command",
+                script,
+            )
+            self.assertIsNotNone(host_loop, script_name)
+            assert host_loop is not None
+            commands = set(host_loop.group("commands").split())
+            self.assertIn("cc", commands, script_name)
+            self.assertIn("getconf", commands, script_name)
+            self.assertIn("getconf GNU_LIBC_VERSION", script, script_name)
+            self.assertIn("expected glibc", script, script_name)
+
     def test_rustup_cannot_self_update_during_pinned_toolchain_install(self) -> None:
         setup = (ROOT / "scripts/setup_codex_environment.sh").read_text(encoding="utf-8")
         disable = 'rustup set auto-self-update disable'

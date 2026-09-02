@@ -55,7 +55,7 @@ reports_exact_version() {
   return 1
 }
 
-for command_name in bash curl git python3 sha256sum tar uname; do
+for command_name in bash cc curl getconf git python3 sha256sum tar uname; do
   require_command "$command_name"
 done
 
@@ -64,6 +64,13 @@ actual_arch="$(uname -m)"
 if [[ "$actual_os" != "$HOST_OS" || "$actual_arch" != "$HOST_ARCH" ]]; then
   printf 'unsupported Codex setup host: %s-%s; expected %s-%s\n' \
     "$actual_os" "$actual_arch" "$HOST_OS" "$HOST_ARCH" >&2
+  exit 1
+fi
+
+glibc_version="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+if [[ "$glibc_version" != glibc\ * ]]; then
+  printf 'unsupported C runtime: %s; expected glibc for %s\n' \
+    "${glibc_version:-unknown}" "$RUSTUP_TARGET" >&2
   exit 1
 fi
 
@@ -139,7 +146,8 @@ if [[ "$actual_rust" != "$RUST_VERSION" ]]; then
   exit 1
 fi
 
-# Keep the security tool exact. --locked consumes cargo-audit's published lockfile.
+# Keep the security tool exact. Building cargo-audit from its published locked
+# source graph relies on the host-provided `cc` linker checked above.
 if ! command -v cargo-audit >/dev/null 2>&1 || ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
   cargo install cargo-audit --locked --force --version "$CARGO_AUDIT_VERSION"
 fi
@@ -176,7 +184,7 @@ git diff --exit-code -- .
 git diff --cached --exit-code -- .
 
 printf 'Linura Codex environment ready.\n'
-printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  host: %s-%s (%s)\n' "$actual_os" "$actual_arch" "$glibc_version"
 printf '  python: %s\n' "$(python3 --version)"
 printf '  rustup: %s\n' "$(rustup --version | head -1)"
 printf '  rustc: %s\n' "$(rustc --version)"
