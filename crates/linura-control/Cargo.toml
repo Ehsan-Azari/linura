@@ -7,7 +7,6 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-linura-approval = { path = "../linura-approval" }
 linura-core = { path = "../linura-core" }
 linura-graph = { path = "../linura-graph" }
 linura-intent = { path = "../linura-intent" }
