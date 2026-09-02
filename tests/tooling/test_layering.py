@@ -273,8 +273,8 @@ class LayeringContractTests(unittest.TestCase):
             sdk = root / "crates/linura-provider-sdk/src/lib.rs"
             sdk.write_text(
                 sdk.read_text(encoding="utf-8").replace(
-                    "MUST NOT become a second canonical observation model",
-                    "may become a second observation model",
+                    "Result<ObservationEnvelope, ProviderError>",
+                    "Result<String, ProviderError>",
                     1,
                 ),
                 encoding="utf-8",
