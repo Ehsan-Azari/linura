@@ -78,21 +78,23 @@ mod tests {
     use std::collections::BTreeMap;
 
     use linura_core::{Actor, ActorId, ActorKind, IntentId, RequestId, SemanticReason};
-    use linura_planner::{DesiredResource, DeterministicPlanner, PlanningFreshness, PlanningObservation};
+    use linura_planner::{
+        DesiredResource, DeterministicPlanner, PlanningFreshness, PlanningObservation,
+    };
 
     use super::*;
 
     #[test]
     fn canonical_plan_projects_exact_review_material() {
-        let request_id = RequestId::new("request:review")
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        let request_id =
+            RequestId::new("request:review").unwrap_or_else(|error| unreachable!("{error}"));
         let actor = Actor {
             id: ActorId::new("actor:human").unwrap_or_else(|error| unreachable!("{error}")),
             kind: ActorKind::Human,
             interactive: true,
         };
-        let provider = linura_core::ProviderId::new("systemd")
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        let provider =
+            linura_core::ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}"));
         let resource = linura_core::ResourceId::new("systemd:unit:test.service")
             .unwrap_or_else(|error| unreachable!("{error}"));
         let capability = linura_core::CapabilityId::new("systemd.unit.observe")
@@ -104,8 +106,9 @@ mod tests {
             state: BTreeMap::from([("active_state".into(), "active".into())]),
             reason: SemanticReason {
                 summary: "keep test active".into(),
-                intent_ids: vec![IntentId::new("intent:test")
-                    .unwrap_or_else(|error| unreachable!("{error}"))],
+                intent_ids: vec![
+                    IntentId::new("intent:test").unwrap_or_else(|error| unreachable!("{error}")),
+                ],
                 requirement_ids: vec![],
                 capability_ids: vec![],
             },
@@ -122,8 +125,8 @@ mod tests {
         let plan = DeterministicPlanner
             .plan_resource(request_id, actor, desired, &observation)
             .unwrap_or_else(|error| unreachable!("{error}"));
-        let principal = AuthenticatedPrincipal::new("uid:1000")
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        let principal =
+            AuthenticatedPrincipal::new("uid:1000").unwrap_or_else(|error| unreachable!("{error}"));
 
         let subject = policy_subject_from_plan(&principal, &plan)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
