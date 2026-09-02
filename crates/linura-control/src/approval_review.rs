@@ -4,10 +4,13 @@ use crate::approval::{
     ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation,
     ApprovalValidation, AuthenticatedApprover, validate_approval,
 };
-use linura_core::{ApprovalEvidenceId, ApprovalRequestId, PrincipalId, ValidationError};
+use linura_core::{ApprovalEvidenceId, ApprovalRequestId, ValidationError};
 use linura_policy::{ApprovalClass, PolicyDecision, PolicyEvaluation};
 
 pub const MAX_APPROVAL_ENTRIES: usize = 256;
+pub const MAX_APPROVAL_ENTRY_BYTES: usize = 256 * 1024;
+pub const MAX_APPROVAL_TOTAL_BYTES: usize = 4 * 1024 * 1024;
+const APPROVAL_RECORD_OVERHEAD_BYTES: usize = 256;
 
 pub type PolicyApprovalRequirement = ApprovalRequirement<PolicyEvaluation, ApprovalClass>;
 pub type PolicyApprovalEvidence = ApprovalEvidence<PolicyEvaluation, ApprovalClass>;
@@ -20,17 +23,14 @@ pub enum ApprovalRequirementError {
 }
 
 /// Convert one exact policy evaluation into its typed approval requirement.
-///
-/// Keeping this conversion in Control preserves the global layering invariant:
-/// policy is not consumed or orchestrated by the generic approval domain.
 pub fn approval_requirement_from_evaluation(
     evaluation: &PolicyEvaluation,
 ) -> Result<PolicyApprovalRequirement, ApprovalRequirementError> {
     match &evaluation.decision {
-        PolicyDecision::RequireApproval { class, .. } => Ok(ApprovalRequirement {
-            class: *class,
-            binding: evaluation.clone(),
-        }),
+        PolicyDecision::RequireApproval { class, .. } => Ok(ApprovalRequirement::new(
+            *class,
+            evaluation.clone(),
+        )),
         PolicyDecision::Allow => Err(ApprovalRequirementError::NotRequired),
         PolicyDecision::Deny { .. } | PolicyDecision::Blocked { .. } => {
             Err(ApprovalRequirementError::NotApprovable)
@@ -79,10 +79,71 @@ pub fn validate_policy_approval(
     validate_approval(evidence, &requirement, now_unix_seconds, revocation)
 }
 
+fn add_len(total: &mut usize, value: &str) {
+    *total = total.saturating_add(value.len());
+}
+
+/// Deterministic upper-accounting estimate for one retained policy evaluation.
+/// It counts all variable-size strings/IDs material to exact approval binding;
+/// fixed struct/map overhead is covered separately by
+/// `APPROVAL_RECORD_OVERHEAD_BYTES`.
+fn approval_binding_bytes(evaluation: &PolicyEvaluation) -> usize {
+    let subject = &evaluation.subject;
+    let mut bytes = 0usize;
+
+    add_len(&mut bytes, subject.principal().as_str());
+    add_len(&mut bytes, subject.plan_id().as_str());
+    add_len(&mut bytes, subject.request_id().as_str());
+    add_len(&mut bytes, subject.actor().id.as_str());
+    add_len(&mut bytes, subject.provider().as_str());
+    add_len(&mut bytes, subject.resource().as_str());
+    add_len(&mut bytes, subject.capability().as_str());
+    add_len(&mut bytes, subject.observed_evidence_id());
+    add_len(&mut bytes, &subject.reason().summary);
+    for id in &subject.reason().intent_ids {
+        add_len(&mut bytes, id.as_str());
+    }
+    for id in &subject.reason().requirement_ids {
+        add_len(&mut bytes, id.as_str());
+    }
+    for id in &subject.reason().capability_ids {
+        add_len(&mut bytes, id.as_str());
+    }
+    for change in subject.changes() {
+        add_len(&mut bytes, &change.key);
+        if let Some(current) = &change.current {
+            add_len(&mut bytes, current);
+        }
+        add_len(&mut bytes, &change.desired);
+    }
+    for finding in subject.findings() {
+        add_len(&mut bytes, &finding.code);
+        add_len(&mut bytes, &finding.message);
+    }
+
+    add_len(&mut bytes, evaluation.binding.principal.as_str());
+    add_len(&mut bytes, evaluation.binding.plan_id.as_str());
+    add_len(&mut bytes, evaluation.binding.request_id.as_str());
+    add_len(&mut bytes, &evaluation.binding.observed_evidence_id);
+    add_len(&mut bytes, evaluation.binding.provider.as_str());
+    add_len(&mut bytes, evaluation.binding.resource.as_str());
+    add_len(&mut bytes, evaluation.binding.capability.as_str());
+    add_len(&mut bytes, evaluation.binding.policy_id.as_str());
+    add_len(&mut bytes, evaluation.binding.policy_revision_id.as_str());
+    match &evaluation.decision {
+        PolicyDecision::Allow => {}
+        PolicyDecision::Deny { reason }
+        | PolicyDecision::RequireApproval { reason, .. }
+        | PolicyDecision::Blocked { reason } => add_len(&mut bytes, reason),
+    }
+    bytes
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ApprovalRecord {
     evidence: PolicyApprovalEvidence,
     revocation: Option<ApprovalRevocation>,
+    accounted_bytes: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +152,9 @@ pub enum ApprovalControlError {
     InvalidEvidenceId(ValidationError),
     IdempotencyConflict,
     CapacityExceeded,
+    EntryTooLarge,
+    TotalCapacityExceeded,
+    SequenceExhausted,
     EvidenceNotFound,
     RevokerNotAuthorized,
 }
@@ -98,14 +162,15 @@ pub enum ApprovalControlError {
 /// Bounded, process-local v0.3 approval lifecycle.
 ///
 /// The store deliberately has no persistence, prepare record, executor handle,
-/// or crash-recovery claim. Repeating the same approval request with identical
-/// normalized inputs returns the original evidence; reusing the request ID with
-/// different material fails closed.
+/// or crash-recovery claim. Exact retries return the original evidence; request
+/// ID reuse with changed authority material fails closed. Live authority
+/// evidence is never silently evicted to make room for new evidence.
 #[derive(Debug, Default)]
 pub struct ApprovalReviewControl {
     records: BTreeMap<ApprovalEvidenceId, ApprovalRecord>,
     requests: BTreeMap<ApprovalRequestId, ApprovalEvidenceId>,
     next_evidence_sequence: u64,
+    total_accounted_bytes: usize,
 }
 
 impl ApprovalReviewControl {
@@ -117,6 +182,11 @@ impl ApprovalReviewControl {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    #[must_use]
+    pub const fn total_accounted_bytes(&self) -> usize {
+        self.total_accounted_bytes
     }
 
     pub fn issue(
@@ -135,10 +205,10 @@ impl ApprovalReviewControl {
             let Some(existing) = self.records.get(existing_id) else {
                 return Err(ApprovalControlError::IdempotencyConflict);
             };
-            if existing.evidence.requirement == requirement
-                && existing.evidence.approver == approver.principal
-                && existing.evidence.issued_at_unix_seconds == issued_at_unix_seconds
-                && existing.evidence.expires_at_unix_seconds == expires_at_unix_seconds
+            if existing.evidence.requirement() == &requirement
+                && existing.evidence.approver() == approver.principal()
+                && existing.evidence.issued_at_unix_seconds() == issued_at_unix_seconds
+                && existing.evidence.expires_at_unix_seconds() == expires_at_unix_seconds
             {
                 return Ok(existing.evidence.clone());
             }
@@ -149,12 +219,30 @@ impl ApprovalReviewControl {
             return Err(ApprovalControlError::CapacityExceeded);
         }
 
+        let accounted_bytes = approval_binding_bytes(evaluation)
+            .saturating_add(request_id.as_str().len())
+            .saturating_add(approver.principal().as_str().len())
+            .saturating_add(APPROVAL_RECORD_OVERHEAD_BYTES);
+        if accounted_bytes > MAX_APPROVAL_ENTRY_BYTES {
+            return Err(ApprovalControlError::EntryTooLarge);
+        }
+        let new_total = self
+            .total_accounted_bytes
+            .checked_add(accounted_bytes)
+            .ok_or(ApprovalControlError::TotalCapacityExceeded)?;
+        if new_total > MAX_APPROVAL_TOTAL_BYTES {
+            return Err(ApprovalControlError::TotalCapacityExceeded);
+        }
+
         let evidence_id = ApprovalEvidenceId::new(format!(
             "approval:evidence:{:016x}",
             self.next_evidence_sequence
         ))
         .map_err(ApprovalControlError::InvalidEvidenceId)?;
-        self.next_evidence_sequence = self.next_evidence_sequence.wrapping_add(1);
+        self.next_evidence_sequence = self
+            .next_evidence_sequence
+            .checked_add(1)
+            .ok_or(ApprovalControlError::SequenceExhausted)?;
 
         let evidence = ApprovalEvidence::try_issue(
             evidence_id.clone(),
@@ -172,8 +260,10 @@ impl ApprovalReviewControl {
             ApprovalRecord {
                 evidence: evidence.clone(),
                 revocation: None,
+                accounted_bytes,
             },
         );
+        self.total_accounted_bytes = new_total;
         Ok(evidence)
     }
 
@@ -204,14 +294,14 @@ impl ApprovalReviewControl {
         let Some(record) = self.records.get_mut(evidence_id) else {
             return Err(ApprovalControlError::EvidenceNotFound);
         };
-        if !revoker.can_satisfy(record.evidence.requirement.class) {
+        if !revoker.can_satisfy(*record.evidence.requirement().class()) {
             return Err(ApprovalControlError::RevokerNotAuthorized);
         }
         if record.revocation.is_none() {
-            record.revocation = Some(ApprovalRevocation {
-                revoked_by: revoker.principal.clone(),
+            record.revocation = Some(ApprovalRevocation::new(
+                revoker.principal().clone(),
                 revoked_at_unix_seconds,
-            });
+            ));
         }
         Ok(())
     }
@@ -274,11 +364,11 @@ mod tests {
     }
 
     fn admin() -> PolicyAuthenticatedApprover {
-        PolicyAuthenticatedApprover {
-            principal: id(PrincipalId::new("uid:0")),
-            kind: ActorKind::Human,
-            approval_classes: BTreeSet::from([ApprovalClass::Administrator]),
-        }
+        PolicyAuthenticatedApprover::new(
+            id(PrincipalId::new("uid:0")),
+            ActorKind::Human,
+            BTreeSet::from([ApprovalClass::Administrator]),
+        )
     }
 
     #[test]
@@ -309,11 +399,11 @@ mod tests {
     #[test]
     fn weak_approver_cannot_satisfy_security_sensitive_requirement() {
         let evaluation = evaluation(RiskClass::SecuritySensitive);
-        let weak = PolicyAuthenticatedApprover {
-            principal: id(PrincipalId::new("uid:1001")),
-            kind: ActorKind::Human,
-            approval_classes: BTreeSet::from([ApprovalClass::InteractiveUser]),
-        };
+        let weak = PolicyAuthenticatedApprover::new(
+            id(PrincipalId::new("uid:1001")),
+            ActorKind::Human,
+            BTreeSet::from([ApprovalClass::InteractiveUser]),
+        );
         assert!(matches!(
             issue_policy_approval(
                 id(ApprovalEvidenceId::new("approval:evidence:weak-control")),
@@ -381,14 +471,14 @@ mod tests {
             )
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(
-            control.validate(&evidence.id, &evaluation, 150),
+            control.validate(evidence.id(), &evaluation, 150),
             ApprovalValidation::Satisfied
         );
         control
-            .revoke(&evidence.id, &admin(), 151)
+            .revoke(evidence.id(), &admin(), 151)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(
-            control.validate(&evidence.id, &evaluation, 152),
+            control.validate(evidence.id(), &evaluation, 152),
             ApprovalValidation::Revoked
         );
     }
@@ -406,14 +496,31 @@ mod tests {
                 200,
             )
             .unwrap_or_else(|error| unreachable!("{error:?}"));
-        let weak = PolicyAuthenticatedApprover {
-            principal: id(PrincipalId::new("uid:1001")),
-            kind: ActorKind::Human,
-            approval_classes: BTreeSet::from([ApprovalClass::InteractiveUser]),
-        };
+        let weak = PolicyAuthenticatedApprover::new(
+            id(PrincipalId::new("uid:1001")),
+            ActorKind::Human,
+            BTreeSet::from([ApprovalClass::InteractiveUser]),
+        );
         assert_eq!(
-            control.revoke(&evidence.id, &weak, 150),
+            control.revoke(evidence.id(), &weak, 150),
             Err(ApprovalControlError::RevokerNotAuthorized)
         );
+    }
+
+    #[test]
+    fn retained_bytes_are_bounded_and_idempotent_retry_does_not_grow_store() {
+        let evaluation = evaluation(RiskClass::SecuritySensitive);
+        let request = id(ApprovalRequestId::new("approval:request:bytes"));
+        let mut control = ApprovalReviewControl::default();
+        let _ = control
+            .issue(request.clone(), &evaluation, &admin(), 100, 200)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        let first_bytes = control.total_accounted_bytes();
+        assert!(first_bytes > 0);
+        assert!(first_bytes <= MAX_APPROVAL_TOTAL_BYTES);
+        let _ = control
+            .issue(request, &evaluation, &admin(), 100, 200)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert_eq!(control.total_accounted_bytes(), first_bytes);
     }
 }
