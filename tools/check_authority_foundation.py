@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 import sys
 import tomllib
 
@@ -84,11 +83,21 @@ PRESERVED_SCAFFOLD_MARKERS = {
     ),
 }
 
-EXPECTED_APPROVAL_BY_RISK = {
-    "SystemMutation": "InteractiveUser",
-    "SecuritySensitive": "Administrator",
-    "Destructive": "DestructiveAction",
-}
+# Runtime policy semantics are intentionally verified by an executable Rust
+# contract test, not by attempting to parse/evaluate Rust with this Python
+# architecture checker. `cargo test --workspace` is part of canonical checks,
+# so changes to production control flow, guarded arms, early returns, or nested
+# expressions are exercised as behavior rather than guessed from source text.
+SEMANTIC_APPROVAL_TEST_MARKERS = (
+    "fn protected_approval_strength_is_actor_invariant()",
+    "ActorKind::Human",
+    "ActorKind::Service",
+    "ActorKind::Agent",
+    "RiskClass::SystemMutation, ApprovalClass::InteractiveUser",
+    "RiskClass::SecuritySensitive, ApprovalClass::Administrator",
+    "RiskClass::Destructive, ApprovalClass::DestructiveAction",
+    "fn remote_actor_cannot_use_protected_approval_path()",
+)
 
 REQUIRED_V03_MARKERS = {
     "docs/milestones/v0.3.0.md": (
@@ -127,196 +136,6 @@ def read_text(root: Path, relative: str, failures: list[str]) -> str:
         failures.append(f"required authority-foundation file missing: {relative}")
         return ""
     return path.read_text(encoding="utf-8")
-
-
-def _sanitize_rust_source(text: str) -> str:
-    """Mask Rust comments and string contents while preserving source structure."""
-    output: list[str] = []
-    index = 0
-    block_depth = 0
-    in_line_comment = False
-    in_string = False
-    escaped = False
-
-    while index < len(text):
-        char = text[index]
-        next_char = text[index + 1] if index + 1 < len(text) else ""
-
-        if in_line_comment:
-            if char == "\n":
-                in_line_comment = False
-                output.append("\n")
-            else:
-                output.append(" ")
-            index += 1
-            continue
-
-        if block_depth:
-            if char == "/" and next_char == "*":
-                block_depth += 1
-                output.extend((" ", " "))
-                index += 2
-                continue
-            if char == "*" and next_char == "/":
-                block_depth -= 1
-                output.extend((" ", " "))
-                index += 2
-                continue
-            output.append("\n" if char == "\n" else " ")
-            index += 1
-            continue
-
-        if in_string:
-            if escaped:
-                escaped = False
-                output.append(" ")
-            elif char == "\\":
-                escaped = True
-                output.append(" ")
-            elif char == '"':
-                in_string = False
-                output.append('"')
-            else:
-                output.append("\n" if char == "\n" else " ")
-            index += 1
-            continue
-
-        if char == "/" and next_char == "/":
-            in_line_comment = True
-            output.extend((" ", " "))
-            index += 2
-            continue
-        if char == "/" and next_char == "*":
-            block_depth = 1
-            output.extend((" ", " "))
-            index += 2
-            continue
-        if char == '"':
-            in_string = True
-            output.append('"')
-            index += 1
-            continue
-
-        output.append(char)
-        index += 1
-
-    return "".join(output)
-
-
-def _extract_braced_block(text: str, marker: str) -> tuple[str, int] | None:
-    marker_index = text.find(marker)
-    if marker_index < 0:
-        return None
-    open_index = text.find("{", marker_index + len(marker))
-    if open_index < 0:
-        return None
-
-    depth = 0
-    for index in range(open_index, len(text)):
-        char = text[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[open_index + 1 : index], index + 1
-    return None
-
-
-def _normalize_rust_structure(text: str) -> str:
-    without_string_contents = re.sub(r'"[^"]*"', '""', text)
-    return re.sub(r"\s+", " ", without_string_contents).strip()
-
-
-def validate_policy_approval_strength(policy_text: str) -> list[str]:
-    failures: list[str] = []
-    source = _sanitize_rust_source(policy_text)
-
-    impl_block = _extract_braced_block(source, "impl PolicyEngine for BaselinePolicy")
-    if impl_block is None:
-        return ["BaselinePolicy PolicyEngine implementation is missing or malformed"]
-
-    impl_body, _ = impl_block
-    function_block = _extract_braced_block(
-        impl_body,
-        "fn evaluate_decision(&self, subject: &PolicySubject) -> PolicyDecision",
-    )
-    if function_block is None:
-        return ["BaselinePolicy::evaluate_decision is missing or malformed"]
-
-    function_body, _ = function_block
-    risk_match_marker = "match subject.prospective_risk()"
-    if function_body.count(risk_match_marker) != 1:
-        failures.append(
-            "BaselinePolicy::evaluate_decision must contain exactly one canonical prospective-risk match"
-        )
-        return failures
-
-    match_index = function_body.index(risk_match_marker)
-    normalized_prefix = _normalize_rust_structure(function_body[:match_index])
-    expected_prefix = _normalize_rust_structure(
-        """
-        if subject.status() == ReviewPlanStatus::Blocked || subject.has_blockers() {
-            return PolicyDecision::Blocked {
-                reason: "".into(),
-            };
-        }
-        if subject.actor().kind == ActorKind::Remote {
-            return PolicyDecision::Deny {
-                reason: "".into(),
-            };
-        }
-        let agent_proposal = subject.actor().kind == ActorKind::Agent;
-        """
-    )
-    if normalized_prefix != expected_prefix:
-        failures.append(
-            "BaselinePolicy::evaluate_decision pre-risk control flow changed; only blocker rejection, remote denial, and agent provenance capture are permitted before the canonical risk match"
-        )
-
-    risk_match = _extract_braced_block(function_body, risk_match_marker)
-    if risk_match is None:
-        failures.append("canonical prospective-risk match is malformed")
-        return failures
-
-    match_body, match_end = risk_match
-    if function_body[match_end:].strip():
-        failures.append(
-            "canonical prospective-risk match must remain the tail decision expression"
-        )
-
-    if match_body.count("=>") != 4:
-        failures.append(
-            "canonical prospective-risk match must contain exactly four top-level decision arms"
-        )
-
-    for risk_name, expected_class in EXPECTED_APPROVAL_BY_RISK.items():
-        risk_marker = f"RiskClass::{risk_name}"
-        if match_body.count(risk_marker) != 1:
-            failures.append(
-                f"canonical risk match must reference RiskClass::{risk_name} exactly once; guarded, duplicate, or alternative shadow arms are forbidden"
-            )
-            continue
-
-        arm_marker = f"RiskClass::{risk_name} => PolicyDecision::RequireApproval"
-        if match_body.count(arm_marker) != 1:
-            failures.append(
-                f"canonical risk match must contain exactly one unguarded {risk_name} RequireApproval arm"
-            )
-            continue
-
-        arm_block = _extract_braced_block(match_body, arm_marker)
-        if arm_block is None:
-            failures.append(f"{risk_name} approval arm is malformed")
-            continue
-        arm_body, _ = arm_block
-        classes = re.findall(r"class\s*:\s*ApprovalClass::([A-Za-z0-9_]+)", arm_body)
-        if classes != [expected_class]:
-            failures.append(
-                f"{risk_name} must require exactly ApprovalClass::{expected_class}; found {classes!r}"
-            )
-
-    return failures
 
 
 def validate(root: Path) -> list[str]:
@@ -394,7 +213,9 @@ def validate(root: Path) -> list[str]:
         if milestone.get("complete_lifecycle") is not True:
             failures.append(f"{version}: lifecycle-integrated authority requires complete lifecycle")
         if milestone.get("executor_state") != "integrated-narrow":
-            failures.append(f"{version}: lifecycle-integrated authority requires integrated narrow executor")
+            failures.append(
+                f"{version}: lifecycle-integrated authority requires integrated narrow executor"
+            )
 
     for relative, markers in REMOVED_BOOTSTRAP_MARKERS.items():
         text = read_text(root, relative, failures)
@@ -410,14 +231,21 @@ def validate(root: Path) -> list[str]:
             if marker not in text:
                 failures.append(f"future authority scaffold missing from {relative}: {marker}")
 
-    policy_text = read_text(root, "crates/linura-policy/src/lib.rs", failures)
-    failures.extend(validate_policy_approval_strength(policy_text))
+    semantic_test_path = "crates/linura-policy/tests/approval_strength.rs"
+    semantic_test = read_text(root, semantic_test_path, failures)
+    for marker in SEMANTIC_APPROVAL_TEST_MARKERS:
+        if marker not in semantic_test:
+            failures.append(
+                f"executable approval-strength contract marker missing from {semantic_test_path}: {marker}"
+            )
 
     for relative, markers in REQUIRED_V03_MARKERS.items():
         text = read_text(root, relative, failures)
         for marker in markers:
             if marker not in text:
-                failures.append(f"v0.3 authority contract marker missing from {relative}: {marker}")
+                failures.append(
+                    f"v0.3 authority contract marker missing from {relative}: {marker}"
+                )
 
     return failures
 
