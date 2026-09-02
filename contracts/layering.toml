@@ -140,4 +140,4 @@ contains = "Providers expose bounded mechanisms; Linura owns orchestration."
 
 [[markers]]
 path = "crates/linura-provider-sdk/src/lib.rs"
-contains = "MUST NOT become a second canonical observation model"
+contains = "Result<ObservationEnvelope, ProviderError>"
