@@ -26,6 +26,8 @@ typed_id!(ActorId, "actor id");
 typed_id!(PrincipalId, "principal id");
 typed_id!(RequestId, "request id");
 typed_id!(PlanId, "plan id");
+typed_id!(ApprovalRequestId, "approval request id");
+typed_id!(ApprovalEvidenceId, "approval evidence id");
 typed_id!(IntentId, "intent id");
 typed_id!(SetupId, "setup id");
 typed_id!(RequirementId, "requirement id");
@@ -173,6 +175,8 @@ mod tests {
     #[test]
     fn identifiers_reject_control_characters() {
         assert!(RequestId::new("bad\nvalue").is_err());
+        assert!(ApprovalRequestId::new("approval\nrequest").is_err());
+        assert!(ApprovalEvidenceId::new("approval\nevidence").is_err());
         assert!(ActorId::new("uid:1000\nspoof").is_err());
         assert!(PrincipalId::new("uid:1000\nspoof").is_err());
     }
