@@ -250,9 +250,53 @@ class AuthorityFoundationTests(unittest.TestCase):
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(
-                "must not short-circuit on prospective risk before the canonical risk match",
-                result.stderr,
+            self.assertIn("pre-risk control flow changed", result.stderr)
+
+    def test_actor_short_circuit_before_canonical_match_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            policy = root / "crates/linura-policy/src/lib.rs"
+            anchor = "        let agent_proposal = subject.actor().kind == ActorKind::Agent;\n"
+            bypass = (
+                "        if subject.actor().kind == ActorKind::Agent {\n"
+                "            return PolicyDecision::RequireApproval {\n"
+                "                class: ApprovalClass::InteractiveUser,\n"
+                "                reason: \"unsafe actor shortcut\".into(),\n"
+                "            };\n"
+                "        }\n\n"
+            )
+            text = policy.read_text(encoding="utf-8")
+            self.assertIn(anchor, text)
+            policy.write_text(text.replace(anchor, bypass + anchor, 1), encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("pre-risk control flow changed", result.stderr)
+
+    def test_guarded_protected_risk_arm_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            policy = root / "crates/linura-policy/src/lib.rs"
+            anchor = "            RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
+            guarded = (
+                "            RiskClass::SecuritySensitive if agent_proposal => {\n"
+                "                PolicyDecision::RequireApproval {\n"
+                "                    class: ApprovalClass::InteractiveUser,\n"
+                "                    reason: \"unsafe guarded shortcut\".into(),\n"
+                "                }\n"
+                "            },\n"
+            )
+            text = policy.read_text(encoding="utf-8")
+            self.assertIn(anchor, text)
+            policy.write_text(text.replace(anchor, guarded + anchor, 1), encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(
+                "exactly four top-level decision arms" in result.stderr
+                or "RiskClass::SecuritySensitive exactly once" in result.stderr
             )
 
     def test_milestone_cannot_drop_risk_floor_contract(self) -> None:
