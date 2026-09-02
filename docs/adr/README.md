@@ -20,3 +20,4 @@ Accepted ADRs are append-only historical decisions. A changed decision is supers
 - [0016 — Machine classes and portable profile semantics](0016-machine-classes-portable-profiles.md)
 - [0017 — Bounded probes and control-plane-owned context queries](0017-bounded-probes-context-query.md)
 - [0018 — Canonical plan-review authority and exact approval binding](0018-canonical-plan-review-authority.md)
+- [0019 — Durable authority transactions with SQLite/WAL persistence](0019-durable-authority-transaction-store.md)

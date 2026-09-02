@@ -89,6 +89,7 @@ managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
 authority_state = "durable-reviewed"
+milestone_contract = "docs/milestones/v0.4.0.md"
 
 [[milestone]]
 version = "v0.5.0"
