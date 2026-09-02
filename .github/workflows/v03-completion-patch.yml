@@ -6,6 +6,7 @@ on:
     paths:
       - tools/v03_complete.py
       - tools/v03_fix.py
+      - tools/v03_fix2.py
       - .github/workflows/v03-completion-patch.yml
 
 permissions:
@@ -21,8 +22,8 @@ jobs:
       - name: Assert exact staged lineage
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD~2)" = "61cdf4caf5da20a0408ef6d1296789eca4e671df"
-          test "$(git rev-parse HEAD^)" = "4f2e6481d3c719bf4f59918d99b814021dc3e5d6"
+          test "$(git rev-parse HEAD~3)" = "61cdf4caf5da20a0408ef6d1296789eca4e671df"
+          test "$(git rev-parse HEAD^)" = "11a088fca8f6951c06bc5111080b61c2b8e5b24a"
       - name: Install canonical development environment
         run: bash scripts/setup_codex_environment.sh
       - name: Verify clean exact environment before edits
@@ -31,6 +32,7 @@ jobs:
         run: |
           python3 tools/v03_complete.py
           python3 tools/v03_fix.py
+          python3 tools/v03_fix2.py
       - name: Format and validate transformed source
         run: |
           set -euo pipefail
@@ -44,7 +46,7 @@ jobs:
           cargo test --workspace --all-targets --all-features
           cargo xtask check
       - name: Remove temporary patch machinery
-        run: rm -f tools/v03_complete.py tools/v03_fix.py .github/workflows/v03-completion-patch.yml
+        run: rm -f tools/v03_complete.py tools/v03_fix.py tools/v03_fix2.py .github/workflows/v03-completion-patch.yml
       - name: Verify intended diff and commit
         run: |
           set -euo pipefail
