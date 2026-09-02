@@ -65,7 +65,10 @@ where
                 f.write_str("only an authenticated human principal can issue v0.3 approval")
             }
             Self::MissingApprovalClass(class) => {
-                write!(f, "approver does not hold required approval class {class:?}")
+                write!(
+                    f,
+                    "approver does not hold required approval class {class:?}"
+                )
             }
             Self::InvalidValidityWindow => {
                 f.write_str("approval expiry must be strictly after issuance")
