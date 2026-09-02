@@ -63,7 +63,6 @@ def _run_contract(worktree: Path) -> subprocess.CompletedProcess[str]:
         [
             "cargo",
             "test",
-            "--quiet",
             "-p",
             "linura-policy",
             "--test",
