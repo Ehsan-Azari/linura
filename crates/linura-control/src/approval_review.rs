@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicU64 as AuthorityAtomicU64, Ordering as AuthorityOrdering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::approval::{
@@ -166,6 +167,7 @@ pub enum ApprovalControlError {
     EvidenceNotFound,
     RevokerNotAuthorized,
     ClockUnavailable,
+    ClockRollback,
 }
 
 trait ApprovalClock: Debug + Send + Sync {
@@ -195,6 +197,7 @@ impl ApprovalClock for SystemApprovalClock {
 #[derive(Debug)]
 pub struct ApprovalReviewControl {
     clock: Box<dyn ApprovalClock>,
+    last_authority_unix_seconds: AuthorityAtomicU64,
     records: BTreeMap<ApprovalEvidenceId, ApprovalRecord>,
     requests: BTreeMap<ApprovalRequestId, ApprovalEvidenceId>,
     tombstones: BTreeMap<ApprovalRequestId, ApprovalTombstone>,
@@ -213,6 +216,7 @@ impl ApprovalReviewControl {
     fn with_clock(clock: Box<dyn ApprovalClock>) -> Self {
         Self {
             clock,
+            last_authority_unix_seconds: AuthorityAtomicU64::new(0),
             records: BTreeMap::new(),
             requests: BTreeMap::new(),
             tombstones: BTreeMap::new(),
@@ -223,7 +227,14 @@ impl ApprovalReviewControl {
     }
 
     fn authority_now_unix_seconds(&self) -> Result<u64, ApprovalControlError> {
-        self.clock.now_unix_seconds()
+        let sampled = self.clock.now_unix_seconds()?;
+        let previous = self
+            .last_authority_unix_seconds
+            .fetch_max(sampled, AuthorityOrdering::SeqCst);
+        if sampled < previous {
+            return Err(ApprovalControlError::ClockRollback);
+        }
+        Ok(sampled)
     }
 
     #[must_use]
@@ -991,6 +1002,39 @@ mod tests {
         assert_eq!(
             control.issue_at(request, &review, &admin(), 200, 250),
             Err(ApprovalControlError::IdempotencyConflict)
+        );
+    }
+
+    #[test]
+    fn authority_clock_rollback_cannot_revive_expired_evidence() {
+        let review = review(RiskClass::SecuritySensitive);
+        let request = id(ApprovalRequestId::new("approval:request:clock-rollback"));
+        let (mut control, clock) = control_with_clock(100);
+        let evidence = control
+            .issue(request, &review, &admin(), 200)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        clock.set(200);
+        assert_eq!(
+            control.validate(evidence.id(), &review),
+            Ok(ApprovalValidation::Expired)
+        );
+
+        clock.set(150);
+        assert_eq!(
+            control.validate(evidence.id(), &review),
+            Err(ApprovalControlError::ClockRollback)
+        );
+        assert_eq!(
+            control.issue(
+                id(ApprovalRequestId::new(
+                    "approval:request:clock-rollback-new"
+                )),
+                &review,
+                &admin(),
+                250,
+            ),
+            Err(ApprovalControlError::ClockRollback)
         );
     }
 

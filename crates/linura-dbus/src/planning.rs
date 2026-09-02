@@ -487,6 +487,9 @@ pub(crate) fn plan_review_from_wire(wire: PlanReviewWire) -> Result<PlanReview, 
     }
 
     let decision = parse_review_decision(&decision)?;
+    if preview.status == PlanPreviewStatus::Blocked && decision != PlanReviewDecision::Blocked {
+        return Err("blocked plan review must carry a blocked decision".into());
+    }
     let approval_class = if has_approval_class {
         Some(parse_review_approval_class(&approval_class)?)
     } else {
@@ -765,6 +768,33 @@ mod tests {
         assert!(
             plan_review_from_wire(protected_review_wire("destructive", "administrator")).is_err()
         );
+    }
+
+    fn blocked_review_wire(decision: &str) -> PlanReviewWire {
+        let mut wire = protected_review_wire("read-only", "interactive-user");
+        wire.6.0 = "read-only".into();
+        wire.6.1 = "read-only".into();
+        wire.6.2 = "blocked".into();
+        wire.7 = (
+            decision.into(),
+            false,
+            String::new(),
+            "blocked by authoritative review".into(),
+            false,
+        );
+        wire.9.push((
+            "test-blocker".into(),
+            "blocker".into(),
+            "blocked review fixture".into(),
+        ));
+        wire
+    }
+
+    #[test]
+    fn review_wire_decoder_requires_blocked_decision_for_blocked_status() {
+        assert!(plan_review_from_wire(blocked_review_wire("blocked")).is_ok());
+        assert!(plan_review_from_wire(blocked_review_wire("allow")).is_err());
+        assert!(plan_review_from_wire(blocked_review_wire("deny")).is_err());
     }
 
     #[test]
