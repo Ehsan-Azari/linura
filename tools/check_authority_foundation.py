@@ -68,25 +68,46 @@ PRESERVED_SCAFFOLD_MARKERS = {
         "pub struct ReconciliationPlan",
         "ExecutionAuthority::Disabled",
     ),
+    "crates/linura-control/src/risk_classification.rs": (
+        "BASELINE_RISK_POLICY_REVISION",
+        "RiskClassification::Unclassified",
+        "RiskClassification::DowngradeRejected",
+        "systemd.unit.active-state.security-sensitive",
+        "no trusted risk rule covers",
+    ),
+    "crates/linura-control/src/policy_review.rs": (
+        "classify_plan_risk(plan)",
+        "authority-risk-classified",
+        "authority-risk-unclassified",
+        "authority-risk-downgrade-rejected",
+    ),
 }
 
 REQUIRED_V03_MARKERS = {
     "docs/milestones/v0.3.0.md": (
         "v0.3 extends the v0.2 `linura-planner::ReconciliationPlan` lineage.",
+        "The planner's `prospective_risk` is a risk floor.",
+        "Unclassified mutation risk fails closed as `blocked`",
         "Approval does not create execution authority.",
         "A reviewed plan does not create a durable prepare record.",
     ),
     "docs/qualification/v0.3.0.md": (
         "qualification specification",
+        "risk-policy revision and matched rule identities",
+        "risk downgrade below the planner floor is rejected",
         "A plan ID by itself is not sufficient authority evidence.",
         "native Linux state remains unchanged",
     ),
     "docs/adr/0018-canonical-plan-review-authority.md": (
+        "The planner's `prospective_risk` is a lower bound",
+        "Unknown mutation shapes fail closed",
         "policy allow          != execution authority",
         "valid approval        != execution authority",
         "reviewed plan         != prepared mutation",
     ),
     "docs/threat-model.md": (
+        "### Risk downgrade, under-classification or classifier substitution",
+        "no matching trusted rule means unclassified mutation risk",
         "### Approval replay, theft or policy substitution",
         "cross-principal approval reuse",
     ),
@@ -190,9 +211,7 @@ def validate(root: Path) -> list[str]:
         text = read_text(root, relative, failures)
         for marker in markers:
             if marker not in text:
-                failures.append(
-                    f"future authority scaffold missing from {relative}: {marker}"
-                )
+                failures.append(f"future authority scaffold missing from {relative}: {marker}")
 
     for relative, markers in REQUIRED_V03_MARKERS.items():
         text = read_text(root, relative, failures)
