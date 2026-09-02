@@ -1,16 +1,119 @@
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 import re
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 class CodexEnvironmentContractTests(unittest.TestCase):
+    def _exercise_rustup_bootstrap(
+        self,
+        *,
+        curl_fail: bool = False,
+        installer_fail: bool = False,
+    ) -> tuple[subprocess.CompletedProcess[str], str | None, bool | None]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = Path(temp_dir)
+            fake_bin = temp / "bin"
+            fake_bin.mkdir()
+            installer = temp / "fake-installer"
+            observed_basename = temp / "observed-basename"
+            observed_dir = temp / "observed-dir"
+
+            installer.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    printf '%s\\n' "${0##*/}" > "$OBSERVED_BASENAME"
+                    printf '%s\\n' "${0%/*}" > "$OBSERVED_DIR"
+                    if [[ "${FAKE_INSTALLER_FAIL:-0}" == "1" ]]; then
+                      exit 43
+                    fi
+                    """
+                ),
+                encoding="utf-8",
+            )
+            curl = fake_bin / "curl"
+            curl.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    output=''
+                    while [[ $# -gt 0 ]]; do
+                      case "$1" in
+                        --output)
+                          output="$2"
+                          shift 2
+                          ;;
+                        *)
+                          shift
+                          ;;
+                      esac
+                    done
+                    test -n "$output"
+                    printf '%s\\n' "${output%/*}" > "$OBSERVED_DIR"
+                    if [[ "${FAKE_CURL_FAIL:-0}" == "1" ]]; then
+                      exit 42
+                    fi
+                    cp "$FAKE_INSTALLER" "$output"
+                    """
+                ),
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+
+            digest = hashlib.sha256(installer.read_bytes()).hexdigest()
+            env = os.environ.copy()
+            env.update(
+                {
+                    "BOOTSTRAP_LIB": str(ROOT / "scripts/lib/bootstrap_rustup.sh"),
+                    "EXPECTED_SHA": digest,
+                    "FAKE_CURL_FAIL": "1" if curl_fail else "0",
+                    "FAKE_INSTALLER": str(installer),
+                    "FAKE_INSTALLER_FAIL": "1" if installer_fail else "0",
+                    "OBSERVED_BASENAME": str(observed_basename),
+                    "OBSERVED_DIR": str(observed_dir),
+                    "PATH": f"{fake_bin}:{env['PATH']}",
+                }
+            )
+            completed = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    'source "$BOOTSTRAP_LIB"; bootstrap_rustup '
+                    '"https://example.invalid/rustup-init" "$EXPECTED_SHA" '
+                    '"x86_64-unknown-linux-gnu"',
+                ],
+                cwd=ROOT,
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            basename = (
+                observed_basename.read_text(encoding="utf-8").strip()
+                if observed_basename.exists()
+                else None
+            )
+            bootstrap_dir_exists: bool | None = None
+            if observed_dir.exists():
+                bootstrap_dir = Path(observed_dir.read_text(encoding="utf-8").strip())
+                bootstrap_dir_exists = bootstrap_dir.exists()
+            return completed, basename, bootstrap_dir_exists
+
     def test_rustup_bootstrap_is_pinned_and_digest_verified(self) -> None:
         versions = (ROOT / "tools/codex/versions.env").read_text(encoding="utf-8")
         setup = (ROOT / "scripts/setup_codex_environment.sh").read_text(encoding="utf-8")
+        bootstrap = (ROOT / "scripts/lib/bootstrap_rustup.sh").read_text(encoding="utf-8")
 
         self.assertRegex(versions, r"(?m)^RUSTUP_VERSION=\d+\.\d+\.\d+$")
         self.assertRegex(versions, r"(?m)^RUSTUP_INIT_SHA256=[0-9a-f]{64}$")
@@ -19,10 +122,36 @@ class CodexEnvironmentContractTests(unittest.TestCase):
             setup,
         )
         self.assertIn(
-            'printf \'%s  %s\\n\' "$RUSTUP_INIT_SHA256" "$rustup_init_path" | sha256sum --check --strict',
+            'bootstrap_rustup "$RUSTUP_INIT_URL" "$RUSTUP_INIT_SHA256" "$RUSTUP_TARGET"',
             setup,
         )
-        self.assertIn("--default-toolchain none", setup)
+        self.assertIn("sha256sum --check --strict", bootstrap)
+        self.assertIn("--default-toolchain none", bootstrap)
+
+    def test_rustup_bootstrap_executes_canonical_basename_and_cleans_success(self) -> None:
+        completed, basename, bootstrap_dir_exists = self._exercise_rustup_bootstrap()
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(basename, "rustup-init")
+        self.assertFalse(bootstrap_dir_exists)
+
+    def test_rustup_bootstrap_cleans_tempdir_on_installer_failure(self) -> None:
+        completed, basename, bootstrap_dir_exists = self._exercise_rustup_bootstrap(
+            installer_fail=True
+        )
+
+        self.assertEqual(completed.returncode, 43, completed.stderr)
+        self.assertEqual(basename, "rustup-init")
+        self.assertFalse(bootstrap_dir_exists)
+
+    def test_rustup_bootstrap_cleans_tempdir_on_download_failure(self) -> None:
+        completed, basename, bootstrap_dir_exists = self._exercise_rustup_bootstrap(
+            curl_fail=True
+        )
+
+        self.assertEqual(completed.returncode, 42, completed.stderr)
+        self.assertIsNone(basename)
+        self.assertFalse(bootstrap_dir_exists)
 
     def test_fresh_host_does_not_require_preinstalled_rustup(self) -> None:
         setup = (ROOT / "scripts/setup_codex_environment.sh").read_text(encoding="utf-8")

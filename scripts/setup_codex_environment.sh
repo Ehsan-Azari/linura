@@ -34,6 +34,14 @@ readonly TOOL_ROOT="${HOME}/.local/linura-tools"
 readonly ACTIONLINT_ROOT="${TOOL_ROOT}/actionlint/${ACTIONLINT_VERSION}"
 readonly BIN_ROOT="${HOME}/.local/bin"
 readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"
+readonly RUSTUP_BOOTSTRAP_LIB="scripts/lib/bootstrap_rustup.sh"
+
+if [[ ! -f "$RUSTUP_BOOTSTRAP_LIB" ]]; then
+  printf 'missing Codex rustup bootstrap library: %s\n' "$RUSTUP_BOOTSTRAP_LIB" >&2
+  exit 1
+fi
+# shellcheck source=scripts/lib/bootstrap_rustup.sh
+source "$RUSTUP_BOOTSTRAP_LIB"
 
 require_command() {
   local command_name="$1"
@@ -122,22 +130,11 @@ if [[ "$repo_rust_version" != "$RUST_VERSION" ]]; then
 fi
 
 # A fresh Codex base image is not required to ship rustup. Bootstrap the exact
-# repository-pinned rustup-init binary, verify its digest, and only then install
-# the exact GNU Rust toolchain. Re-running setup is idempotent.
+# repository-pinned rustup-init binary through the isolated helper, which
+# verifies its digest and executes it with the canonical multicall basename.
+# Re-running setup is idempotent.
 if ! command -v rustup >/dev/null 2>&1 || ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
-  rustup_init_path="$(mktemp)"
-  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
-    --output "$rustup_init_path" \
-    "$RUSTUP_INIT_URL"
-  printf '%s  %s\n' "$RUSTUP_INIT_SHA256" "$rustup_init_path" | sha256sum --check --strict
-  chmod 0755 "$rustup_init_path"
-  "$rustup_init_path" \
-    -y \
-    --no-modify-path \
-    --profile minimal \
-    --default-host "$RUSTUP_TARGET" \
-    --default-toolchain none
-  rm -f "$rustup_init_path"
+  bootstrap_rustup "$RUSTUP_INIT_URL" "$RUSTUP_INIT_SHA256" "$RUSTUP_TARGET"
   hash -r
 fi
 require_command rustup
