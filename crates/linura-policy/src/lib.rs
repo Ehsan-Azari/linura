@@ -139,7 +139,10 @@ impl PolicySubject {
 ///
 /// v0.3 approval evidence must match this exact binding. A different principal,
 /// plan, authoritative evidence identity, policy revision, resource or capability
-/// is a different review subject and cannot reuse the previous decision.
+/// is a different review subject and cannot reuse the previous decision. The
+/// enclosing `PolicyEvaluation` also retains the full exact `PolicySubject`, so
+/// material planned changes/findings/provenance can be compared rather than
+/// relying on `PlanId` alone.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewBinding {
     pub principal: PrincipalId,
@@ -170,6 +173,7 @@ pub enum PolicyDecision {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicyEvaluation {
+    pub subject: PolicySubject,
     pub binding: ReviewBinding,
     pub decision: PolicyDecision,
 }
@@ -182,6 +186,7 @@ pub trait PolicyEngine {
     fn evaluate(&self, subject: &PolicySubject) -> PolicyEvaluation {
         let snapshot = self.snapshot();
         PolicyEvaluation {
+            subject: subject.clone(),
             binding: ReviewBinding {
                 principal: subject.principal().clone(),
                 plan_id: subject.plan_id().clone(),
@@ -311,15 +316,17 @@ mod tests {
     #[test]
     fn agent_system_mutation_requires_approval() {
         let policy = BaselinePolicy::default();
-        let evaluation = policy.evaluate(&subject(
+        let expected_subject = subject(
             ActorKind::Agent,
             RiskClass::SystemMutation,
             PlanStatus::ChangeProposed,
-        ));
+        );
+        let evaluation = policy.evaluate(&expected_subject);
         assert!(matches!(
             evaluation.decision,
             PolicyDecision::RequireApproval { .. }
         ));
+        assert_eq!(evaluation.subject, expected_subject);
         assert_eq!(evaluation.binding.principal.as_str(), "uid:1000");
         assert_eq!(evaluation.binding.observed_evidence_id, "evidence:test");
     }
