@@ -1,135 +1,153 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from dataclasses import dataclass
+import os
 from pathlib import Path
-import re
+import subprocess
 import sys
+import tempfile
 
-SEMANTIC_TEST = Path("crates/linura-policy/tests/approval_strength.rs")
-TEST_NAME = "fn protected_approval_strength_is_actor_invariant()"
-NEXT_TEST_MARKER = "\n#[test]\n"
-REQUIRED_DECISION_BINDING = re.compile(
-    r"if\s+let\s+PolicyDecision::RequireApproval\s*\{\s*class\s*,\s*\.\.\s*\}\s*=\s*decision"
+POLICY_SOURCE = Path("crates/linura-policy/src/lib.rs")
+PROTECTED_TEST = "protected_approval_strength_is_actor_invariant"
+
+
+@dataclass(frozen=True)
+class Mutation:
+    name: str
+    before: str
+    after: str
+
+
+MUTATIONS = (
+    Mutation(
+        name="system-mutation-class-changed",
+        before=(
+            "RiskClass::SystemMutation => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::InteractiveUser,"
+        ),
+        after=(
+            "RiskClass::SystemMutation => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::Administrator,"
+        ),
+    ),
+    Mutation(
+        name="security-sensitive-approval-weakened",
+        before=(
+            "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::Administrator,"
+        ),
+        after=(
+            "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::InteractiveUser,"
+        ),
+    ),
+    Mutation(
+        name="destructive-approval-weakened",
+        before=(
+            "RiskClass::Destructive => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::DestructiveAction,"
+        ),
+        after=(
+            "RiskClass::Destructive => PolicyDecision::RequireApproval {\n"
+            "                class: ApprovalClass::Administrator,"
+        ),
+    ),
 )
-REQUIRED_CLASS_COMPARISON = re.compile(
-    r"assert_eq!\s*\(\s*class\s*,\s*expected_class\s*,"
-)
-RUST_CHAR_LITERAL = re.compile(
-    r"'(?:[^'\\\n]|\\(?:[nrt0\\'\"]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}))'"
-)
 
 
-def strip_rust_comments_and_literals(text: str) -> str:
-    """Replace non-code Rust comments/literals while preserving layout."""
-    output: list[str] = []
-    index = 0
-    block_depth = 0
+def _run_contract(worktree: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env.setdefault("CARGO_TERM_COLOR", "never")
+    return subprocess.run(
+        [
+            "cargo",
+            "test",
+            "--quiet",
+            "-p",
+            "linura-policy",
+            "--test",
+            "approval_strength",
+            PROTECTED_TEST,
+            "--",
+            "--exact",
+        ],
+        cwd=worktree,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-    while index < len(text):
-        if block_depth:
-            if text.startswith("/*", index):
-                block_depth += 1
-                output.extend("  ")
-                index += 2
-            elif text.startswith("*/", index):
-                block_depth -= 1
-                output.extend("  ")
-                index += 2
-            else:
-                character = text[index]
-                output.append("\n" if character == "\n" else " ")
-                index += 1
-            continue
 
-        if text.startswith("//", index):
-            while index < len(text) and text[index] != "\n":
-                output.append(" ")
-                index += 1
-            continue
-
-        if text.startswith("/*", index):
-            block_depth = 1
-            output.extend("  ")
-            index += 2
-            continue
-
-        # Strip valid Rust character literals before string handling. This is
-        # deliberately anchored to a complete char literal so lifetimes such as
-        # `'a` remain ordinary Rust tokens rather than swallowing later source.
-        if text[index] == "'":
-            char_literal = RUST_CHAR_LITERAL.match(text, index)
-            if char_literal is not None:
-                stop = char_literal.end()
-                output.extend(" " * (stop - index))
-                index = stop
-                continue
-
-        if text[index] == "r":
-            delimiter = index + 1
-            while delimiter < len(text) and text[delimiter] == "#":
-                delimiter += 1
-            if delimiter < len(text) and text[delimiter] == '"':
-                hashes = delimiter - (index + 1)
-                terminator = '"' + ("#" * hashes)
-                end = text.find(terminator, delimiter + 1)
-                stop = len(text) if end < 0 else end + len(terminator)
-                while index < stop:
-                    character = text[index]
-                    output.append("\n" if character == "\n" else " ")
-                    index += 1
-                continue
-
-        if text[index] == '"':
-            output.append(" ")
-            index += 1
-            escaped = False
-            while index < len(text):
-                character = text[index]
-                output.append("\n" if character == "\n" else " ")
-                index += 1
-                if escaped:
-                    escaped = False
-                elif character == "\\":
-                    escaped = True
-                elif character == '"':
-                    break
-            continue
-
-        output.append(text[index])
-        index += 1
-
-    return "".join(output)
+def _tail(result: subprocess.CompletedProcess[str], limit: int = 4000) -> str:
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    return combined[-limit:]
 
 
 def validate(root: Path) -> list[str]:
-    path = root / SEMANTIC_TEST
-    if not path.is_file():
-        return [f"missing executable approval-strength contract: {SEMANTIC_TEST}"]
+    root = root.resolve()
+    policy_path = root / POLICY_SOURCE
+    if not policy_path.is_file():
+        return [f"missing production policy source: {POLICY_SOURCE}"]
 
-    code = strip_rust_comments_and_literals(path.read_text(encoding="utf-8"))
-    start = code.find(TEST_NAME)
-    if start < 0:
-        return [f"missing executable approval-strength test: {TEST_NAME}"]
+    original = policy_path.read_text(encoding="utf-8")
+    for mutation in MUTATIONS:
+        if original.count(mutation.before) != 1:
+            return [
+                f"mutation anchor {mutation.name!r} is not unique in {POLICY_SOURCE}; "
+                "update the mutation contract deliberately"
+            ]
 
-    remainder = code[start:]
-    next_test = remainder.find(NEXT_TEST_MARKER)
-    test_body = remainder if next_test < 0 else remainder[:next_test]
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="linura-approval-mutation-") as temp_dir:
+        worktree = Path(temp_dir) / "worktree"
+        add = subprocess.run(
+            ["git", "-C", str(root), "worktree", "add", "--detach", str(worktree), "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if add.returncode != 0:
+            return [f"failed to create isolated mutation worktree: {_tail(add)}"]
 
-    decision_bindings = REQUIRED_DECISION_BINDING.findall(test_body)
-    if len(decision_bindings) != 1:
-        return [
-            "approval-strength contract must destructure exactly one executable runtime "
-            "RequireApproval decision into `class`"
-        ]
+        try:
+            worktree_policy = worktree / POLICY_SOURCE
+            baseline = _run_contract(worktree)
+            if baseline.returncode != 0:
+                return [
+                    "approval-strength contract must pass before mutation testing; "
+                    f"baseline failed:\n{_tail(baseline)}"
+                ]
 
-    comparisons = REQUIRED_CLASS_COMPARISON.findall(test_body)
-    if len(comparisons) != 1:
-        return [
-            "approval-strength contract must compare the executable evaluated runtime `class` "
-            "to the independent `expected_class` oracle exactly once"
-        ]
+            for mutation in MUTATIONS:
+                mutated = original.replace(mutation.before, mutation.after, 1)
+                worktree_policy.write_text(mutated, encoding="utf-8")
+                result = _run_contract(worktree)
+                worktree_policy.write_text(original, encoding="utf-8")
 
-    return []
+                if result.returncode == 0:
+                    failures.append(
+                        f"approval-strength contract did not kill production mutation: {mutation.name}"
+                    )
+                    continue
+
+                combined = f"{result.stdout}\n{result.stderr}"
+                failure_marker = f"test {PROTECTED_TEST} ... FAILED"
+                if failure_marker not in combined:
+                    failures.append(
+                        "approval mutation run failed for an unrelated compile/infrastructure reason "
+                        f"instead of the protected test: {mutation.name}\n{_tail(result)}"
+                    )
+        finally:
+            subprocess.run(
+                ["git", "-C", str(root), "worktree", "remove", "--force", str(worktree)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    return failures
 
 
 def main(argv: list[str]) -> int:
@@ -139,7 +157,7 @@ def main(argv: list[str]) -> int:
         for failure in failures:
             print(f"ERROR: {failure}", file=sys.stderr)
         return 1
-    print("approval-strength contract guard passed")
+    print("approval-strength mutation contract passed")
     return 0
 
 
