@@ -121,3 +121,9 @@ The planning JSON contracts and Rust SDK/CLI surface may evolve coherently with
 the Experimental Control1 generation. Any future Stable promotion requires the
 normal explicit registry/compatibility process; the v0.2.0 product version does
 not imply that promotion.
+
+## v0.3.0 contract posture
+
+Linura v0.3.0 remains Experimental. The canonical `org.linura.Control1` generation extends the authenticated observation and non-executable planning surface with explicit plan-review/explanation operations. Reviewed risk, policy outcome, approval requirement, and semantic provenance are explanation/authority evidence only; they do not create an executable token or public mutation path.
+
+The approval lifecycle is intentionally Control-owned and process-local in this release. D-Bus authenticates service callers but does not treat that identity, including UID 0, as trusted human/admin approval. Any future Stable promotion or executable authority requires the normal explicit compatibility process plus the later durable recovery and mutation-lifecycle milestones; product version v0.3.0 itself makes no Stable compatibility promise.

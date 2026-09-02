@@ -4,25 +4,37 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-02
+
+Experimental policy, authorization, approval, and plan-review milestone. Full release contract: [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md).
+
 ### Added
-- Canonical `workstation`, `server`, and `edge` machine classes, with developer/AI development machines represented as workstation profiles and fleet/enterprise retained as an optional management overlay.
-- Typed `MachineClass` in the intent domain, public SDK exposure, machine-class support/applicability governance, and ADR 0016.
-- v0.3.0 milestone and qualification specifications for policy, authorization, approval, and review-only authority, plus ADR 0018 defining the canonical plan-review boundary.
-- Typed authenticated-principal and policy revision identities, fail-closed policy outcomes, exact review binding, and Control-owned projection from the canonical `ReconciliationPlan` into policy review.
-- Deterministic trusted authority risk classification that treats planner risk as a floor, conservatively elevates the initial typed systemd `active_state` review route, blocks unclassified mutation shapes and risk downgrades, and preserves risk-policy revision/rule provenance in review findings.
-- Machine-enforced `authority_state` roadmap gates and an authority-foundation checker that rejects both reintroduction of superseded authority paths and accidental deletion of deliberate future lifecycle/executor scaffolds.
+- Canonical `workstation`, `server`, and `edge` machine classes, with developer/AI development machines represented as workstation profiles and fleet/enterprise retained as an optional management overlay; no machine class is release-qualified as a supported platform.
+- v0.3.0 milestone and qualification contracts plus ADR 0018 for canonical plan-review authority, trusted risk classification, and exact approval binding.
+- Typed authenticated-principal, policy/revision, approval-request, and approval-evidence identities with Control-owned opaque trusted review material.
+- Deterministic trusted risk classification that treats planner risk as a floor, conservatively elevates the initial typed systemd `active_state` route, blocks unclassified mutation shapes and attempted risk downgrades, and retains risk-policy revision/rule provenance.
+- Deterministic typed policy outcomes: `allow`, `deny`, `require-approval`, and fail-closed `blocked`, derived only through the canonical `ReconciliationPlan` lineage.
+- Bounded process-local approval issuance, validation, revocation, expiry, idempotent retry, inactive-record reclamation, and replay tombstones with exact trusted-review binding.
+- Control-owned authority time with rollback-safe monotonic progress so caller time and wall-clock rollback cannot revive expired authority or reopen replay identifiers.
+- Authenticated human approver-class checks that reject self/non-human/under-strength approval while keeping D-Bus caller authentication distinct from approval authority.
+- Experimental Control1/SDK/CLI plan-review surfaces, including `review-plan` and `explain-plan-review`, with semantic reason/origin provenance and explicit non-executable output.
+- Fail-closed wire consistency checks for blocked decisions, exact reviewed-risk/approval-class strength, protected `allow`, and `change-proposed` reviews falsely claiming read-only risk.
+- Exact-source Control1 VM acceptance extended through real daemon/CLI plan review and explanation while proving native Linux state remains unchanged.
 
 ### Changed
-- Experimental portable machine profiles now preserve a required `machine_class` through `MachineProfile` and `portable-profile.v1`, enabling future cross-class adoption checks without implying any current platform-support claim.
-- Policy review now derives from the canonical non-executable planner lineage and binds the authenticated principal, request/plan, authoritative evidence, provider/resource/capability, semantic provenance, trusted risk classification, and policy revision.
-- Removed the superseded Experimental `ActionPlan` / provider-owned planning / generic apply-runtime stack instead of retaining compatibility shims or a competing legacy authority model.
-- Canonical `cargo xtask check` and `cargo xtask repo` now run the v0.3 authority-foundation anti-drift validation directly.
+- Experimental portable machine profiles now preserve a required `machine_class` through `MachineProfile` and `portable-profile.v1`, enabling future cross-class adoption checks without implying current platform support.
+- Policy review derives from the canonical non-executable planner lineage and binds authenticated principal, request/plan, authoritative evidence, provider/resource/capability, planned changes/findings, semantic provenance, trusted risk classification, policy identity/revision, and approval requirement.
+- Removed the superseded Experimental `ActionPlan` / provider-owned planning / generic apply-runtime stack rather than retaining a competing authority path.
+- Canonical `cargo xtask check` / `repo` enforce the v0.3 authority foundation and control-only policy orchestration.
+- CLI review output now preserves the same semantic reason summary and intent/requirement/capability origin identities as plan-preview output.
 
 ### Boundaries
-- v0.3 authority remains review-only: policy allow, valid approval, and reviewed-plan status are not execution authority.
-- Risk classification is not mutation support: unmatched future provider/domain mutation semantics remain blocked rather than guessed into a weaker approval class.
-- No public apply path, durable prepare record, privileged executor grant, managed external mutation, or complete eleven-stage mutation support is introduced by these foundation changes.
-- `linura-lifecycle`, authoritative observation, the canonical planner, and narrow executor package scaffolds remain intentionally present for later roadmap milestones; their code presence is not a current support claim.
+- v0.3 authority is review-only: policy allow, valid approval evidence, and reviewed-plan status are not execution authority.
+- Approval/review retention is bounded and process-local, not durable authorization, prepare state, audit persistence, or crash recovery.
+- A D-Bus-authenticated service caller, including UID 0, is not thereby a trusted human/admin approver.
+- Risk classification is not mutation support: unknown future mutation semantics are blocked rather than guessed into a weaker approval class.
+- No public apply/execute path, Polkit grant, privileged executor integration, durable prepare/commit, managed external mutation, post-effect verification, or complete eleven-stage mutation support is release-qualified.
+- No supported Linux distribution, desktop, machine class, physical hardware profile, virtualization profile, natural-language/model authority, or production readiness is claimed.
 
 ## [0.2.0] - 2026-09-01
 
