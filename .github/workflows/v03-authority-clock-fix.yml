@@ -20,8 +20,8 @@ jobs:
       - name: Assert exact staged lineage
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "31ae1882c00c9cd28a5f831a8478261fc4d39c20"
-          test "$(git rev-parse HEAD^{tree})" != "$(git rev-parse HEAD^^{tree})"
+          test "$(git rev-parse HEAD^)" = "30e92205d2560edd90c543104037dfde52c93dc8"
+          test "$(git rev-parse HEAD^^)" = "31ae1882c00c9cd28a5f831a8478261fc4d39c20"
       - name: Install canonical development environment
         run: bash scripts/setup_codex_environment.sh
       - name: Verify clean exact environment before edits
@@ -42,7 +42,7 @@ jobs:
       - name: Verify intended diff and commit
         run: |
           set -euo pipefail
-          actual="$(git diff --name-only HEAD^ | sort)"
+          actual="$(git diff --name-only 31ae1882c00c9cd28a5f831a8478261fc4d39c20 | sort)"
           expected="$(printf '%s\n' crates/linura-control/src/approval_review.rs docs/threat-model.md | sort)"
           test "$actual" = "$expected"
           git diff --check
