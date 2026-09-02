@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use linura_core::{
-    ActionPlan, Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId,
-    ResourceId, RiskClass, SemanticReason, SetupId,
+    Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId, ResourceId,
+    RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
 use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
@@ -127,7 +127,7 @@ pub struct PlanPreviewFinding {
 ///
 /// `execution_authorized` is present so wire/schema consumers can assert the
 /// authority boundary explicitly. Conforming Linura transports reject a value of
-/// `true`; v0.2.0 has no public conversion from a preview to an executable effect.
+/// `true`; the current public plan lineage has no conversion into an executable effect.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlanPreview {
     pub plan_id: PlanId,
@@ -143,24 +143,6 @@ pub struct PlanPreview {
     pub execution_authorized: bool,
     pub changes: Vec<PlanPreviewChange>,
     pub findings: Vec<PlanPreviewFinding>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActionRequest {
-    pub request_id: RequestId,
-    pub actor: Actor,
-    pub resource: ResourceId,
-    pub capability: CapabilityId,
-    pub operation: String,
-    pub intent_ids: Vec<IntentId>,
-    pub parameters: Vec<(String, String)>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum PlanResponse {
-    Planned(Box<ActionPlan>),
-    Unsupported { reason: String },
-    Invalid { reason: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
