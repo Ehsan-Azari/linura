@@ -128,8 +128,8 @@ class AuthorityFoundationTests(unittest.TestCase):
             self._copy_fixture(root)
             classifier = root / "crates/linura-control/src/risk_classification.rs"
             text = classifier.read_text(encoding="utf-8").replace(
-                "RiskClassification::Unclassified",
-                "RiskClassification::NotApplicable",
+                "return RiskClassification::Unclassified {",
+                "return RiskClassification::NotApplicable {",
                 1,
             )
             classifier.write_text(text, encoding="utf-8")
@@ -137,7 +137,7 @@ class AuthorityFoundationTests(unittest.TestCase):
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("future authority scaffold missing", result.stderr)
-            self.assertIn("RiskClassification::Unclassified", result.stderr)
+            self.assertIn("return RiskClassification::Unclassified {", result.stderr)
 
     def test_policy_review_must_keep_downgrade_blocker(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -145,8 +145,8 @@ class AuthorityFoundationTests(unittest.TestCase):
             self._copy_fixture(root)
             review = root / "crates/linura-control/src/policy_review.rs"
             text = review.read_text(encoding="utf-8").replace(
-                "authority-risk-downgrade-rejected",
-                "authority-risk-downgrade-removed",
+                'code: "authority-risk-downgrade-rejected".into()',
+                'code: "authority-risk-downgrade-removed".into()',
                 1,
             )
             review.write_text(text, encoding="utf-8")
