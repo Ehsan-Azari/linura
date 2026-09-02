@@ -22,9 +22,10 @@ bash scripts/setup_codex_environment.sh
 
 The setup script:
 
-- requires a Linux x86_64 host with the repository-declared Python major/minor and basic host primitives already available;
+- requires a Linux x86_64 host with the repository-declared Python major/minor and only basic host primitives such as Bash, curl, Git, SHA-256 tooling and tar already available;
 - never uses `apt install`, Homebrew, or an unversioned language/tool installer;
-- installs the exact Rust toolchain declared by both `rust-toolchain.toml` and `tools/codex/versions.env`;
+- bootstraps exactly rustup 1.28.2 from its versioned `rustup-init` archive and verifies the repository-pinned SHA-256 before execution, so the Codex base image does not need to ship Rust or rustup;
+- installs the exact Rust toolchain declared by both `rust-toolchain.toml` and `tools/codex/versions.env`, including rustfmt and Clippy;
 - installs exactly `cargo-audit` 0.22.2 with Cargo's locked install mode;
 - downloads exactly actionlint 1.7.12 and verifies the same SHA-256 used by CI before extracting it;
 - fetches only the locked Cargo dependency graph;
@@ -36,11 +37,17 @@ The canonical task-time preflight is:
 bash scripts/preflight_codex_environment.sh
 ```
 
-Use `--full` when a task should also run the complete `cargo xtask check` quality gate during preflight. The normal preflight is intentionally non-installing and non-mutating: it verifies host architecture, Python major/minor, Rust, cargo-audit, actionlint, offline locked Cargo metadata, workflow semantics and clean tracked state. A mismatch is reported as an environment defect rather than repaired during delegated implementation.
+Use `--full` when a task should also run the complete `cargo xtask check` quality gate during preflight. The normal preflight is intentionally non-installing and non-mutating: it verifies host architecture, Python major/minor, the exact rustup and Rust toolchain, cargo-audit, actionlint, offline locked Cargo metadata, workflow semantics and clean tracked state. A mismatch is reported as an environment defect rather than repaired during delegated implementation.
 
-Repository-owned versions are declared in `tools/codex/versions.env`. Changing those pins is a reviewed development-infrastructure change and should remain aligned with CI/release tooling where the same tool is security-relevant.
+Repository-owned versions and integrity pins are declared in `tools/codex/versions.env`. Changing those pins is a reviewed development-infrastructure change and should remain aligned with CI/release tooling where the same tool is security-relevant.
 
-The Codex product-side environment still has to be created/selected for `linura-org/linura`; the repository cannot create that account-level object by committing a setup script. Configure that environment to execute the canonical setup command during environment creation, with setup-phase network access only to the upstreams needed for the pinned Rust toolchain, crates.io dependency fetches and the pinned actionlint GitHub release. Ordinary task execution should not install replacement tool versions.
+The Codex product-side environment still has to be created/selected for `linura-org/linura`; the repository cannot create that account-level object by committing a setup script. Configure that environment to execute the canonical setup command during environment creation. Setup-phase network access should be narrowly allowed for the pinned tool and dependency upstreams, including:
+
+- `static.rust-lang.org` for the pinned rustup bootstrap and Rust toolchain;
+- `index.crates.io`, `static.crates.io`, and `crates.io` for locked Cargo dependencies and the pinned cargo-audit install;
+- `github.com` and GitHub release-asset hosts required to fetch the pinned actionlint release.
+
+Ordinary delegated implementation should begin with the preflight and should not install, update or substitute tool versions. Once setup has warmed the locked Cargo graph, the normal preflight and `--full` verification are designed to run without dependency mutation; task-time internet access is not a substitute for a correctly provisioned environment.
 
 ## Layers
 
