@@ -9,12 +9,22 @@ fi
 # shellcheck disable=SC1090
 source "$VERSION_CONTRACT"
 
+: "${RUSTUP_VERSION:?}"
 : "${RUST_VERSION:?}"
 : "${CARGO_AUDIT_VERSION:?}"
 : "${ACTIONLINT_VERSION:?}"
 : "${PYTHON_MAJOR_MINOR:?}"
 : "${HOST_OS:?}"
 : "${HOST_ARCH:?}"
+
+readonly RUSTUP_TARGET="x86_64-unknown-linux-gnu"
+readonly RUST_TOOLCHAIN="${RUST_VERSION}-${RUSTUP_TARGET}"
+readonly MIN_GLIBC_MAJOR=2
+readonly MIN_GLIBC_MINOR=17
+readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"
+
+export CARGO_HOME="$CARGO_ROOT"
+export PATH="${CARGO_ROOT}/bin:${HOME}/.local/bin:${PATH}"
 
 require_command() {
   local command_name="$1"
@@ -40,7 +50,25 @@ reports_exact_version() {
   return 1
 }
 
-for command_name in bash cargo-audit git python3 rustup uname; do
+require_supported_glibc() {
+  local version_text major minor
+  version_text="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  if [[ ! "$version_text" =~ ^glibc[[:space:]]+([0-9]+)\.([0-9]+)([^0-9].*)?$ ]]; then
+    printf 'unsupported C runtime: %s; expected glibc >= %d.%d for %s\n' \
+      "${version_text:-unknown}" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if (( 10#$major < MIN_GLIBC_MAJOR || (10#$major == MIN_GLIBC_MAJOR && 10#$minor < MIN_GLIBC_MINOR) )); then
+    printf 'unsupported glibc version: %s; expected >= %d.%d for %s\n' \
+      "$version_text" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  printf '%s\n' "$version_text"
+}
+
+for command_name in bash cargo-audit cc getconf git python3 rustup uname; do
   require_command "$command_name"
 done
 
@@ -49,8 +77,15 @@ actual_arch="$(uname -m)"
 test "$actual_os" = "$HOST_OS"
 test "$actual_arch" = "$HOST_ARCH"
 
+glibc_version="$(require_supported_glibc)"
+
 actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 test "$actual_python" = "$PYTHON_MAJOR_MINOR"
+
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'unexpected rustup version; expected exactly %s (run Codex environment setup)\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
 
 repo_rust_version="$(python3 - <<'PY'
 import pathlib
@@ -65,20 +100,25 @@ PY
 )"
 test "$repo_rust_version" = "$RUST_VERSION"
 
-# rustc/cargo normally resolve through rustup proxies. Do not invoke those
-# proxies until rustup's local state proves the declared toolchain is installed.
 installed_rust_toolchain="$(
-  rustup toolchain list | awk -v version="$RUST_VERSION" '
-    $1 == version || index($1, version "-") == 1 { print $1; exit }
+  rustup toolchain list | awk -v toolchain="$RUST_TOOLCHAIN" '
+    $1 == toolchain { print $1; exit }
   '
 )"
-if [[ -z "$installed_rust_toolchain" ]]; then
-  printf 'missing required Rust toolchain: %s (run Codex environment setup)\n' "$RUST_VERSION" >&2
+if [[ "$installed_rust_toolchain" != "$RUST_TOOLCHAIN" ]]; then
+  printf 'missing required Rust toolchain: %s (run Codex environment setup)\n' "$RUST_TOOLCHAIN" >&2
   exit 1
 fi
 
-rustc_bin="$(rustup which --toolchain "$installed_rust_toolchain" rustc)"
-cargo_bin="$(rustup which --toolchain "$installed_rust_toolchain" cargo)"
+active_toolchain="$(rustup show active-toolchain | awk '{print $1}')"
+if [[ "$active_toolchain" != "$RUST_TOOLCHAIN" ]]; then
+  printf 'unexpected active Rust toolchain: %s; expected %s (run Codex environment setup)\n' \
+    "$active_toolchain" "$RUST_TOOLCHAIN" >&2
+  exit 1
+fi
+
+rustc_bin="$(rustup which --toolchain "$RUST_TOOLCHAIN" rustc)"
+cargo_bin="$(rustup which --toolchain "$RUST_TOOLCHAIN" cargo)"
 test -x "$rustc_bin"
 test -x "$cargo_bin"
 
@@ -117,8 +157,10 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 printf 'Linura Codex environment preflight passed.\n'
-printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  host: %s-%s (%s)\n' "$actual_os" "$actual_arch" "$glibc_version"
 printf '  python: %s\n' "$(python3 --version)"
+printf '  rustup: %s\n' "$(rustup --version | head -1)"
+printf '  toolchain: %s\n' "$active_toolchain"
 printf '  rustc: %s\n' "$("$rustc_bin" --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
 printf '  actionlint: %s\n' "$("$actionlint_bin" -version | head -1)"

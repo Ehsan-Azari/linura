@@ -13,6 +13,8 @@ fi
 # shellcheck disable=SC1090
 source "$VERSION_CONTRACT"
 
+: "${RUSTUP_VERSION:?}"
+: "${RUSTUP_INIT_SHA256:?}"
 : "${RUST_VERSION:?}"
 : "${CARGO_AUDIT_VERSION:?}"
 : "${ACTIONLINT_VERSION:?}"
@@ -21,11 +23,17 @@ source "$VERSION_CONTRACT"
 : "${HOST_OS:?}"
 : "${HOST_ARCH:?}"
 
+readonly RUSTUP_TARGET="x86_64-unknown-linux-gnu"
+readonly RUST_TOOLCHAIN="${RUST_VERSION}-${RUSTUP_TARGET}"
+readonly MIN_GLIBC_MAJOR=2
+readonly MIN_GLIBC_MINOR=17
+readonly RUSTUP_INIT_URL="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${RUSTUP_TARGET}/rustup-init"
 readonly ACTIONLINT_ARCHIVE="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
 readonly ACTIONLINT_URL="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${ACTIONLINT_ARCHIVE}"
 readonly TOOL_ROOT="${HOME}/.local/linura-tools"
 readonly ACTIONLINT_ROOT="${TOOL_ROOT}/actionlint/${ACTIONLINT_VERSION}"
 readonly BIN_ROOT="${HOME}/.local/bin"
+readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"
 
 require_command() {
   local command_name="$1"
@@ -51,7 +59,25 @@ reports_exact_version() {
   return 1
 }
 
-for command_name in bash curl git python3 rustup sha256sum tar uname; do
+require_supported_glibc() {
+  local version_text major minor
+  version_text="$(getconf GNU_LIBC_VERSION 2>/dev/null || true)"
+  if [[ ! "$version_text" =~ ^glibc[[:space:]]+([0-9]+)\.([0-9]+)([^0-9].*)?$ ]]; then
+    printf 'unsupported C runtime: %s; expected glibc >= %d.%d for %s\n' \
+      "${version_text:-unknown}" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if (( 10#$major < MIN_GLIBC_MAJOR || (10#$major == MIN_GLIBC_MAJOR && 10#$minor < MIN_GLIBC_MINOR) )); then
+    printf 'unsupported glibc version: %s; expected >= %d.%d for %s\n' \
+      "$version_text" "$MIN_GLIBC_MAJOR" "$MIN_GLIBC_MINOR" "$RUSTUP_TARGET" >&2
+    return 1
+  fi
+  printf '%s\n' "$version_text"
+}
+
+for command_name in bash cc curl getconf git python3 sha256sum tar uname; do
   require_command "$command_name"
 done
 
@@ -63,16 +89,21 @@ if [[ "$actual_os" != "$HOST_OS" || "$actual_arch" != "$HOST_ARCH" ]]; then
   exit 1
 fi
 
+glibc_version="$(require_supported_glibc)"
+
 actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 if [[ "$actual_python" != "$PYTHON_MAJOR_MINOR" ]]; then
   printf 'unsupported Python major/minor: %s; expected %s.x\n' "$actual_python" "$PYTHON_MAJOR_MINOR" >&2
   exit 1
 fi
 
-mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT"
+mkdir -p "$ACTIONLINT_ROOT" "$BIN_ROOT" "$CARGO_ROOT/bin"
+export CARGO_HOME="$CARGO_ROOT"
+export PATH="${CARGO_ROOT}/bin:${BIN_ROOT}:${PATH}"
 
-# rust-toolchain.toml remains the language-toolchain source of truth. The Codex
-# contract must match it exactly so environment setup cannot silently diverge.
+# rust-toolchain.toml remains the language-version source of truth. The Codex
+# contract fixes the host triple independently so an existing rustup default-host
+# cannot silently select a musl or otherwise incompatible toolchain.
 repo_rust_version="$(python3 - <<'PY'
 import pathlib
 import re
@@ -90,8 +121,46 @@ if [[ "$repo_rust_version" != "$RUST_VERSION" ]]; then
   exit 1
 fi
 
-rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
-rustup default "$RUST_VERSION"
+# A fresh Codex base image is not required to ship rustup. Bootstrap the exact
+# repository-pinned rustup-init binary, verify its digest, and only then install
+# the exact GNU Rust toolchain. Re-running setup is idempotent.
+if ! command -v rustup >/dev/null 2>&1 || ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  rustup_init_path="$(mktemp)"
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    --output "$rustup_init_path" \
+    "$RUSTUP_INIT_URL"
+  printf '%s  %s\n' "$RUSTUP_INIT_SHA256" "$rustup_init_path" | sha256sum --check --strict
+  chmod 0755 "$rustup_init_path"
+  "$rustup_init_path" \
+    -y \
+    --no-modify-path \
+    --profile minimal \
+    --default-host "$RUSTUP_TARGET" \
+    --default-toolchain none
+  rm -f "$rustup_init_path"
+  hash -r
+fi
+require_command rustup
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'unexpected rustup version after setup; expected exactly %s\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
+
+# Keep both the rustup version and host selection deterministic even when the
+# base image already carried a differently configured rustup installation.
+rustup set auto-self-update disable
+rustup set default-host "$RUSTUP_TARGET"
+rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --component rustfmt --no-self-update
+rustup default "$RUST_TOOLCHAIN"
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'rustup self-updated during toolchain setup; expected exactly %s\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
+active_toolchain="$(rustup show active-toolchain | awk '{print $1}')"
+if [[ "$active_toolchain" != "$RUST_TOOLCHAIN" ]]; then
+  printf 'unexpected active Rust toolchain: %s; expected %s\n' "$active_toolchain" "$RUST_TOOLCHAIN" >&2
+  exit 1
+fi
 
 for command_name in cargo rustc; do
   require_command "$command_name"
@@ -102,7 +171,8 @@ if [[ "$actual_rust" != "$RUST_VERSION" ]]; then
   exit 1
 fi
 
-# Keep the security tool exact. --locked consumes cargo-audit's published lockfile.
+# Keep the security tool exact. Building cargo-audit from its published locked
+# source graph relies on the host-provided `cc` linker checked above.
 if ! command -v cargo-audit >/dev/null 2>&1 || ! reports_exact_version "$CARGO_AUDIT_VERSION" cargo-audit --version; then
   cargo install cargo-audit --locked --force --version "$CARGO_AUDIT_VERSION"
 fi
@@ -115,7 +185,6 @@ fi
 actionlint_bin="$ACTIONLINT_ROOT/actionlint"
 if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION" "$actionlint_bin" -version; then
   archive_path="$(mktemp)"
-  trap 'rm -f "${archive_path:-}"' EXIT
   curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
     --output "$archive_path" \
     "$ACTIONLINT_URL"
@@ -123,6 +192,7 @@ if [[ ! -x "$actionlint_bin" ]] || ! reports_exact_version "$ACTIONLINT_VERSION"
   rm -rf "$ACTIONLINT_ROOT"
   mkdir -p "$ACTIONLINT_ROOT"
   tar -xzf "$archive_path" -C "$ACTIONLINT_ROOT" actionlint
+  rm -f "$archive_path"
   chmod 0755 "$actionlint_bin"
 fi
 ln -sfn "$actionlint_bin" "$BIN_ROOT/actionlint"
@@ -139,8 +209,10 @@ git diff --exit-code -- .
 git diff --cached --exit-code -- .
 
 printf 'Linura Codex environment ready.\n'
-printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
+printf '  host: %s-%s (%s)\n' "$actual_os" "$actual_arch" "$glibc_version"
 printf '  python: %s\n' "$(python3 --version)"
+printf '  rustup: %s\n' "$(rustup --version | head -1)"
+printf '  toolchain: %s\n' "$active_toolchain"
 printf '  rustc: %s\n' "$(rustc --version)"
 printf '  cargo: %s\n' "$(cargo --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
