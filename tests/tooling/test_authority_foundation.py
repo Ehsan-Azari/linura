@@ -28,6 +28,7 @@ class AuthorityFoundationTests(unittest.TestCase):
             "crates/linura-control/src/lib.rs",
             "crates/linura-control/src/policy_review.rs",
             "crates/linura-control/src/risk_classification.rs",
+            "crates/linura-policy/src/lib.rs",
             "crates/linura-lifecycle/src/lib.rs",
             "crates/linura-planner/src/lib.rs",
             "executors/linura-executor-systemd/src/lib.rs",
@@ -155,6 +156,40 @@ class AuthorityFoundationTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("future authority scaffold missing", result.stderr)
             self.assertIn("authority-risk-downgrade-rejected", result.stderr)
+
+    def test_agent_provenance_cannot_weaken_security_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            policy = root / "crates/linura-policy/src/lib.rs"
+            text = policy.read_text(encoding="utf-8").replace(
+                "agent-proposed security-sensitive mutation requires administrator approval",
+                "agent-proposed security-sensitive mutation requires interactive approval",
+                1,
+            )
+            policy.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("future authority scaffold missing", result.stderr)
+            self.assertIn("administrator approval", result.stderr)
+
+    def test_agent_provenance_cannot_weaken_destructive_approval(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            policy = root / "crates/linura-policy/src/lib.rs"
+            text = policy.read_text(encoding="utf-8").replace(
+                "agent-proposed destructive mutation requires dedicated destructive approval",
+                "agent-proposed destructive mutation requires interactive approval",
+                1,
+            )
+            policy.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("future authority scaffold missing", result.stderr)
+            self.assertIn("dedicated destructive approval", result.stderr)
 
     def test_milestone_cannot_drop_risk_floor_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
