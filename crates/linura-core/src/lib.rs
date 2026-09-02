@@ -23,6 +23,7 @@ macro_rules! typed_id {
 }
 
 typed_id!(ActorId, "actor id");
+typed_id!(PrincipalId, "principal id");
 typed_id!(RequestId, "request id");
 typed_id!(PlanId, "plan id");
 typed_id!(IntentId, "intent id");
@@ -33,6 +34,8 @@ typed_id!(CapabilityId, "capability id");
 typed_id!(ProviderId, "provider id");
 typed_id!(WorkflowId, "workflow id");
 typed_id!(ProfileId, "profile id");
+typed_id!(PolicyId, "policy id");
+typed_id!(PolicyRevisionId, "policy revision id");
 
 fn validate_token(label: &'static str, value: &str) -> Result<(), ValidationError> {
     if value.is_empty() {
@@ -101,32 +104,6 @@ pub enum AuthorityClass {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Preconditions {
-    pub statements: Vec<String>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Compensation {
-    None,
-    Effect(Box<Effect>),
-    Manual { instructions: String },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Effect {
-    pub id: String,
-    pub executor: String,
-    pub operation: String,
-    pub arguments: Vec<(String, String)>,
-    pub compensation: Compensation,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Verification {
-    pub description: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticReason {
     pub summary: String,
     pub intent_ids: Vec<IntentId>,
@@ -159,41 +136,12 @@ impl SemanticReason {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActionPlan {
-    pub id: PlanId,
-    pub request_id: RequestId,
-    pub actor: Actor,
-    pub resource: ResourceId,
-    pub capability: CapabilityId,
-    pub risk: RiskClass,
-    pub reason: SemanticReason,
-    pub preconditions: Preconditions,
-    pub effects: Vec<Effect>,
-    pub verification: Vec<Verification>,
-}
-
-impl ActionPlan {
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        self.reason.validate()?;
-        if self.effects.is_empty() {
-            return Err(ValidationError::NoEffects);
-        }
-        if self.verification.is_empty() {
-            return Err(ValidationError::NoVerification);
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ValidationError {
     Empty(&'static str),
     TooLong(&'static str),
     ControlCharacter(&'static str),
     MissingSemanticOrigin,
     DuplicateSemanticOrigin(&'static str),
-    NoEffects,
-    NoVerification,
 }
 
 impl Display for ValidationError {
@@ -208,8 +156,6 @@ impl Display for ValidationError {
             Self::DuplicateSemanticOrigin(kind) => {
                 write!(f, "semantic reason contains duplicate {kind} origin")
             }
-            Self::NoEffects => f.write_str("an action plan must contain at least one effect"),
-            Self::NoVerification => f.write_str("an action plan must contain verification"),
         }
     }
 }
@@ -220,14 +166,6 @@ impl std::error::Error for ValidationError {}
 mod tests {
     use super::*;
 
-    fn actor() -> Actor {
-        Actor {
-            id: id(ActorId::new("uid:1000")),
-            kind: ActorKind::Human,
-            interactive: true,
-        }
-    }
-
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
@@ -236,6 +174,7 @@ mod tests {
     fn identifiers_reject_control_characters() {
         assert!(RequestId::new("bad\nvalue").is_err());
         assert!(ActorId::new("uid:1000\nspoof").is_err());
+        assert!(PrincipalId::new("uid:1000\nspoof").is_err());
     }
 
     #[test]
@@ -276,35 +215,5 @@ mod tests {
             duplicate_capability.validate(),
             Err(ValidationError::DuplicateSemanticOrigin("capability"))
         );
-    }
-
-    #[test]
-    fn managed_plan_requires_semantic_origin() {
-        let plan = ActionPlan {
-            id: id(PlanId::new("plan-1")),
-            request_id: id(RequestId::new("req-1")),
-            actor: actor(),
-            resource: id(ResourceId::new("service:sshd")),
-            capability: id(CapabilityId::new("remote.ssh")),
-            risk: RiskClass::SystemMutation,
-            reason: SemanticReason {
-                summary: "enable SSH".into(),
-                intent_ids: vec![],
-                requirement_ids: vec![],
-                capability_ids: vec![],
-            },
-            preconditions: Preconditions { statements: vec![] },
-            effects: vec![Effect {
-                id: "enable".into(),
-                executor: "systemd".into(),
-                operation: "set-enabled".into(),
-                arguments: vec![("unit".into(), "sshd.service".into())],
-                compensation: Compensation::None,
-            }],
-            verification: vec![Verification {
-                description: "enabled state observed".into(),
-            }],
-        };
-        assert_eq!(plan.validate(), Err(ValidationError::MissingSemanticOrigin));
     }
 }
