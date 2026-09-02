@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 linura-core = { path = "../linura-core" }
+linura-planner = { path = "../linura-planner" }
 
 [lints]
 workspace = true
