@@ -73,7 +73,6 @@ agent_role = "none"
 platform_support = "none"
 authority_state = "review-only"
 milestone_contract = "docs/milestones/v0.3.0.md"
-qualification = "docs/qualification/v0.3.0.md"
 
 [[milestone]]
 version = "v0.4.0"
