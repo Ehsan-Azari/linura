@@ -7,7 +7,8 @@ import tomllib
 
 EXPECTED_VERSION = 1
 EXPECTED_SEMANTICS = {
-    "actor_term": "authenticated-principal",
+    "principal_term": "authenticated-authority-identity",
+    "actor_term": "request-provenance",
     "canonical_observation": "linura-observation::ObservationEnvelope",
     "query_orchestration": "control-plane-owned",
     "transport_role": "adapter-only",
