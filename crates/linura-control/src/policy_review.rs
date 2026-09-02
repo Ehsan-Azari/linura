@@ -1,7 +1,8 @@
 use linura_core::{PrincipalId, ValidationError};
 use linura_planner::{PlanFindingLevel, PlanStatus, ReconciliationPlan};
 use linura_policy::{
-    PolicySubject, ReviewFindingLevel, ReviewPlanStatus, ReviewedChange, ReviewedFinding,
+    PolicySubject, PolicySubjectValidationError, ReviewFindingLevel, ReviewPlanStatus,
+    ReviewedChange, ReviewedFinding,
 };
 
 use crate::AuthenticatedPrincipal;
@@ -9,6 +10,7 @@ use crate::AuthenticatedPrincipal;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PolicySubjectError {
     InvalidPrincipal(String),
+    InvalidSubject(String),
 }
 
 /// Derive the internal policy-review subject from Linura's canonical
@@ -16,13 +18,15 @@ pub enum PolicySubjectError {
 ///
 /// This is intentionally owned by `linura-control`: transports authenticate,
 /// the planner plans, policy evaluates, and Control binds those boundaries.
+/// `linura-policy` independently revalidates the projected subject before it can
+/// be evaluated, so authority never relies only on this conversion being correct.
 pub fn policy_subject_from_plan(
     principal: &AuthenticatedPrincipal,
     plan: &ReconciliationPlan,
 ) -> Result<PolicySubject, PolicySubjectError> {
     let principal = PrincipalId::new(principal.as_str().to_owned()).map_err(map_principal_error)?;
 
-    Ok(PolicySubject::new(
+    PolicySubject::try_new(
         principal,
         plan.id.clone(),
         plan.request_id.clone(),
@@ -50,11 +54,16 @@ pub fn policy_subject_from_plan(
                 message: finding.message.clone(),
             })
             .collect(),
-    ))
+    )
+    .map_err(map_subject_error)
 }
 
 fn map_principal_error(error: ValidationError) -> PolicySubjectError {
     PolicySubjectError::InvalidPrincipal(error.to_string())
+}
+
+fn map_subject_error(error: PolicySubjectValidationError) -> PolicySubjectError {
+    PolicySubjectError::InvalidSubject(error.to_string())
 }
 
 const fn map_status(status: PlanStatus) -> ReviewPlanStatus {
