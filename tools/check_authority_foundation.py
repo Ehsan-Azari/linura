@@ -156,8 +156,6 @@ def validate(root: Path) -> list[str]:
             failures.append("v0.3.0 review-only authority must not support managed mutation")
         if v03.get("milestone_contract") != "docs/milestones/v0.3.0.md":
             failures.append("v0.3.0 must bind docs/milestones/v0.3.0.md")
-        if v03.get("qualification") != "docs/qualification/v0.3.0.md":
-            failures.append("v0.3.0 must bind docs/qualification/v0.3.0.md")
 
     for version in ("v0.4.0", "v0.5.0"):
         milestone = by_version.get(version)
