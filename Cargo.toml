@@ -5,6 +5,7 @@ members = [
   "apps/linuractl",
   "apps/linura-firstboot",
   "crates/linura-agent-runtime",
+  "crates/linura-approval",
   "crates/linura-capability-sdk",
   "crates/linura-core",
   "crates/linura-graph",
