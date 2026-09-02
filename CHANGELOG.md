@@ -7,9 +7,20 @@ All notable changes to Linura will be documented here. Version entries stay conc
 ### Added
 - Canonical `workstation`, `server`, and `edge` machine classes, with developer/AI development machines represented as workstation profiles and fleet/enterprise retained as an optional management overlay.
 - Typed `MachineClass` in the intent domain, public SDK exposure, machine-class support/applicability governance, and ADR 0016.
+- v0.3.0 milestone and qualification specifications for policy, authorization, approval, and review-only authority, plus ADR 0018 defining the canonical plan-review boundary.
+- Typed authenticated-principal and policy revision identities, fail-closed policy outcomes, exact review binding, and Control-owned projection from the canonical `ReconciliationPlan` into policy review.
+- Machine-enforced `authority_state` roadmap gates and an authority-foundation checker that rejects both reintroduction of superseded authority paths and accidental deletion of deliberate future lifecycle/executor scaffolds.
 
 ### Changed
 - Experimental portable machine profiles now preserve a required `machine_class` through `MachineProfile` and `portable-profile.v1`, enabling future cross-class adoption checks without implying any current platform-support claim.
+- Policy review now derives from the canonical non-executable planner lineage and binds the authenticated principal, request/plan, authoritative evidence, provider/resource/capability, semantic provenance, and policy revision.
+- Removed the superseded Experimental `ActionPlan` / provider-owned planning / generic apply-runtime stack instead of retaining compatibility shims or a competing legacy authority model.
+- Canonical `cargo xtask check` and `cargo xtask repo` now run the v0.3 authority-foundation anti-drift validation directly.
+
+### Boundaries
+- v0.3 authority remains review-only: policy allow, valid approval, and reviewed-plan status are not execution authority.
+- No public apply path, durable prepare record, privileged executor grant, managed external mutation, or complete eleven-stage mutation support is introduced by these foundation changes.
+- `linura-lifecycle`, authoritative observation, the canonical planner, and narrow executor package scaffolds remain intentionally present for later roadmap milestones; their code presence is not a current support claim.
 
 ## [0.2.0] - 2026-09-01
 
