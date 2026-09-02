@@ -5,8 +5,8 @@ use linura_policy::{
     ReviewedChange, ReviewedFinding,
 };
 
-use crate::risk_classification::{RiskClassification, classify_plan_risk};
 use crate::AuthenticatedPrincipal;
+use crate::risk_classification::{RiskClassification, classify_plan_risk};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PolicySubjectError {
@@ -217,8 +217,7 @@ mod tests {
     }
 
     fn principal() -> AuthenticatedPrincipal {
-        AuthenticatedPrincipal::new("uid:1000")
-            .unwrap_or_else(|error| unreachable!("{error}"))
+        AuthenticatedPrincipal::new("uid:1000").unwrap_or_else(|error| unreachable!("{error}"))
     }
 
     #[test]
