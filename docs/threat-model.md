@@ -9,6 +9,7 @@
 - reusable Setup/Profile definitions and Library history;
 - system graph and semantic provenance;
 - audit/policy/grant state;
+- trusted risk-policy state and classification provenance;
 - update/release trust roots;
 - user understanding at approval time.
 
@@ -33,21 +34,33 @@ Low-privilege client or agent convinces Linura to perform privileged work.
 - plan/approval before privilege;
 - strict executor revalidation.
 
+### Risk downgrade, under-classification or classifier substitution
+A caller, model, provider or configuration change attempts to make a dangerous canonical plan look like a lower-risk mutation, or relies on an unknown mutation shape receiving the ordinary mutation approval class.
+- planner `prospective_risk` is a lower bound and cannot be reduced by authority classification;
+- trusted deterministic risk classification is owned by Linura Control, not client/model/provider payloads;
+- classification uses exact typed canonical plan material such as provider/resource/capability/change keys;
+- no matching trusted rule means unclassified mutation risk and the review fails closed as `blocked`;
+- classification below the planner floor is rejected and the review fails closed as `blocked`;
+- overlapping rules choose the highest risk deterministically rather than the first/lowest match;
+- risk-policy revision and matched rule identities are retained as material review findings/provenance;
+- approval/review reuse across changed risk-policy provenance or resulting risk is rejected;
+- the initial v0.3 rule set is deliberately narrow rather than guessing risk for future mutation domains.
+
 ### Approval replay, theft or policy substitution
-A caller attempts to reuse approval for a different principal, plan, evidence snapshot, resource/capability or policy revision, or to preserve approval after expiry/revocation.
+A caller attempts to reuse approval for a different principal, plan, evidence snapshot, resource/capability, risk classification or policy revision, or to preserve approval after expiry/revocation.
 - policy review is derived from the canonical `ReconciliationPlan`, not a client-authored executable plan;
-- review binds authenticated principal + request/plan identity + authoritative evidence identity + provider/resource/capability + policy ID/revision;
+- review binds authenticated principal + request/plan identity + authoritative evidence identity + provider/resource/capability + material risk-classification provenance + policy ID/revision;
 - material planned changes/findings and semantic provenance are revalidated against the reviewed subject before approval evidence is accepted;
 - `PlanId` alone is never sufficient authority evidence;
 - approval evidence is authenticated, scoped to an explicit approval requirement, and checked for approver constraints, expiry and revocation at use time;
-- cross-principal approval reuse and changed-policy-revision reuse fail closed;
+- cross-principal approval reuse and changed policy/risk-policy revision reuse fail closed;
 - agents/models cannot mint approval evidence or satisfy their own protected human/admin approval requirement;
 - v0.3 approval never creates prepare/executor authority; later prepare must revalidate exact review binding before effects.
 
 ### Prompt injection / model compromise
 External content manipulates an agent into dangerous proposals.
 - model output has proposal authority only;
-- trusted structured validation/solver/policy boundaries;
+- trusted structured validation/solver/policy/risk-classification boundaries;
 - no executor/tool handle in model runtime;
 - context/source provenance and user-visible material effects;
 - negative tests for escalation attempts.
@@ -58,13 +71,13 @@ An imported or synchronized artifact attempts to smuggle commands, unsafe state,
 - imported artifacts carry no grants/approvals;
 - schema/composition/cycle validation before adoption;
 - secret values prohibited; only secret refs are portable;
-- fresh target observation + capability resolution + plan/policy/approval;
+- fresh target observation + capability resolution + plan/risk classification/policy/approval;
 - unsupported/ambiguous requirements fail closed;
 - provenance distinguishes imported definitions from locally approved/adopted lineage.
 
 ### Machine-class spoofing / cross-class adoption confusion
 A malicious or malformed portable profile lies about its source machine class, or attempts to use a workstation/server/edge label to obtain capabilities, support status, weaker policy, or unsafe cross-class replay on the target machine.
-- imported `machine_class` is untrusted declarative source metadata and never an authority, grant, executor selector, or support assertion;
+- imported `machine_class` is untrusted declarative source metadata and never an authority, grant, executor selector, risk override, or support assertion;
 - the Experimental portable-profile schema accepts only the canonical `workstation`, `server`, and `edge` values and rejects missing/unknown values;
 - the target machine is independently observed and its local capabilities/platform support are resolved from authoritative local evidence rather than trusted from the imported class label;
 - source/target class differences are compatibility inputs that require fresh resolution and a fresh reviewable plan; historical executor effects are never replayed;
@@ -110,8 +123,8 @@ Malformed capability/setup definitions cause cycles, hidden conflicts or unsafe 
 
 ### TOCTOU/stale plan
 - observed-state freshness and preconditions;
-- review is bound to the exact authoritative evidence and material plan being approved;
-- policy/approval changes invalidate stale review evidence;
+- review is bound to the exact authoritative evidence, material plan and trusted risk classification being approved;
+- policy/risk-policy/approval changes invalidate stale review evidence;
 - revalidation immediately before high-risk effects;
 - plan expiry/replan rules;
 - setup/profile adoption always plans against current target state.
