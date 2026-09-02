@@ -70,16 +70,16 @@ PRESERVED_SCAFFOLD_MARKERS = {
     ),
     "crates/linura-control/src/risk_classification.rs": (
         "BASELINE_RISK_POLICY_REVISION",
-        "RiskClassification::Unclassified",
-        "RiskClassification::DowngradeRejected",
+        "return RiskClassification::Unclassified {",
+        "return RiskClassification::DowngradeRejected {",
         "systemd.unit.active-state.security-sensitive",
         "no trusted risk rule covers",
     ),
     "crates/linura-control/src/policy_review.rs": (
         "classify_plan_risk(plan)",
-        "authority-risk-classified",
-        "authority-risk-unclassified",
-        "authority-risk-downgrade-rejected",
+        "code: \"authority-risk-classified\".into()",
+        "code: \"authority-risk-unclassified\".into()",
+        "code: \"authority-risk-downgrade-rejected\".into()",
     ),
 }
 
