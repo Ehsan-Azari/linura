@@ -83,12 +83,12 @@ Every public preview remains explicitly non-executable and carries `execution_au
 
 ## v0.3.0 — policy, authorization, approval, and plan review
 
-**Status:** planned  
-**Target claim class:** Experimental
+**Status:** released
+**Claim class:** Experimental
 
-Complete the authority-side review boundary without introducing supported external mutation.
+Released the authority-side review boundary without introducing supported external mutation.
 
-Target capabilities:
+Released capabilities:
 
 - typed deterministic policy outcomes such as allow, deny, require-approval and blocked;
 - authenticated actor/principal and authorization context;

@@ -6,8 +6,8 @@ versioning_document = "docs/versioning-and-release-policy.md"
 machine_profile_document = "docs/machine-profiles.md"
 hardware_support_matrix = "hardware/support-matrix.json"
 canonical_lifecycle = "request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile"
-current_release = "v0.2.0"
-next_release = "v0.3.0"
+current_release = "v0.3.0"
+next_release = "v0.4.0"
 product_stability = "experimental"
 target_machine_classes = ["workstation", "server", "edge"]
 fleet_model = "optional-overlay"
@@ -62,7 +62,7 @@ qualification = "docs/qualification/v0.2.0.md"
 [[milestone]]
 version = "v0.3.0"
 title = "policy, authorization, approval, and plan review"
-status = "planned"
+status = "released"
 claim_class = "Experimental"
 depends_on = ["v0.2.0"]
 durable_recovery = false
@@ -73,6 +73,8 @@ agent_role = "none"
 platform_support = "none"
 authority_state = "review-only"
 milestone_contract = "docs/milestones/v0.3.0.md"
+release_contract = "docs/releases/v0.3.0.md"
+qualification = "docs/qualification/v0.3.0.md"
 
 [[milestone]]
 version = "v0.4.0"
