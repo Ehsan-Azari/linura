@@ -1,79 +1,45 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeSet;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
-use linura_core::{
-    ActorKind, ApprovalEvidenceId, ApprovalRequestId, PrincipalId,
-};
-use linura_policy::{ApprovalClass, PolicyDecision, PolicyEvaluation};
+use linura_core::{ActorKind, ApprovalEvidenceId, ApprovalRequestId, PrincipalId};
 
 /// v0.3 approval evidence is intentionally short-lived and process-local.
 /// Durable authorization belongs to v0.4.
 pub const MAX_APPROVAL_TTL_SECONDS: u64 = 86_400;
 
-/// The exact policy evaluation and approval class that must be satisfied.
+/// The exact authority binding and approval class that must be satisfied.
 ///
-/// Retaining the complete evaluation makes approval binding sensitive to the
-/// authenticated principal, request/plan identity, authoritative evidence,
-/// provider/resource/capability, material changes/findings, classified risk,
-/// risk-policy provenance, and policy revision carried by that evaluation.
+/// `B` is deliberately generic so this low-level approval domain never depends
+/// on policy, transport, planner, provider, or executor crates. Linura Control
+/// binds it to the complete `PolicyEvaluation` produced by the policy domain.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApprovalRequirement {
-    pub class: ApprovalClass,
-    pub evaluation: PolicyEvaluation,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ApprovalRequirementError {
-    NotRequired,
-    NotApprovable,
-}
-
-impl Display for ApprovalRequirementError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotRequired => f.write_str("policy evaluation does not require approval"),
-            Self::NotApprovable => {
-                f.write_str("denied or blocked policy evaluation cannot become approvable")
-            }
-        }
-    }
-}
-
-impl std::error::Error for ApprovalRequirementError {}
-
-impl ApprovalRequirement {
-    pub fn try_from_evaluation(
-        evaluation: &PolicyEvaluation,
-    ) -> Result<Self, ApprovalRequirementError> {
-        match &evaluation.decision {
-            PolicyDecision::RequireApproval { class, .. } => Ok(Self {
-                class: *class,
-                evaluation: evaluation.clone(),
-            }),
-            PolicyDecision::Allow => Err(ApprovalRequirementError::NotRequired),
-            PolicyDecision::Deny { .. } | PolicyDecision::Blocked { .. } => {
-                Err(ApprovalRequirementError::NotApprovable)
-            }
-        }
-    }
+pub struct ApprovalRequirement<B, C> {
+    pub class: C,
+    pub binding: B,
 }
 
 /// Trusted local authentication metadata for an approval issuer.
 ///
-/// This type is an authority input supplied by Control after local
-/// authentication; it is not a client-asserted wire claim.
+/// This is supplied by Linura Control after local authentication. It is not a
+/// client-asserted wire claim.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AuthenticatedApprover {
+pub struct AuthenticatedApprover<C>
+where
+    C: Ord,
+{
     pub principal: PrincipalId,
     pub kind: ActorKind,
-    pub approval_classes: BTreeSet<ApprovalClass>,
+    pub approval_classes: BTreeSet<C>,
 }
 
-impl AuthenticatedApprover {
+impl<C> AuthenticatedApprover<C>
+where
+    C: Copy + Ord,
+{
     #[must_use]
-    pub fn can_satisfy(&self, class: ApprovalClass) -> bool {
+    pub fn can_satisfy(&self, class: C) -> bool {
         self.kind == ActorKind::Human && self.approval_classes.contains(&class)
     }
 }
@@ -81,10 +47,10 @@ impl AuthenticatedApprover {
 /// Immutable, short-lived proof that one authenticated human principal
 /// satisfied one exact approval requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ApprovalEvidence {
+pub struct ApprovalEvidence<B, C> {
     pub id: ApprovalEvidenceId,
     pub request_id: ApprovalRequestId,
-    pub requirement: ApprovalRequirement,
+    pub requirement: ApprovalRequirement<B, C>,
     pub approver: PrincipalId,
     pub issued_at_unix_seconds: u64,
     pub expires_at_unix_seconds: u64,
@@ -99,14 +65,17 @@ pub struct ApprovalRevocation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ApprovalIssueError {
+pub enum ApprovalIssueError<C> {
     NonHumanApprover,
-    MissingApprovalClass(ApprovalClass),
+    MissingApprovalClass(C),
     InvalidValidityWindow,
     ValidityWindowTooLong,
 }
 
-impl Display for ApprovalIssueError {
+impl<C> Display for ApprovalIssueError<C>
+where
+    C: Debug,
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NonHumanApprover => {
@@ -126,18 +95,21 @@ impl Display for ApprovalIssueError {
     }
 }
 
-impl std::error::Error for ApprovalIssueError {}
+impl<C> std::error::Error for ApprovalIssueError<C> where C: Debug {}
 
-impl ApprovalEvidence {
+impl<B, C> ApprovalEvidence<B, C>
+where
+    C: Copy + Debug + Eq + Ord,
+{
     #[allow(clippy::too_many_arguments)]
     pub fn try_issue(
         id: ApprovalEvidenceId,
         request_id: ApprovalRequestId,
-        requirement: ApprovalRequirement,
-        approver: &AuthenticatedApprover,
+        requirement: ApprovalRequirement<B, C>,
+        approver: &AuthenticatedApprover<C>,
         issued_at_unix_seconds: u64,
         expires_at_unix_seconds: u64,
-    ) -> Result<Self, ApprovalIssueError> {
+    ) -> Result<Self, ApprovalIssueError<C>> {
         if approver.kind != ActorKind::Human {
             return Err(ApprovalIssueError::NonHumanApprover);
         }
@@ -173,16 +145,20 @@ pub enum ApprovalValidation {
 
 /// Validate immutable evidence against the current exact requirement.
 ///
-/// Equality of `ApprovalRequirement` deliberately compares the complete policy
-/// evaluation rather than only IDs. Any material review change invalidates the
-/// evidence and requires a new approval.
+/// Equality deliberately compares the complete binding rather than only IDs.
+/// Any material authority change invalidates the evidence and requires a fresh
+/// approval.
 #[must_use]
-pub fn validate_approval(
-    evidence: &ApprovalEvidence,
-    current_requirement: &ApprovalRequirement,
+pub fn validate_approval<B, C>(
+    evidence: &ApprovalEvidence<B, C>,
+    current_requirement: &ApprovalRequirement<B, C>,
     now_unix_seconds: u64,
     revocation: Option<&ApprovalRevocation>,
-) -> ApprovalValidation {
+) -> ApprovalValidation
+where
+    B: Eq,
+    C: Eq,
+{
     if &evidence.requirement != current_requirement {
         return ApprovalValidation::BindingMismatch;
     }
@@ -200,54 +176,27 @@ pub fn validate_approval(
 
 #[cfg(test)]
 mod tests {
-    use linura_core::{
-        Actor, ActorId, CapabilityId, IntentId, PlanId, PolicyId, PolicyRevisionId, ProviderId,
-        RequestId, ResourceId, RiskClass, SemanticReason, ValidationError,
-    };
-    use linura_policy::{
-        BaselinePolicy, PolicyEngine, PolicySubject, ReviewPlanStatus, ReviewedChange,
-    };
-
     use super::*;
+    use linura_core::ValidationError;
+
+    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum TestClass {
+        Interactive,
+        Administrator,
+    }
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
 
-    fn evaluation(kind: ActorKind, risk: RiskClass) -> PolicyEvaluation {
-        let subject = PolicySubject::try_new(
-            id(PrincipalId::new("uid:1000")),
-            id(PlanId::new("plan:approval")),
-            id(RequestId::new("request:approval")),
-            Actor {
-                id: id(ActorId::new("actor:approval")),
-                kind,
-                interactive: kind == ActorKind::Human,
-            },
-            id(ProviderId::new("systemd")),
-            id(ResourceId::new("systemd:unit:test.service")),
-            id(CapabilityId::new("systemd.unit.observe")),
-            SemanticReason {
-                summary: "exercise approval lifecycle".into(),
-                intent_ids: vec![id(IntentId::new("intent:approval"))],
-                requirement_ids: vec![],
-                capability_ids: vec![],
-            },
-            "evidence:approval".into(),
-            risk,
-            ReviewPlanStatus::ChangeProposed,
-            vec![ReviewedChange {
-                key: "active_state".into(),
-                current: Some("inactive".into()),
-                desired: "active".into(),
-            }],
-            vec![],
-        )
-        .unwrap_or_else(|error| unreachable!("{error}"));
-        BaselinePolicy::default().evaluate(&subject)
+    fn requirement() -> ApprovalRequirement<&'static str, TestClass> {
+        ApprovalRequirement {
+            class: TestClass::Administrator,
+            binding: "exact-policy-evaluation",
+        }
     }
 
-    fn approver(class: ApprovalClass) -> AuthenticatedApprover {
+    fn approver(class: TestClass) -> AuthenticatedApprover<TestClass> {
         AuthenticatedApprover {
             principal: id(PrincipalId::new("uid:0")),
             kind: ActorKind::Human,
@@ -255,12 +204,12 @@ mod tests {
         }
     }
 
-    fn issued(requirement: ApprovalRequirement) -> ApprovalEvidence {
+    fn issued() -> ApprovalEvidence<&'static str, TestClass> {
         ApprovalEvidence::try_issue(
             id(ApprovalEvidenceId::new("approval:evidence:1")),
             id(ApprovalRequestId::new("approval:request:1")),
-            requirement.clone(),
-            &approver(requirement.class),
+            requirement(),
+            &approver(TestClass::Administrator),
             100,
             200,
         )
@@ -268,31 +217,17 @@ mod tests {
     }
 
     #[test]
-    fn requirement_is_derived_only_from_require_approval_decision() {
-        let evaluation = evaluation(ActorKind::Human, RiskClass::SecuritySensitive);
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation)
-            .unwrap_or_else(|error| unreachable!("{error}"));
-        assert_eq!(requirement.class, ApprovalClass::Administrator);
-        assert_eq!(requirement.evaluation, evaluation);
-    }
-
-    #[test]
     fn non_human_principals_cannot_issue_approval() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SystemMutation,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
         let machine = AuthenticatedApprover {
             principal: id(PrincipalId::new("service:policy")),
             kind: ActorKind::Service,
-            approval_classes: BTreeSet::from([ApprovalClass::InteractiveUser]),
+            approval_classes: BTreeSet::from([TestClass::Administrator]),
         };
         assert_eq!(
             ApprovalEvidence::try_issue(
                 id(ApprovalEvidenceId::new("approval:evidence:service")),
                 id(ApprovalRequestId::new("approval:request:service")),
-                requirement,
+                requirement(),
                 &machine,
                 100,
                 200,
@@ -303,41 +238,28 @@ mod tests {
 
     #[test]
     fn wrong_approval_class_fails_closed() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SecuritySensitive,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
-        let weak = approver(ApprovalClass::InteractiveUser);
         assert_eq!(
             ApprovalEvidence::try_issue(
                 id(ApprovalEvidenceId::new("approval:evidence:weak")),
                 id(ApprovalRequestId::new("approval:request:weak")),
-                requirement,
-                &weak,
+                requirement(),
+                &approver(TestClass::Interactive),
                 100,
                 200,
             ),
             Err(ApprovalIssueError::MissingApprovalClass(
-                ApprovalClass::Administrator
+                TestClass::Administrator
             ))
         );
     }
 
     #[test]
-    fn evidence_is_exact_bound_to_the_evaluation() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SecuritySensitive,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
-        let evidence = issued(requirement.clone());
-
-        let mut changed = requirement;
-        changed.evaluation.binding.policy_revision_id =
-            id(PolicyRevisionId::new("policy:baseline:v2"));
-        changed.evaluation.binding.policy_id = id(PolicyId::new("policy:baseline"));
-
+    fn evidence_is_exact_bound() {
+        let evidence = issued();
+        let changed = ApprovalRequirement {
+            class: TestClass::Administrator,
+            binding: "changed-policy-evaluation",
+        };
         assert_eq!(
             validate_approval(&evidence, &changed, 150, None),
             ApprovalValidation::BindingMismatch
@@ -345,22 +267,20 @@ mod tests {
     }
 
     #[test]
-    fn expiry_and_revocation_fail_closed() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SystemMutation,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
-        let evidence = issued(requirement.clone());
-
+    fn expiry_revocation_and_future_issuance_fail_closed() {
+        let evidence = issued();
         assert_eq!(
-            validate_approval(&evidence, &requirement, 200, None),
+            validate_approval(&evidence, &requirement(), 99, None),
+            ApprovalValidation::NotYetValid
+        );
+        assert_eq!(
+            validate_approval(&evidence, &requirement(), 200, None),
             ApprovalValidation::Expired
         );
         assert_eq!(
             validate_approval(
                 &evidence,
-                &requirement,
+                &requirement(),
                 150,
                 Some(&ApprovalRevocation {
                     revoked_by: id(PrincipalId::new("uid:0")),
@@ -372,32 +292,13 @@ mod tests {
     }
 
     #[test]
-    fn evidence_not_yet_valid_fails_closed() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SystemMutation,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
-        let evidence = issued(requirement.clone());
-        assert_eq!(
-            validate_approval(&evidence, &requirement, 99, None),
-            ApprovalValidation::NotYetValid
-        );
-    }
-
-    #[test]
     fn validity_windows_are_bounded() {
-        let requirement = ApprovalRequirement::try_from_evaluation(&evaluation(
-            ActorKind::Human,
-            RiskClass::SystemMutation,
-        ))
-        .unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(
             ApprovalEvidence::try_issue(
                 id(ApprovalEvidenceId::new("approval:evidence:long")),
                 id(ApprovalRequestId::new("approval:request:long")),
-                requirement.clone(),
-                &approver(requirement.class),
+                requirement(),
+                &approver(TestClass::Administrator),
                 100,
                 100 + MAX_APPROVAL_TTL_SECONDS + 1,
             ),
