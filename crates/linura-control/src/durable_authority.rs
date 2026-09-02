@@ -1129,6 +1129,15 @@ fn observation_expires_at_unix_ms(
         .ok_or(DurableAuthorityError::ClockUnavailable)
 }
 
+fn exclusive_seconds_to_last_valid_unix_ms(
+    exclusive_unix_seconds: u64,
+) -> Result<u64, DurableAuthorityError> {
+    exclusive_unix_seconds
+        .checked_mul(1_000)
+        .and_then(|exclusive_ms| exclusive_ms.checked_sub(1))
+        .ok_or(DurableAuthorityError::ClockUnavailable)
+}
+
 fn authority_expires_at_unix_ms(
     observation: &ObservationEnvelope,
     binding: &AuthorityBinding,
@@ -1137,10 +1146,8 @@ fn authority_expires_at_unix_ms(
     match binding.authorization() {
         AuthorizationBasis::PolicyAllow => Ok(observation_expiry),
         AuthorizationBasis::Approval(approval) => {
-            let approval_expiry = approval
-                .expires_at_unix_seconds()
-                .checked_mul(1_000)
-                .ok_or(DurableAuthorityError::ClockUnavailable)?;
+            let approval_expiry =
+                exclusive_seconds_to_last_valid_unix_ms(approval.expires_at_unix_seconds())?;
             Ok(observation_expiry.min(approval_expiry))
         }
     }
@@ -1173,4 +1180,18 @@ fn verified_commit_digests(
         ],
     );
     Ok((desired_state_digest, graph_digest, provenance_digest))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_expiry_seconds_remain_exclusive_when_sealed_as_milliseconds() {
+        assert_eq!(
+            exclusive_seconds_to_last_valid_unix_ms(42)
+                .unwrap_or_else(|error| unreachable!("{error}")),
+            41_999
+        );
+    }
 }

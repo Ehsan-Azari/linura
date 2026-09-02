@@ -12,8 +12,16 @@ SQLITE = ROOT / "crates/linura-persistence-sqlite/src/lib.rs"
 class V04AuthorityContractTests(unittest.TestCase):
     def test_authority_key_consumes_non_copy_container(self) -> None:
         text = TRANSACTION.read_text(encoding="utf-8")
-        self.assertIn("pub fn new(bytes: Vec<u8>)", text)
+        self.assertIn("pub fn new(mut bytes: Vec<u8>)", text)
         self.assertNotIn("bytes: [u8; AUTHORITY_MUTATION_KEY_BYTES]", text)
+        self.assertIn("validate_authority_key_bytes(&mut bytes)?", text)
+        validation = text[
+            text.index("fn validate_authority_key_bytes") : text.index(
+                "impl TransactionAuthorityKey"
+            )
+        ]
+        self.assertIn("bytes.zeroize();", validation)
+        self.assertIn("InvalidAuthorityKey", validation)
         self.assertEqual(text.count("self.bytes.zeroize();"), 3)
 
     def test_all_sensitive_mutations_are_sealed(self) -> None:

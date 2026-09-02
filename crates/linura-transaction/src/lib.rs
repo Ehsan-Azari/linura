@@ -506,11 +506,17 @@ impl Drop for TransactionAuthorityKey {
     }
 }
 
+fn validate_authority_key_bytes(bytes: &mut [u8]) -> Result<(), TransactionValidationError> {
+    if bytes.len() != AUTHORITY_MUTATION_KEY_BYTES || bytes.iter().all(|byte| *byte == 0) {
+        bytes.zeroize();
+        return Err(TransactionValidationError::InvalidAuthorityKey);
+    }
+    Ok(())
+}
+
 impl TransactionAuthorityKey {
-    pub fn new(bytes: Vec<u8>) -> Result<Self, TransactionValidationError> {
-        if bytes.len() != AUTHORITY_MUTATION_KEY_BYTES || bytes.iter().all(|byte| *byte == 0) {
-            return Err(TransactionValidationError::InvalidAuthorityKey);
-        }
+    pub fn new(mut bytes: Vec<u8>) -> Result<Self, TransactionValidationError> {
+        validate_authority_key_bytes(&mut bytes)?;
         Ok(Self { bytes })
     }
 
@@ -1275,5 +1281,15 @@ mod tests {
             ),
             Err(TransactionValidationError::DuplicateRiskRule)
         ));
+    }
+
+    #[test]
+    fn rejected_authority_key_material_is_zeroized_before_error() {
+        let mut rejected = vec![0xa5; AUTHORITY_MUTATION_KEY_BYTES - 1];
+        assert!(matches!(
+            validate_authority_key_bytes(&mut rejected),
+            Err(TransactionValidationError::InvalidAuthorityKey)
+        ));
+        assert!(rejected.iter().all(|byte| *byte == 0));
     }
 }
