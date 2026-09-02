@@ -1,9 +1,16 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeSet;
+use std::fmt::{Display, Formatter};
+
 use linura_core::{
     Actor, ActorKind, CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId,
     RequestId, ResourceId, RiskClass, SemanticReason,
 };
+
+const MAX_EVIDENCE_ID_BYTES: usize = 512;
+const MAX_REVIEW_CHANGES: usize = 256;
+const MAX_REVIEW_FINDINGS: usize = 256;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ApprovalClass {
@@ -46,6 +53,78 @@ pub struct PolicySnapshot {
     pub revision_id: PolicyRevisionId,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PolicySubjectValidationError {
+    InvalidSemanticReason(String),
+    EmptyEvidenceId,
+    EvidenceIdTooLong,
+    TooManyChanges,
+    TooManyFindings,
+    EmptyChangeKey,
+    DuplicateChangeKey(String),
+    EmptyFindingCode,
+    EmptyFindingMessage,
+    DuplicateFindingCode(String),
+    NoChangeContainsChanges,
+    NoChangeHasNonReadOnlyRisk,
+    ChangeProposedWithoutChanges,
+    ChangeProposedIsReadOnly,
+    NonBlockedSubjectHasBlocker,
+    BlockedSubjectHasNoBlocker,
+}
+
+impl Display for PolicySubjectValidationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidSemanticReason(reason) => write!(f, "invalid semantic reason: {reason}"),
+            Self::EmptyEvidenceId => f.write_str("policy subject evidence id cannot be empty"),
+            Self::EvidenceIdTooLong => write!(
+                f,
+                "policy subject evidence id exceeds {MAX_EVIDENCE_ID_BYTES} UTF-8 bytes"
+            ),
+            Self::TooManyChanges => write!(
+                f,
+                "policy subject exceeds the {MAX_REVIEW_CHANGES}-change review bound"
+            ),
+            Self::TooManyFindings => write!(
+                f,
+                "policy subject exceeds the {MAX_REVIEW_FINDINGS}-finding review bound"
+            ),
+            Self::EmptyChangeKey => f.write_str("policy subject change key cannot be empty"),
+            Self::DuplicateChangeKey(key) => {
+                write!(f, "policy subject contains duplicate change key {key:?}")
+            }
+            Self::EmptyFindingCode => f.write_str("policy subject finding code cannot be empty"),
+            Self::EmptyFindingMessage => {
+                f.write_str("policy subject finding message cannot be empty")
+            }
+            Self::DuplicateFindingCode(code) => {
+                write!(f, "policy subject contains duplicate finding code {code:?}")
+            }
+            Self::NoChangeContainsChanges => {
+                f.write_str("no-change policy subject cannot contain planned changes")
+            }
+            Self::NoChangeHasNonReadOnlyRisk => {
+                f.write_str("no-change policy subject must carry read-only prospective risk")
+            }
+            Self::ChangeProposedWithoutChanges => {
+                f.write_str("change-proposed policy subject must contain a planned change")
+            }
+            Self::ChangeProposedIsReadOnly => {
+                f.write_str("change-proposed policy subject cannot carry read-only risk")
+            }
+            Self::NonBlockedSubjectHasBlocker => {
+                f.write_str("non-blocked policy subject cannot contain blocker findings")
+            }
+            Self::BlockedSubjectHasNoBlocker => {
+                f.write_str("blocked policy subject must contain at least one blocker finding")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PolicySubjectValidationError {}
+
 /// Transport/provider-neutral projection of the canonical reconciliation plan at
 /// the policy boundary.
 ///
@@ -53,6 +132,11 @@ pub struct PolicySnapshot {
 /// Control owns conversion from the canonical `ReconciliationPlan` into this
 /// projection and binds the transport-authenticated principal at the same time.
 /// The public SDK does not expose this internal authority type.
+///
+/// Rust sibling crates do not have friend visibility, so the cross-crate
+/// constructor is public to the sole workspace consumer allowed by the layering
+/// contract. Construction is therefore fallible and independently validates the
+/// invariants policy relies on instead of trusting its caller.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicySubject {
     principal: PrincipalId,
@@ -72,7 +156,7 @@ pub struct PolicySubject {
 
 impl PolicySubject {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn try_new(
         principal: PrincipalId,
         plan_id: PlanId,
         request_id: RequestId,
@@ -86,8 +170,84 @@ impl PolicySubject {
         status: ReviewPlanStatus,
         changes: Vec<ReviewedChange>,
         findings: Vec<ReviewedFinding>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, PolicySubjectValidationError> {
+        reason
+            .validate()
+            .map_err(|error| PolicySubjectValidationError::InvalidSemanticReason(error.to_string()))?;
+        if observed_evidence_id.trim().is_empty() {
+            return Err(PolicySubjectValidationError::EmptyEvidenceId);
+        }
+        if observed_evidence_id.len() > MAX_EVIDENCE_ID_BYTES {
+            return Err(PolicySubjectValidationError::EvidenceIdTooLong);
+        }
+        if changes.len() > MAX_REVIEW_CHANGES {
+            return Err(PolicySubjectValidationError::TooManyChanges);
+        }
+        if findings.len() > MAX_REVIEW_FINDINGS {
+            return Err(PolicySubjectValidationError::TooManyFindings);
+        }
+
+        let mut change_keys = BTreeSet::new();
+        for change in &changes {
+            if change.key.trim().is_empty() {
+                return Err(PolicySubjectValidationError::EmptyChangeKey);
+            }
+            if !change_keys.insert(change.key.as_str()) {
+                return Err(PolicySubjectValidationError::DuplicateChangeKey(
+                    change.key.clone(),
+                ));
+            }
+        }
+
+        let mut finding_codes = BTreeSet::new();
+        for finding in &findings {
+            if finding.code.trim().is_empty() {
+                return Err(PolicySubjectValidationError::EmptyFindingCode);
+            }
+            if finding.message.trim().is_empty() {
+                return Err(PolicySubjectValidationError::EmptyFindingMessage);
+            }
+            if !finding_codes.insert(finding.code.as_str()) {
+                return Err(PolicySubjectValidationError::DuplicateFindingCode(
+                    finding.code.clone(),
+                ));
+            }
+        }
+
+        let has_blocker = findings
+            .iter()
+            .any(|finding| finding.level == ReviewFindingLevel::Blocker);
+        match status {
+            ReviewPlanStatus::NoChange => {
+                if !changes.is_empty() {
+                    return Err(PolicySubjectValidationError::NoChangeContainsChanges);
+                }
+                if prospective_risk != RiskClass::ReadOnly {
+                    return Err(PolicySubjectValidationError::NoChangeHasNonReadOnlyRisk);
+                }
+                if has_blocker {
+                    return Err(PolicySubjectValidationError::NonBlockedSubjectHasBlocker);
+                }
+            }
+            ReviewPlanStatus::ChangeProposed => {
+                if changes.is_empty() {
+                    return Err(PolicySubjectValidationError::ChangeProposedWithoutChanges);
+                }
+                if prospective_risk == RiskClass::ReadOnly {
+                    return Err(PolicySubjectValidationError::ChangeProposedIsReadOnly);
+                }
+                if has_blocker {
+                    return Err(PolicySubjectValidationError::NonBlockedSubjectHasBlocker);
+                }
+            }
+            ReviewPlanStatus::Blocked => {
+                if !has_blocker {
+                    return Err(PolicySubjectValidationError::BlockedSubjectHasNoBlocker);
+                }
+            }
+        }
+
+        Ok(Self {
             principal,
             plan_id,
             request_id,
@@ -101,7 +261,7 @@ impl PolicySubject {
             status,
             changes,
             findings,
-        }
+        })
     }
 
     #[must_use]
@@ -312,8 +472,22 @@ mod tests {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
 
-    fn subject(kind: ActorKind, risk: RiskClass, status: ReviewPlanStatus) -> PolicySubject {
-        PolicySubject::new(
+    fn subject_result(
+        kind: ActorKind,
+        risk: RiskClass,
+        status: ReviewPlanStatus,
+    ) -> Result<PolicySubject, PolicySubjectValidationError> {
+        let blocked = status == ReviewPlanStatus::Blocked;
+        let changes = if status == ReviewPlanStatus::NoChange {
+            vec![]
+        } else {
+            vec![ReviewedChange {
+                key: "active_state".into(),
+                current: Some("inactive".into()),
+                desired: "active".into(),
+            }]
+        };
+        PolicySubject::try_new(
             id(PrincipalId::new("uid:1000")),
             id(PlanId::new("plan:test")),
             id(RequestId::new("req:test")),
@@ -334,12 +508,8 @@ mod tests {
             "evidence:test".into(),
             risk,
             status,
-            vec![ReviewedChange {
-                key: "active_state".into(),
-                current: Some("inactive".into()),
-                desired: "active".into(),
-            }],
-            if status == ReviewPlanStatus::Blocked {
+            changes,
+            if blocked {
                 vec![ReviewedFinding {
                     code: "blocked".into(),
                     level: ReviewFindingLevel::Blocker,
@@ -349,6 +519,10 @@ mod tests {
                 vec![]
             },
         )
+    }
+
+    fn subject(kind: ActorKind, risk: RiskClass, status: ReviewPlanStatus) -> PolicySubject {
+        subject_result(kind, risk, status).unwrap_or_else(|error| unreachable!("{error}"))
     }
 
     #[test]
@@ -391,6 +565,77 @@ mod tests {
         assert!(matches!(
             evaluation.decision,
             PolicyDecision::Blocked { .. }
+        ));
+    }
+
+    #[test]
+    fn read_only_change_proposal_is_rejected_at_construction() {
+        let result = subject_result(
+            ActorKind::Human,
+            RiskClass::ReadOnly,
+            ReviewPlanStatus::ChangeProposed,
+        );
+        assert!(matches!(
+            result,
+            Err(PolicySubjectValidationError::ChangeProposedIsReadOnly)
+        ));
+    }
+
+    #[test]
+    fn empty_evidence_is_rejected_at_construction() {
+        let mut subject = subject(
+            ActorKind::Human,
+            RiskClass::SystemMutation,
+            ReviewPlanStatus::ChangeProposed,
+        );
+        subject.observed_evidence_id.clear();
+        let result = PolicySubject::try_new(
+            subject.principal,
+            subject.plan_id,
+            subject.request_id,
+            subject.actor,
+            subject.provider,
+            subject.resource,
+            subject.capability,
+            subject.reason,
+            subject.observed_evidence_id,
+            subject.prospective_risk,
+            subject.status,
+            subject.changes,
+            subject.findings,
+        );
+        assert!(matches!(
+            result,
+            Err(PolicySubjectValidationError::EmptyEvidenceId)
+        ));
+    }
+
+    #[test]
+    fn blocked_status_requires_a_blocker() {
+        let mut subject = subject(
+            ActorKind::Human,
+            RiskClass::SystemMutation,
+            ReviewPlanStatus::ChangeProposed,
+        );
+        subject.status = ReviewPlanStatus::Blocked;
+        let result = PolicySubject::try_new(
+            subject.principal,
+            subject.plan_id,
+            subject.request_id,
+            subject.actor,
+            subject.provider,
+            subject.resource,
+            subject.capability,
+            subject.reason,
+            subject.observed_evidence_id,
+            subject.prospective_risk,
+            subject.status,
+            subject.changes,
+            subject.findings,
+        );
+        assert!(matches!(
+            result,
+            Err(PolicySubjectValidationError::BlockedSubjectHasNoBlocker)
         ));
     }
 }
