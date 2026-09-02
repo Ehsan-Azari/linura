@@ -122,6 +122,28 @@ class ApprovalStrengthContractGuardTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("RequireApproval decision", result.stderr)
 
+    def test_quote_character_literal_cannot_expose_string_decoy(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            semantic_test = self._copy_fixture(root)
+            text = semantic_test.read_text(encoding="utf-8").replace(
+                "class, expected_class,",
+                "class, class,",
+                1,
+            )
+            text = text.replace(
+                "let decision = policy.evaluate(&subject(actor_kind, risk)).decision;",
+                "let decision = policy.evaluate(&subject(actor_kind, risk)).decision;\n"
+                "            let _quote = '\\"';\n"
+                '            let _decoy = "assert_eq!(class, expected_class,";',
+                1,
+            )
+            semantic_test.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("evaluated runtime `class`", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

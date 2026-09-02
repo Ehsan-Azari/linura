@@ -14,10 +14,13 @@ REQUIRED_DECISION_BINDING = re.compile(
 REQUIRED_CLASS_COMPARISON = re.compile(
     r"assert_eq!\s*\(\s*class\s*,\s*expected_class\s*,"
 )
+RUST_CHAR_LITERAL = re.compile(
+    r"'(?:[^'\\\n]|\\(?:[nrt0\\'\"]|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}))'"
+)
 
 
 def strip_rust_comments_and_literals(text: str) -> str:
-    """Replace non-code Rust comments/string contents while preserving layout."""
+    """Replace non-code Rust comments/literals while preserving layout."""
     output: list[str] = []
     index = 0
     block_depth = 0
@@ -49,6 +52,17 @@ def strip_rust_comments_and_literals(text: str) -> str:
             output.extend("  ")
             index += 2
             continue
+
+        # Strip valid Rust character literals before string handling. This is
+        # deliberately anchored to a complete char literal so lifetimes such as
+        # `'a` remain ordinary Rust tokens rather than swallowing later source.
+        if text[index] == "'":
+            char_literal = RUST_CHAR_LITERAL.match(text, index)
+            if char_literal is not None:
+                stop = char_literal.end()
+                output.extend(" " * (stop - index))
+                index = stop
+                continue
 
         if text[index] == "r":
             delimiter = index + 1
