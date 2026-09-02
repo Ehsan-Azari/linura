@@ -4,26 +4,11 @@ use linura_planner::{PlanStatus, ReconciliationPlan};
 pub(crate) const BASELINE_RISK_POLICY_REVISION: &str = "risk-policy:v0.3:1";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ResourceSelector {
-    Exact(&'static str),
-    Prefix(&'static str),
-}
-
-impl ResourceSelector {
-    fn matches(self, resource: &str) -> bool {
-        match self {
-            Self::Exact(expected) => resource == expected,
-            Self::Prefix(prefix) => resource.starts_with(prefix),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RiskRule {
     id: &'static str,
     provider: &'static str,
     capability: &'static str,
-    resource: ResourceSelector,
+    resource_prefix: &'static str,
     change_keys: &'static [&'static str],
     risk: RiskClass,
 }
@@ -32,13 +17,12 @@ impl RiskRule {
     fn matches(self, plan: &ReconciliationPlan) -> bool {
         plan.provider.as_str() == self.provider
             && plan.observation_capability.as_str() == self.capability
-            && self.resource.matches(plan.resource.as_str())
+            && plan.resource.as_str().starts_with(self.resource_prefix)
             && !plan.changes.is_empty()
-            && plan.changes.iter().all(|change| {
-                self.change_keys
-                    .iter()
-                    .any(|allowed| *allowed == change.key.as_str())
-            })
+            && plan
+                .changes
+                .iter()
+                .all(|change| self.change_keys.contains(&change.key.as_str()))
     }
 }
 
@@ -84,7 +68,7 @@ impl RiskPolicy {
                 id: "systemd.unit.active-state.security-sensitive",
                 provider: "systemd",
                 capability: "systemd.unit.observe",
-                resource: ResourceSelector::Prefix("systemd:unit:"),
+                resource_prefix: "systemd:unit:",
                 change_keys: &["active_state"],
                 risk: RiskClass::SecuritySensitive,
             }],
@@ -239,7 +223,7 @@ mod tests {
                 id: "unsafe-downgrade",
                 provider: "systemd",
                 capability: "systemd.unit.observe",
-                resource: ResourceSelector::Prefix("systemd:unit:"),
+                resource_prefix: "systemd:unit:",
                 change_keys: &["active_state"],
                 risk: RiskClass::UserState,
             }],
@@ -263,7 +247,7 @@ mod tests {
                 id: "test.destructive",
                 provider: "systemd",
                 capability: "systemd.unit.observe",
-                resource: ResourceSelector::Exact("systemd:unit:dangerous.service"),
+                resource_prefix: "systemd:unit:dangerous.service",
                 change_keys: &["active_state"],
                 risk: RiskClass::Destructive,
             }],
@@ -287,7 +271,7 @@ mod tests {
                     id: "z-broad",
                     provider: "systemd",
                     capability: "systemd.unit.observe",
-                    resource: ResourceSelector::Prefix("systemd:unit:"),
+                    resource_prefix: "systemd:unit:",
                     change_keys: &["active_state"],
                     risk: RiskClass::SystemMutation,
                 },
@@ -295,7 +279,7 @@ mod tests {
                     id: "a-critical",
                     provider: "systemd",
                     capability: "systemd.unit.observe",
-                    resource: ResourceSelector::Exact("systemd:unit:critical.service"),
+                    resource_prefix: "systemd:unit:critical.service",
                     change_keys: &["active_state"],
                     risk: RiskClass::Destructive,
                 },
