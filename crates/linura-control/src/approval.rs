@@ -7,8 +7,24 @@ pub const MAX_APPROVAL_TTL_SECONDS: u64 = 86_400;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApprovalRequirement<B, C> {
-    pub class: C,
-    pub binding: B,
+    class: C,
+    binding: B,
+}
+
+impl<B, C> ApprovalRequirement<B, C> {
+    pub(crate) fn new(class: C, binding: B) -> Self {
+        Self { class, binding }
+    }
+
+    #[must_use]
+    pub const fn class(&self) -> &C {
+        &self.class
+    }
+
+    #[must_use]
+    pub const fn binding(&self) -> &B {
+        &self.binding
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,15 +32,32 @@ pub struct AuthenticatedApprover<C>
 where
     C: Ord,
 {
-    pub principal: PrincipalId,
-    pub kind: ActorKind,
-    pub approval_classes: BTreeSet<C>,
+    principal: PrincipalId,
+    kind: ActorKind,
+    approval_classes: BTreeSet<C>,
 }
 
 impl<C> AuthenticatedApprover<C>
 where
     C: Copy + Ord,
 {
+    pub(crate) fn new(
+        principal: PrincipalId,
+        kind: ActorKind,
+        approval_classes: BTreeSet<C>,
+    ) -> Self {
+        Self {
+            principal,
+            kind,
+            approval_classes,
+        }
+    }
+
+    #[must_use]
+    pub fn principal(&self) -> &PrincipalId {
+        &self.principal
+    }
+
     #[must_use]
     pub fn can_satisfy(&self, class: C) -> bool {
         self.kind == ActorKind::Human && self.approval_classes.contains(&class)
@@ -33,18 +66,69 @@ where
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApprovalEvidence<B, C> {
-    pub id: ApprovalEvidenceId,
-    pub request_id: ApprovalRequestId,
-    pub requirement: ApprovalRequirement<B, C>,
-    pub approver: PrincipalId,
-    pub issued_at_unix_seconds: u64,
-    pub expires_at_unix_seconds: u64,
+    id: ApprovalEvidenceId,
+    request_id: ApprovalRequestId,
+    requirement: ApprovalRequirement<B, C>,
+    approver: PrincipalId,
+    issued_at_unix_seconds: u64,
+    expires_at_unix_seconds: u64,
+}
+
+impl<B, C> ApprovalEvidence<B, C> {
+    #[must_use]
+    pub fn id(&self) -> &ApprovalEvidenceId {
+        &self.id
+    }
+
+    #[must_use]
+    pub fn request_id(&self) -> &ApprovalRequestId {
+        &self.request_id
+    }
+
+    #[must_use]
+    pub fn requirement(&self) -> &ApprovalRequirement<B, C> {
+        &self.requirement
+    }
+
+    #[must_use]
+    pub fn approver(&self) -> &PrincipalId {
+        &self.approver
+    }
+
+    #[must_use]
+    pub const fn issued_at_unix_seconds(&self) -> u64 {
+        self.issued_at_unix_seconds
+    }
+
+    #[must_use]
+    pub const fn expires_at_unix_seconds(&self) -> u64 {
+        self.expires_at_unix_seconds
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApprovalRevocation {
-    pub revoked_by: PrincipalId,
-    pub revoked_at_unix_seconds: u64,
+    revoked_by: PrincipalId,
+    revoked_at_unix_seconds: u64,
+}
+
+impl ApprovalRevocation {
+    pub(crate) fn new(revoked_by: PrincipalId, revoked_at_unix_seconds: u64) -> Self {
+        Self {
+            revoked_by,
+            revoked_at_unix_seconds,
+        }
+    }
+
+    #[must_use]
+    pub fn revoked_by(&self) -> &PrincipalId {
+        &self.revoked_by
+    }
+
+    #[must_use]
+    pub const fn revoked_at_unix_seconds(&self) -> u64 {
+        self.revoked_at_unix_seconds
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -87,7 +171,7 @@ impl<B, C> ApprovalEvidence<B, C>
 where
     C: Copy + Debug + Eq + Ord,
 {
-    pub fn try_issue(
+    pub(crate) fn try_issue(
         id: ApprovalEvidenceId,
         request_id: ApprovalRequestId,
         requirement: ApprovalRequirement<B, C>,
@@ -128,7 +212,7 @@ pub enum ApprovalValidation {
 }
 
 #[must_use]
-pub fn validate_approval<B, C>(
+pub(crate) fn validate_approval<B, C>(
     evidence: &ApprovalEvidence<B, C>,
     current_requirement: &ApprovalRequirement<B, C>,
     now_unix_seconds: u64,
