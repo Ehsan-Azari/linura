@@ -28,7 +28,7 @@ class AuthorityFoundationTests(unittest.TestCase):
             "crates/linura-control/src/lib.rs",
             "crates/linura-control/src/policy_review.rs",
             "crates/linura-control/src/risk_classification.rs",
-            "crates/linura-policy/src/lib.rs",
+            "crates/linura-policy/tests/approval_strength.rs",
             "crates/linura-lifecycle/src/lib.rs",
             "crates/linura-planner/src/lib.rs",
             "executors/linura-executor-systemd/src/lib.rs",
@@ -157,147 +157,33 @@ class AuthorityFoundationTests(unittest.TestCase):
             self.assertIn("future authority scaffold missing", result.stderr)
             self.assertIn("authority-risk-downgrade-rejected", result.stderr)
 
-    def test_security_sensitive_approval_class_cannot_be_weakened(self) -> None:
+    def test_executable_approval_strength_contract_cannot_be_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            strong = (
-                "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::Administrator,"
-            )
-            weak = (
-                "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::InteractiveUser,"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(strong, text)
-            policy.write_text(text.replace(strong, weak, 1), encoding="utf-8")
+            semantic_test = root / "crates/linura-policy/tests/approval_strength.rs"
+            semantic_test.unlink()
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(
-                "SecuritySensitive must require exactly ApprovalClass::Administrator",
-                result.stderr,
-            )
+            self.assertIn("required authority-foundation file missing", result.stderr)
+            self.assertIn("approval_strength.rs", result.stderr)
 
-    def test_destructive_approval_class_cannot_be_weakened(self) -> None:
+    def test_executable_approval_strength_contract_marker_cannot_be_gutted(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            strong = (
-                "RiskClass::Destructive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::DestructiveAction,"
+            semantic_test = root / "crates/linura-policy/tests/approval_strength.rs"
+            text = semantic_test.read_text(encoding="utf-8").replace(
+                "fn protected_approval_strength_is_actor_invariant()",
+                "fn removed_approval_strength_contract()",
+                1,
             )
-            weak = (
-                "RiskClass::Destructive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::InteractiveUser,"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(strong, text)
-            policy.write_text(text.replace(strong, weak, 1), encoding="utf-8")
+            semantic_test.write_text(text, encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(
-                "Destructive must require exactly ApprovalClass::DestructiveAction",
-                result.stderr,
-            )
-
-    def test_comment_cannot_spoof_security_approval_mapping(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            strong = (
-                "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::Administrator,"
-            )
-            weak = (
-                "RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::InteractiveUser,"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(strong, text)
-            text = text.replace(strong, weak, 1) + f"\n/* {strong} */\n"
-            policy.write_text(text, encoding="utf-8")
-
-            result = self._run_checker(root)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn(
-                "SecuritySensitive must require exactly ApprovalClass::Administrator",
-                result.stderr,
-            )
-
-    def test_risk_short_circuit_before_canonical_match_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            anchor = "        let agent_proposal = subject.actor().kind == ActorKind::Agent;\n"
-            bypass = (
-                "        if subject.prospective_risk() == RiskClass::SecuritySensitive {\n"
-                "            return PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::InteractiveUser,\n"
-                "                reason: \"unsafe test bypass\".into(),\n"
-                "            };\n"
-                "        }\n\n"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(anchor, text)
-            policy.write_text(text.replace(anchor, bypass + anchor, 1), encoding="utf-8")
-
-            result = self._run_checker(root)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("pre-risk control flow changed", result.stderr)
-
-    def test_actor_short_circuit_before_canonical_match_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            anchor = "        let agent_proposal = subject.actor().kind == ActorKind::Agent;\n"
-            bypass = (
-                "        if subject.actor().kind == ActorKind::Agent {\n"
-                "            return PolicyDecision::RequireApproval {\n"
-                "                class: ApprovalClass::InteractiveUser,\n"
-                "                reason: \"unsafe actor shortcut\".into(),\n"
-                "            };\n"
-                "        }\n\n"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(anchor, text)
-            policy.write_text(text.replace(anchor, bypass + anchor, 1), encoding="utf-8")
-
-            result = self._run_checker(root)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("pre-risk control flow changed", result.stderr)
-
-    def test_guarded_protected_risk_arm_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            self._copy_fixture(root)
-            policy = root / "crates/linura-policy/src/lib.rs"
-            anchor = "            RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {\n"
-            guarded = (
-                "            RiskClass::SecuritySensitive if agent_proposal => {\n"
-                "                PolicyDecision::RequireApproval {\n"
-                "                    class: ApprovalClass::InteractiveUser,\n"
-                "                    reason: \"unsafe guarded shortcut\".into(),\n"
-                "                }\n"
-                "            },\n"
-            )
-            text = policy.read_text(encoding="utf-8")
-            self.assertIn(anchor, text)
-            policy.write_text(text.replace(anchor, guarded + anchor, 1), encoding="utf-8")
-
-            result = self._run_checker(root)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertTrue(
-                "exactly four top-level decision arms" in result.stderr
-                or "RiskClass::SecuritySensitive exactly once" in result.stderr
-            )
+            self.assertIn("executable approval-strength contract marker missing", result.stderr)
 
     def test_milestone_cannot_drop_risk_floor_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
