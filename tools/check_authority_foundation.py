@@ -81,6 +81,11 @@ PRESERVED_SCAFFOLD_MARKERS = {
         "code: \"authority-risk-unclassified\".into()",
         "code: \"authority-risk-downgrade-rejected\".into()",
     ),
+    "crates/linura-policy/src/lib.rs": (
+        "agent-proposed system mutation requires interactive approval",
+        "agent-proposed security-sensitive mutation requires administrator approval",
+        "agent-proposed destructive mutation requires dedicated destructive approval",
+    ),
 }
 
 REQUIRED_V03_MARKERS = {
