@@ -28,7 +28,9 @@ authenticated request
 → reviewed-plan result
 ```
 
-`linura-policy` receives a `PolicySubject` that can be created publicly only from the canonical `ReconciliationPlan` plus an authenticated `PrincipalId`. The projection retains the material plan fields required for policy/review and is not accepted from client wire input as an independently authored plan.
+`linura-policy` receives a `PolicySubject` assembled from the canonical `ReconciliationPlan` plus an authenticated `PrincipalId`. Because Rust has no sibling-crate friend visibility, the domain constructor is necessarily visible to its sole workspace consumer; the architectural guarantee is therefore enforced at the dependency and API boundaries rather than by claiming impossible language-level exclusivity. `contracts/layering.toml` requires `linura-control` to be the only workspace package that consumes `linura-policy`, and the public SDK/wire contracts do not expose or accept `PolicySubject` as independently authored review material.
+
+Linura Control owns the canonical `ReconciliationPlan` → `PolicySubject` projection and authenticated-principal binding. A transport, UI, agent, provider or public client must not create an alternate policy-review path.
 
 The policy evaluation is bound to an explicit `PolicySnapshot` and emits a `ReviewBinding` containing at least:
 
@@ -115,7 +117,9 @@ The required threat-model controls are:
 
 - v0.3 builds directly on the v0.2 plan/evidence model instead of preserving two competing plan systems.
 - Policy can inspect material canonical plan information without depending on D-Bus, concrete providers or executors.
+- Linura Control is machine-enforced as the only workspace consumer/orchestrator of the policy domain, preventing a second authority-side review path from appearing in another crate.
+- Public SDK/wire clients cannot submit independently authored `PolicySubject` values even though the internal cross-crate constructor remains visible to its sole allowed consumer.
 - Experimental bootstrap API cleanup is coherent rather than hidden behind compatibility shims.
 - The lifecycle/executor scaffolds needed by later milestones remain available, but their authority contracts are defined only when durable prepare/execution semantics exist.
 - Approval/review tests can focus on exact binding, replay and non-execution rather than reconciling two plan models.
-- Any future attempt to reintroduce provider-owned planning or turn approval into execution authority requires an explicit architecture rebaseline and threat-model review.
+- Any future attempt to reintroduce provider-owned planning, add another policy orchestrator, or turn approval into execution authority requires an explicit architecture rebaseline and threat-model review.
