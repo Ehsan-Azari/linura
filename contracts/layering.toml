@@ -5,6 +5,7 @@ principal_term = "authenticated-authority-identity"
 actor_term = "request-provenance"
 canonical_observation = "linura-observation::ObservationEnvelope"
 query_orchestration = "control-plane-owned"
+policy_orchestration = "linura-control-only"
 transport_role = "adapter-only"
 
 [[rules]]
