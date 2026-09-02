@@ -426,28 +426,36 @@ impl PolicyEngine for BaselinePolicy {
                 reason: "remote actors are disabled in the initial profile".into(),
             };
         }
-        if subject.actor().kind == ActorKind::Agent
-            && subject.prospective_risk() >= RiskClass::SystemMutation
-        {
-            return PolicyDecision::RequireApproval {
-                class: ApprovalClass::InteractiveUser,
-                reason: "agents are untrusted proposers and cannot authorize system mutations"
-                    .into(),
-            };
-        }
+
+        let agent_proposal = subject.actor().kind == ActorKind::Agent;
         match subject.prospective_risk() {
             RiskClass::ReadOnly | RiskClass::UserState => PolicyDecision::Allow,
             RiskClass::SystemMutation => PolicyDecision::RequireApproval {
                 class: ApprovalClass::InteractiveUser,
-                reason: "system mutation requires interactive approval".into(),
+                reason: if agent_proposal {
+                    "agent-proposed system mutation requires interactive approval"
+                } else {
+                    "system mutation requires interactive approval"
+                }
+                .into(),
             },
             RiskClass::SecuritySensitive => PolicyDecision::RequireApproval {
                 class: ApprovalClass::Administrator,
-                reason: "security-sensitive mutation requires administrator approval".into(),
+                reason: if agent_proposal {
+                    "agent-proposed security-sensitive mutation requires administrator approval"
+                } else {
+                    "security-sensitive mutation requires administrator approval"
+                }
+                .into(),
             },
             RiskClass::Destructive => PolicyDecision::RequireApproval {
                 class: ApprovalClass::DestructiveAction,
-                reason: "destructive mutation requires dedicated approval".into(),
+                reason: if agent_proposal {
+                    "agent-proposed destructive mutation requires dedicated destructive approval"
+                } else {
+                    "destructive mutation requires dedicated approval"
+                }
+                .into(),
             },
         }
     }
@@ -516,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_system_mutation_requires_approval() {
+    fn agent_system_mutation_requires_interactive_approval() {
         let policy = BaselinePolicy::default();
         let expected_subject = subject(
             ActorKind::Agent,
@@ -526,11 +534,48 @@ mod tests {
         let evaluation = policy.evaluate(&expected_subject);
         assert!(matches!(
             evaluation.decision,
-            PolicyDecision::RequireApproval { .. }
+            PolicyDecision::RequireApproval {
+                class: ApprovalClass::InteractiveUser,
+                ..
+            }
         ));
         assert_eq!(evaluation.subject, expected_subject);
         assert_eq!(evaluation.binding.principal.as_str(), "uid:1000");
         assert_eq!(evaluation.binding.observed_evidence_id, "evidence:test");
+    }
+
+    #[test]
+    fn agent_security_sensitive_plan_keeps_administrator_approval() {
+        let policy = BaselinePolicy::default();
+        let evaluation = policy.evaluate(&subject(
+            ActorKind::Agent,
+            RiskClass::SecuritySensitive,
+            ReviewPlanStatus::ChangeProposed,
+        ));
+        assert!(matches!(
+            evaluation.decision,
+            PolicyDecision::RequireApproval {
+                class: ApprovalClass::Administrator,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn agent_destructive_plan_keeps_destructive_approval() {
+        let policy = BaselinePolicy::default();
+        let evaluation = policy.evaluate(&subject(
+            ActorKind::Agent,
+            RiskClass::Destructive,
+            ReviewPlanStatus::ChangeProposed,
+        ));
+        assert!(matches!(
+            evaluation.decision,
+            PolicyDecision::RequireApproval {
+                class: ApprovalClass::DestructiveAction,
+                ..
+            }
+        ));
     }
 
     #[test]
