@@ -14,6 +14,7 @@
 
 mod plan_preview;
 mod policy_review;
+mod risk_classification;
 
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
