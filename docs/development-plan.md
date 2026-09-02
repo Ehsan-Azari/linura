@@ -50,11 +50,13 @@ Use a constrained example such as a systemd service on a disposable VM. Prove bo
 
 `v0.2.0` includes the structural plan/risk/provenance foundations needed by the next phase, but it does not claim the policy/approval or mutation-authority parts of Phase 3.
 
-## Phase 3 — policy-evaluated plan review + semantic provenance (target v0.3.0)
+## Phase 3 — policy-evaluated plan review + semantic provenance (complete for v0.3.0)
 
-Complete the authority-side plan-review contract: policy decision, approval requirement, authorization-boundary inputs and planned provenance/audit. Every managed resource in a plan must retain an intent/requirement/capability origin. Planning continues to consume authoritative observation rather than assumed state.
+This phase was completed by [v0.3.0](milestones/v0.3.0.md).
 
-This phase still does not permit supported external mutation. Even a fully approved reviewed plan remains non-executable at the public product boundary.
+Implemented on the canonical v0.2 plan lineage: Control-owned fail-closed trusted risk classification, deterministic policy outcomes, authenticated-principal-bound plan review, exact policy/risk/evidence/provenance binding, required approval classes, bounded process-local approval evidence with expiry/revocation/replay protection, and Experimental Control1/SDK/CLI review/explanation surfaces. Public review results remain explicitly non-executable.
+
+The phase deliberately stops before durable `prepare`, persistent authorization/recovery state, privileged executor integration, Polkit authority, post-effect verification, commit/audit/reconciliation, or any supported managed external mutation. Those boundaries remain later milestones.
 
 ## Phase 4 — durable prepare/commit and recovery foundation (target v0.4.0)
 

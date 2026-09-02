@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -30,6 +31,58 @@ def valid_notes(tag: str = "v0.0.0") -> str:
         "https://github.com/linura-org/linura/commit/"
         "0123456789abcdef0123456789abcdef01234567\n"
     )
+
+
+def git(repository: Path, *args: str) -> str:
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=repository,
+        text=True,
+    ).strip()
+
+
+def initialized_repository(directory: Path) -> Path:
+    repository = directory / "repo"
+    repository.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Release Contract Test"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "release-contract@example.invalid"],
+        cwd=repository,
+        check=True,
+    )
+    (repository / "candidate.txt").write_text("candidate\n", encoding="utf-8")
+    subprocess.run(["git", "add", "candidate.txt"], cwd=repository, check=True)
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "chore: reviewed release candidate"],
+        cwd=repository,
+        check=True,
+    )
+    return repository
+
+
+def create_release_intent(repository: Path, *, change_tree: bool = False, wrong_tree: bool = False) -> tuple[str, str, str]:
+    reviewed_source = git(repository, "rev-parse", "HEAD")
+    reviewed_tree = git(repository, "rev-parse", "HEAD^{tree}")
+    if change_tree:
+        (repository / "candidate.txt").write_text("changed after review\n", encoding="utf-8")
+        subprocess.run(["git", "add", "candidate.txt"], cwd=repository, check=True)
+    recorded_tree = "0" * 40 if wrong_tree else reviewed_tree
+    message = (
+        "release: v0.0.0 — test release\n\n"
+        "Authorize the exact reviewed tree.\n\n"
+        f"Reviewed-Source: {reviewed_source}\n"
+        f"Reviewed-Tree: {recorded_tree}"
+    )
+    command = ["git", "commit", "-q", "-m", message]
+    if not change_tree:
+        command.insert(2, "--allow-empty")
+    subprocess.run(command, cwd=repository, check=True)
+    return git(repository, "rev-parse", "HEAD"), reviewed_source, reviewed_tree
 
 
 class ReleaseContractTests(unittest.TestCase):
@@ -73,6 +126,29 @@ class ReleaseContractTests(unittest.TestCase):
             )
             with self.assertRaises(release_contract.ContractError):
                 release_contract.validate_contract(notes, "v0.0.0")
+
+    def test_release_intent_requires_tree_identical_single_parent_and_exact_trailers(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repository = initialized_repository(Path(temp_dir))
+            source, reviewed_source, reviewed_tree = create_release_intent(repository)
+            metadata = release_contract.validate_release_intent(source, repository)
+            self.assertEqual(metadata["source_sha"], source)
+            self.assertEqual(metadata["reviewed_source_sha"], reviewed_source)
+            self.assertEqual(metadata["reviewed_tree_sha"], reviewed_tree)
+
+    def test_release_intent_rejects_tree_changed_after_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repository = initialized_repository(Path(temp_dir))
+            source, _, _ = create_release_intent(repository, change_tree=True)
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.validate_release_intent(source, repository)
+
+    def test_release_intent_rejects_forged_reviewed_tree_trailer(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repository = initialized_repository(Path(temp_dir))
+            source, _, _ = create_release_intent(repository, wrong_tree=True)
+            with self.assertRaises(release_contract.ContractError):
+                release_contract.validate_release_intent(source, repository)
 
     def test_evidence_detects_artifact_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

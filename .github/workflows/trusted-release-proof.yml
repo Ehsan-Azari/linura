@@ -39,6 +39,7 @@ jobs:
           git fetch origin main --tags --force
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           test "$(git rev-parse origin/main)" = "$SOURCE_SHA"
+          python3 tools/release_contract.py validate-intent --source-sha "$SOURCE_SHA"
 
       - name: Resolve and validate release contract
         id: release
