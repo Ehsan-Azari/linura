@@ -13,6 +13,8 @@ That bootstrap path was useful to make the eleven-stage lifecycle concrete durin
 
 v0.3 introduces policy and approval semantics. Carrying both plan lineages into the authority milestone would make stale approval, plan substitution, provider-policy coupling and accidental execution promotion materially harder to reason about.
 
+A second authority problem also appears once policy distinguishes ordinary system mutation from security-sensitive and destructive work: the v0.2 planner intentionally assigns every non-empty diff at least `SystemMutation`, but it does not know enough trusted domain semantics to classify every change more precisely. Treating that planner value as the final authorization risk would make stronger approval classes unreachable on the canonical path.
+
 ## Decision
 
 Linura has one authority-side plan lineage:
@@ -22,6 +24,7 @@ authenticated request
 → authoritative observation
 → deterministic ReconciliationPlan
 → validation
+→ trusted deterministic risk classification
 → policy-review projection
 → policy decision
 → approval requirement/evidence when required
@@ -30,7 +33,26 @@ authenticated request
 
 `linura-policy` receives a `PolicySubject` assembled from the canonical `ReconciliationPlan` plus an authenticated `PrincipalId`. Because Rust has no sibling-crate friend visibility, the domain constructor is necessarily visible to its sole workspace consumer; the architectural guarantee is therefore enforced at the dependency and API boundaries rather than by claiming impossible language-level exclusivity. `contracts/layering.toml` requires `linura-control` to be the only workspace package that consumes `linura-policy`, and the public SDK/wire contracts do not expose or accept `PolicySubject` as independently authored review material.
 
-Linura Control owns the canonical `ReconciliationPlan` → `PolicySubject` projection and authenticated-principal binding. A transport, UI, agent, provider or public client must not create an alternate policy-review path.
+Linura Control owns the canonical `ReconciliationPlan` → trusted risk classification → `PolicySubject` projection and authenticated-principal binding. A transport, UI, agent, provider or public client must not create an alternate policy-review path or supply its own authority risk classification.
+
+### Risk classification is authority-owned and fail-closed
+
+The planner's `prospective_risk` is a lower bound, not a complete authorization classification. It captures what planning can prove generically: no-change plans are read-only and a non-empty system-state diff is at least a system mutation.
+
+Before policy evaluation, Linura Control applies a versioned deterministic trusted risk policy to the exact canonical plan. The classifier may raise the risk to `SecuritySensitive` or `Destructive`, but it may never lower the planner floor.
+
+The rules are:
+
+- classification is based only on trusted typed plan material such as provider, resource, capability and canonical change keys;
+- clients, transports, models and providers cannot assert or downgrade the authority risk;
+- a matching rule set selects the highest resulting risk deterministically;
+- any classification below the planner floor is rejected and the review becomes `Blocked`;
+- Unknown mutation shapes fail closed: when no trusted rule covers a proposed mutation, review becomes `Blocked` rather than defaulting to `SystemMutation` approval;
+- the risk-policy revision and matched rule identities are retained in material review findings so a changed classifier cannot silently reuse prior review/approval evidence.
+
+The initial v0.3 baseline is intentionally narrow. A canonical systemd `active_state` change is conservatively classified `SecuritySensitive`, because starting or stopping an arbitrary unit may change service exposure, privilege boundaries or availability. Other mutation shapes remain blocked until a typed, reviewed rule exists. This is a review-only classification rule and does not claim supported systemd mutation.
+
+A destructive classification is supported by the generic authority model and must route to the destructive approval class when a trusted rule produces it. v0.3 does not invent a production destructive rule for domains whose mutation semantics are not yet defined.
 
 The policy evaluation is bound to an explicit `PolicySnapshot` and emits a `ReviewBinding` containing at least:
 
@@ -41,7 +63,7 @@ The policy evaluation is bound to an explicit `PolicySnapshot` and emits a `Revi
 - provider/resource/capability identity;
 - policy ID/revision.
 
-The v0.3 implementation must additionally verify that material planned changes/findings and semantic provenance still match the reviewed subject before approval evidence is accepted.
+The v0.3 implementation must additionally verify that material planned changes/findings, trusted risk-classification provenance and semantic provenance still match the reviewed subject before approval evidence is accepted.
 
 Policy outcomes are typed as:
 
@@ -50,7 +72,7 @@ Policy outcomes are typed as:
 - `RequireApproval`;
 - `Blocked`.
 
-`Blocked` is distinct from `Deny`: a blocked plan lacks sufficient valid planning state to enter approval review at all.
+`Blocked` is distinct from `Deny`: a blocked plan lacks sufficient valid planning or authority-classification state to enter approval review at all.
 
 ### Approval is not execution authority
 
@@ -69,7 +91,7 @@ Durable authorization/prepare binding belongs to v0.4. Narrow executor/verifier 
 
 ### Exact binding and invalidation
 
-Approval evidence may satisfy only the exact review subject for which it was issued. A changed principal, plan, material plan content, authoritative evidence identity, provider/resource/capability, policy revision, approval requirement, expiry state or revocation state invalidates reuse.
+Approval evidence may satisfy only the exact review subject for which it was issued. A changed principal, plan, material plan content, authoritative evidence identity, provider/resource/capability, trusted risk-policy revision/rules, resulting risk, policy revision, approval requirement, expiry state or revocation state invalidates reuse.
 
 A `PlanId` alone is explicitly insufficient authority evidence. This matters while pre-1.0 plan identity remains intentionally simple and while v0.3 review retention may be process-local.
 
@@ -97,15 +119,18 @@ Executor/verifier authority interfaces will be introduced against the durable pr
 
 ## Security assessment
 
-This change is a security-review trigger because it changes policy/approval and authenticated-principal semantics.
+This change is a security-review trigger because it changes policy/approval, risk-classification and authenticated-principal semantics.
 
 The required threat-model controls are:
 
-- approval is bound to exact plan/evidence/policy/principal identity;
+- approval is bound to exact plan/evidence/policy/principal identity and material trusted risk-classification provenance;
 - stale or substituted plans/evidence fail closed;
+- unclassified mutation risk fails closed instead of receiving a weaker default approval class;
+- risk classification cannot downgrade the planner's lower bound;
+- client/model/provider supplied risk assertions do not become authority facts;
 - client-supplied actor data cannot replace transport-authenticated principal identity;
 - cross-principal approval reuse is rejected;
-- policy revision downgrade/substitution is rejected;
+- policy or risk-policy revision downgrade/substitution is rejected;
 - agents/models cannot mint or satisfy protected approval classes;
 - expiry/revocation is checked at authority use, not merely at UI display time;
 - no v0.3 approval path reaches prepare/executor privilege;
@@ -116,10 +141,12 @@ The required threat-model controls are:
 ## Consequences
 
 - v0.3 builds directly on the v0.2 plan/evidence model instead of preserving two competing plan systems.
+- The planner remains provider-neutral and does not pretend to know domain-specific security/destructive semantics it cannot prove.
+- Linura Control adds a deterministic, versioned and fail-closed authority risk-classification boundary before policy evaluation.
 - Policy can inspect material canonical plan information without depending on D-Bus, concrete providers or executors.
 - Linura Control is machine-enforced as the only workspace consumer/orchestrator of the policy domain, preventing a second authority-side review path from appearing in another crate.
-- Public SDK/wire clients cannot submit independently authored `PolicySubject` values even though the internal cross-crate constructor remains visible to its sole allowed consumer.
+- Public SDK/wire clients cannot submit independently authored `PolicySubject` values or risk classifications even though the internal cross-crate constructor remains visible to its sole allowed consumer.
 - Experimental bootstrap API cleanup is coherent rather than hidden behind compatibility shims.
 - The lifecycle/executor scaffolds needed by later milestones remain available, but their authority contracts are defined only when durable prepare/execution semantics exist.
-- Approval/review tests can focus on exact binding, replay and non-execution rather than reconciling two plan models.
-- Any future attempt to reintroduce provider-owned planning, add another policy orchestrator, or turn approval into execution authority requires an explicit architecture rebaseline and threat-model review.
+- Approval/review tests can focus on exact binding, risk escalation, unclassified/downgrade rejection, replay and non-execution rather than reconciling two plan models.
+- Any future attempt to reintroduce provider-owned planning, add another policy orchestrator, weaken risk classification, or turn approval into execution authority requires an explicit architecture rebaseline and threat-model review.
