@@ -9,16 +9,18 @@ All notable changes to Linura will be documented here. Version entries stay conc
 - Typed `MachineClass` in the intent domain, public SDK exposure, machine-class support/applicability governance, and ADR 0016.
 - v0.3.0 milestone and qualification specifications for policy, authorization, approval, and review-only authority, plus ADR 0018 defining the canonical plan-review boundary.
 - Typed authenticated-principal and policy revision identities, fail-closed policy outcomes, exact review binding, and Control-owned projection from the canonical `ReconciliationPlan` into policy review.
+- Deterministic trusted authority risk classification that treats planner risk as a floor, conservatively elevates the initial typed systemd `active_state` review route, blocks unclassified mutation shapes and risk downgrades, and preserves risk-policy revision/rule provenance in review findings.
 - Machine-enforced `authority_state` roadmap gates and an authority-foundation checker that rejects both reintroduction of superseded authority paths and accidental deletion of deliberate future lifecycle/executor scaffolds.
 
 ### Changed
 - Experimental portable machine profiles now preserve a required `machine_class` through `MachineProfile` and `portable-profile.v1`, enabling future cross-class adoption checks without implying any current platform-support claim.
-- Policy review now derives from the canonical non-executable planner lineage and binds the authenticated principal, request/plan, authoritative evidence, provider/resource/capability, semantic provenance, and policy revision.
+- Policy review now derives from the canonical non-executable planner lineage and binds the authenticated principal, request/plan, authoritative evidence, provider/resource/capability, semantic provenance, trusted risk classification, and policy revision.
 - Removed the superseded Experimental `ActionPlan` / provider-owned planning / generic apply-runtime stack instead of retaining compatibility shims or a competing legacy authority model.
 - Canonical `cargo xtask check` and `cargo xtask repo` now run the v0.3 authority-foundation anti-drift validation directly.
 
 ### Boundaries
 - v0.3 authority remains review-only: policy allow, valid approval, and reviewed-plan status are not execution authority.
+- Risk classification is not mutation support: unmatched future provider/domain mutation semantics remain blocked rather than guessed into a weaker approval class.
 - No public apply path, durable prepare record, privileged executor grant, managed external mutation, or complete eleven-stage mutation support is introduced by these foundation changes.
 - `linura-lifecycle`, authoritative observation, the canonical planner, and narrow executor package scaffolds remain intentionally present for later roadmap milestones; their code presence is not a current support claim.
 
@@ -78,53 +80,16 @@ Experimental authoritative-observation milestone. Full release contract: [`docs/
 
 Architecture/bootstrap release. Full release contract: [`docs/releases/v0.0.0.md`](docs/releases/v0.0.0.md).
 
-### Changed
-- Renamed the project from the bootstrap working name to **Linura**.
-- Promoted Linura from a control-plane-with-agent-client concept to an intent-driven, agent-native Linux umbrella architecture.
-- Defined "Tell your computer what you want it to become" as the signature product flow.
-- Locked **Linura** as the only product/code namespace; "system control plane" remains architectural terminology.
-- Renamed the authority orchestration crate to `linura-control` and retired the generic runtime name.
-- Renamed planned application directories to `linura-agent-ui`, `linura-control-center`, and `linura-shell`.
-- Locked the canonical managed-mutation lifecycle as request/intent → observe → plan → validate → authorize → prepare → execute → verify → commit → audit → reconcile.
-- Made portable machine-profile exports self-contained by carrying referenced setup and intent definitions.
-- Adopted version-scoped milestone/release contracts with explicit claim classes, PR/full-SHA commit traceability, and exact-source acceptance boundaries.
-- Release promotion now publishes the frozen repository release contract as the GitHub Release body rather than generating an independent narrative.
-- Aligned the release lifecycle to a proof-first/tag-last model with exact-main gate observation, build-once attested payloads, proof-only promotion, final publication authority, and independent verification of publication metadata and evidence.
-
 ### Added
-- Persistent intent and requirement model.
-- Reusable, revisioned `Setup` domain model between individual intents and whole-machine profiles.
-- Local-first **Linura Library** architecture for storing/cataloging reusable setups/profiles with optional future sync providers.
-- Self-contained portable setup export/adoption protocol with missing-secret-reference reporting.
-- Setup nodes in the causal system graph so adopted configurations retain setup provenance.
-- Secret-free portability rule: setup/profile exports carry credential references only, never credential values.
-- Explicit distinction between portable declarative setups/profiles and exact machine recovery snapshots.
-- Full causal system graph with dependency/conflict/shared-ownership relations.
-- Capability blueprint/composition and deterministic resolution contracts.
-- Semantic provenance/why-chain distinct from mutation audit.
-- Deterministic planner boundary for intent → desired state.
-- Provider-neutral agent runtime and specialist-role contracts.
-- First-boot application bootstrap and offline/no-model requirements.
-- Portable machine profile/export/replay architecture.
-- Safe intent retirement/removal-impact model.
-- Declarative workflow and constrained derived-UI surface architecture.
-- Expanded schemas, ADRs, development plan, backlog and vision coverage matrix.
-- Public non-privileged `linura-sdk` façade; `linuractl` now consumes the SDK rather than internal protocol crates directly.
-- Naming/product architecture documentation and ADR 0011.
-- ADR 0012 defining the canonical trustworthy mutation lifecycle.
-- ADR 0013 defining reusable setups and the local-first Linura Library.
-- ADR 0014 defining version-scoped release contracts and machine-readable release evidence.
-- `RELEASE-EVIDENCE.json` generation/verification binding claim metadata, frozen notes, PR/commit traceability and candidate artifact digests.
-- First implementation milestone contract for authenticated authoritative read-only observation and the first real observed system graph (completed as v0.1.0).
+- Rust workspace, canonical project layout, root/agent instructions, task-specific skill guides, issue/PR templates, code/security/community policies, and architecture/terminology/state/provider/permission/intent/update/recovery/First Boot/Library/Control Center/agent/packaging/test documentation.
+- Shared domain crates for core IDs/reasons, intent/setup/profile objects, causal system graph, capability SDK, planner/policy/lifecycle/provenance/protocol/provider SDK/public SDK/agent runtime/update state, Linura Control, local D-Bus transport, Linux observers, narrow executor scaffolding, update guard, CLI/daemon entry points, First Boot/Control Center/agent UI placeholders, and packaging metadata.
+- Versioned JSON schemas and D-Bus XML for intent/setup/profile/plan/audit/machine-profile/public Control1 contracts.
+- Canonical eleven-stage mutation lifecycle and failure-aware state machine scaffold.
+- Repository quality/security/release tooling including formatting, clippy, tests, docs, SPDX policy, dependency audit, CodeQL, release manifests, SHA-256 asset verification, SBOM generation, trusted release proof, promotion, independent verification, and repository hygiene checks.
+- Architecture boundary governance through machine-checked layering rules, ADRs, contract-stability policy, release contracts, milestone/qualification documents, risk register, and threat model.
 
-### Grand development-foundation update
+### Changed
+- The originally planned patch-numbered roadmap was rebaselined to pre-1.0 minor releases for new capability slices; released milestone meanings remain immutable and future milestones require explicit rebaseline review.
 
-- added canonical Rust `xtask` developer/CI orchestration;
-- added checkpointed bootstrap, migration, update, config-ownership, hardware-evidence, lifecycle, and testkit crates;
-- added task-specific contributor/agent guides;
-- added disposable QEMU/KVM and SSH acceptance harnesses plus versioned scenarios;
-- added Arch image profile and secure supported-install policy;
-- added coordinated-upgrade guard and explicit native break-glass semantics;
-- added hardware fixtures/support matrix and visual-regression contracts;
-- added exact-SHA release candidates, SPDX SBOM, checksums, GitHub/Sigstore provenance, candidate promotion, and post-publication verification;
-- pinned GitHub Actions to immutable commits and expanded repository invariants.
+### Boundaries
+- Architecture and scaffolding only; no supported managed mutation, distro/profile, hardware tier, user-facing First Boot/Control Center, natural-language agent interpretation, persistent Library, fleet authority, or production-ready operating environment is claimed.
