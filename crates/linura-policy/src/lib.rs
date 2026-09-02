@@ -198,12 +198,16 @@ pub struct ReviewBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PolicyDecision {
     Allow,
-    Deny { reason: String },
+    Deny {
+        reason: String,
+    },
     RequireApproval {
         class: ApprovalClass,
         reason: String,
     },
-    Blocked { reason: String },
+    Blocked {
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -384,6 +388,9 @@ mod tests {
             RiskClass::SystemMutation,
             ReviewPlanStatus::Blocked,
         ));
-        assert!(matches!(evaluation.decision, PolicyDecision::Blocked { .. }));
+        assert!(matches!(
+            evaluation.decision,
+            PolicyDecision::Blocked { .. }
+        ));
     }
 }
