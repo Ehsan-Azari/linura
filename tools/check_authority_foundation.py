@@ -78,7 +78,7 @@ REQUIRED_V03_MARKERS = {
     ),
     "docs/qualification/v0.3.0.md": (
         "qualification specification",
-        "PlanId by itself is not sufficient authority evidence",
+        "A plan ID by itself is not sufficient authority evidence.",
         "native Linux state remains unchanged",
     ),
     "docs/adr/0018-canonical-plan-review-authority.md": (
