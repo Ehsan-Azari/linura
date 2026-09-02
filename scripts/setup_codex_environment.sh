@@ -120,8 +120,15 @@ if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
   exit 1
 fi
 
-rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+# Keep the pinned bootstrap pinned. Rustup normally permits self-update during
+# toolchain installation, so disable it persistently and on this invocation.
+rustup set auto-self-update disable
+rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt --no-self-update
 rustup default "$RUST_VERSION"
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'rustup self-updated during toolchain setup; expected exactly %s\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
 
 for command_name in cargo rustc; do
   require_command "$command_name"

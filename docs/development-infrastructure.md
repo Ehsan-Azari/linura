@@ -25,6 +25,7 @@ The setup script:
 - requires a Linux x86_64 host with the repository-declared Python major/minor and only basic host primitives such as Bash, curl, Git, SHA-256 tooling and tar already available;
 - never uses `apt install`, Homebrew, or an unversioned language/tool installer;
 - bootstraps exactly rustup 1.28.2 from its versioned `rustup-init` archive and verifies the repository-pinned SHA-256 before execution, so the Codex base image does not need to ship Rust or rustup;
+- disables rustup automatic self-updates persistently and for the toolchain-install invocation, then re-verifies the exact rustup pin after toolchain installation;
 - installs the exact Rust toolchain declared by both `rust-toolchain.toml` and `tools/codex/versions.env`, including rustfmt and Clippy;
 - installs exactly `cargo-audit` 0.22.2 with Cargo's locked install mode;
 - downloads exactly actionlint 1.7.12 and verifies the same SHA-256 used by CI before extracting it;
