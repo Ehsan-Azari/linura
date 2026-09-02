@@ -26,6 +26,8 @@ class AuthorityFoundationTests(unittest.TestCase):
             "crates/linura-protocol/src/lib.rs",
             "crates/linura-provider-sdk/src/lib.rs",
             "crates/linura-control/src/lib.rs",
+            "crates/linura-control/src/policy_review.rs",
+            "crates/linura-control/src/risk_classification.rs",
             "crates/linura-lifecycle/src/lib.rs",
             "crates/linura-planner/src/lib.rs",
             "executors/linura-executor-systemd/src/lib.rs",
@@ -119,6 +121,57 @@ class AuthorityFoundationTests(unittest.TestCase):
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("future authority scaffold missing", result.stderr)
+
+    def test_unclassified_risk_guard_cannot_be_deleted(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            classifier = root / "crates/linura-control/src/risk_classification.rs"
+            text = classifier.read_text(encoding="utf-8").replace(
+                "RiskClassification::Unclassified",
+                "RiskClassification::NotApplicable",
+                1,
+            )
+            classifier.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("future authority scaffold missing", result.stderr)
+            self.assertIn("RiskClassification::Unclassified", result.stderr)
+
+    def test_policy_review_must_keep_downgrade_blocker(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            review = root / "crates/linura-control/src/policy_review.rs"
+            text = review.read_text(encoding="utf-8").replace(
+                "authority-risk-downgrade-rejected",
+                "authority-risk-downgrade-removed",
+                1,
+            )
+            review.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("future authority scaffold missing", result.stderr)
+            self.assertIn("authority-risk-downgrade-rejected", result.stderr)
+
+    def test_milestone_cannot_drop_risk_floor_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._copy_fixture(root)
+            milestone = root / "docs/milestones/v0.3.0.md"
+            text = milestone.read_text(encoding="utf-8").replace(
+                "The planner's `prospective_risk` is a risk floor.",
+                "Planner risk is advisory.",
+                1,
+            )
+            milestone.write_text(text, encoding="utf-8")
+
+            result = self._run_checker(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("v0.3 authority contract marker missing", result.stderr)
+            self.assertIn("prospective_risk", result.stderr)
 
 
 if __name__ == "__main__":
