@@ -72,3 +72,13 @@ Required negative proofs for this boundary include:
 - Restart requires explicit protected-key provisioning rather than silently changing the authority identity of an existing database.
 - Review findings about direct handoff/recovery bypasses are closed by contract, not by convention or call-site discipline.
 - ADR 0019 remains the primary durable-transaction design; this ADR is the authoritative refinement for sealed mutation requests, current-principal handoff binding, terminal recovery freshness, verifier identity, and reopen-time aggregate capacity enforcement.
+
+### 5. Serialized freshness, commit sealing, and retained-history immutability
+
+Authority-sensitive handoff and recovery envelopes carry a signer-authenticated `authorized_at`/`expires_at` window. The SQLite adapter verifies the HMAC first, obtains its `BEGIN IMMEDIATE` serialization point, then samples wall time and rejects requests outside that sealed interval before any state mutation. This closes expiry races caused by SQLite busy waits.
+
+Verified commit provenance is also signer-authenticated. Public callers cannot construct `CommitRequest`, Control no longer exposes its raw transaction store, and `VerifiedDurableAuthority` carries Control-derived desired-state/graph/provenance digests into the only supported commit path.
+
+Fresh Control construction is fallible and retires every retained `Prepared` generation before returning a usable orchestrator. Authority-key provisioning consumes a non-`Copy` `Vec<u8>` so the API does not leave an accidental caller-owned array copy behind; all internal holders remain redacted, non-`Clone`, and zeroized on drop.
+
+SQLite enables recursive triggers and rejects deletion of transaction/generation history. Consequently `INSERT OR REPLACE` cannot silently delete-and-reinsert retained generations, audit rows, migration identity, or verifier identity while bypassing immutability triggers.

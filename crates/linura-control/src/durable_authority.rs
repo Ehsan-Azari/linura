@@ -8,10 +8,10 @@ use linura_observation::{ObservationEnvelope, ObservedValue};
 use linura_policy::{ApprovalClass, PolicyDecision, ReviewFindingLevel, ReviewPlanStatus};
 use linura_protocol::PlanDesiredStateRequest;
 use linura_transaction::{
-    AbortRequest, ApprovalAuthority, AuthorityBinding, AuthorizationBasis, ContentDigest,
-    HandoffCommit, PrepareOutcome, RecoveryOutcome, RecoveryResolution, TransactionAuthoritySigner,
-    TransactionId, TransactionSnapshot, TransactionState, TransactionStore, TransactionStoreError,
-    TransactionValidationError, digest_parts,
+    AbortRequest, ApprovalAuthority, AuthorityBinding, AuthorizationBasis, CommitRequest,
+    ContentDigest, HandoffCommit, PrepareOutcome, RecoveryOutcome, RecoveryResolution,
+    TransactionAuthoritySigner, TransactionId, TransactionSnapshot, TransactionState,
+    TransactionStore, TransactionStoreError, TransactionValidationError, digest_parts,
 };
 use sha2::{Digest, Sha256};
 
@@ -81,8 +81,24 @@ impl DispatchPermit {
 }
 
 #[derive(Debug)]
+pub struct VerifiedDurableAuthority {
+    snapshot: TransactionSnapshot,
+    principal: PrincipalId,
+    desired_state_digest: ContentDigest,
+    graph_digest: ContentDigest,
+    provenance_digest: ContentDigest,
+}
+
+impl VerifiedDurableAuthority {
+    #[must_use]
+    pub fn snapshot(&self) -> &TransactionSnapshot {
+        &self.snapshot
+    }
+}
+
+#[derive(Debug)]
 pub enum DurableRecoveryOutcome {
-    Verified(TransactionSnapshot),
+    Verified(VerifiedDurableAuthority),
     Reprepared(Box<PreparedDurableAuthority>),
     Blocked(TransactionSnapshot),
     StillIndeterminate(TransactionSnapshot),
@@ -266,14 +282,18 @@ impl<S> DurableAuthorityControl<S>
 where
     S: TransactionStore,
 {
-    #[must_use]
-    pub fn new(store: S, authority_signer: TransactionAuthoritySigner) -> Self {
-        Self {
+    pub fn new(
+        store: S,
+        authority_signer: TransactionAuthoritySigner,
+    ) -> Result<Self, DurableAuthorityError> {
+        let mut control = Self {
             approvals: crate::ApprovalReviewControl::default(),
             transactions: store,
             authority_signer,
             last_authority_unix_ms: 0,
-        }
+        };
+        control.abort_prepared_after_restart()?;
+        Ok(control)
     }
 
     /// Build fresh trusted authority material entirely inside Control.
@@ -412,9 +432,14 @@ where
             return Err(DurableAuthorityError::AuthorityChanged);
         }
         let authority_use_digest = digest_authority_use(&durable, now_unix_ms)?;
-        let handoff = self
-            .authority_signer
-            .authorize_handoff(&durable, authority_use_digest)?;
+        let expires_at_unix_ms =
+            authority_expires_at_unix_ms(&prepared.candidate.observation, &current)?;
+        let handoff = self.authority_signer.authorize_handoff(
+            &durable,
+            authority_use_digest,
+            now_unix_ms,
+            expires_at_unix_ms,
+        )?;
         let commit = self.transactions.handoff(&handoff)?;
         prepared.handed_off = true;
         Ok(DispatchPermit::from_commit(commit))
@@ -486,14 +511,30 @@ where
                 observation
                     .require_current(self.authority_now_unix_ms()?)
                     .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                let authorized_at_unix_ms = self.authority_now_unix_ms()?;
+                observation
+                    .require_current(authorized_at_unix_ms)
+                    .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
                 let recovery = self.authority_signer.authorize_recovery(
                     &anchor.snapshot,
-                    RecoveryResolution::IntendedStateVerified { observation_digest },
+                    RecoveryResolution::IntendedStateVerified {
+                        observation_digest: observation_digest.clone(),
+                    },
+                    authorized_at_unix_ms,
+                    observation_expires_at_unix_ms(&observation)?,
                 )?;
                 let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
                     RecoveryOutcome::Verified(snapshot) => {
-                        Ok(DurableRecoveryOutcome::Verified(snapshot))
+                        let (desired_state_digest, graph_digest, provenance_digest) =
+                            verified_commit_digests(&anchor, &plan, &observation_digest)?;
+                        Ok(DurableRecoveryOutcome::Verified(VerifiedDurableAuthority {
+                            principal: snapshot.principal.clone(),
+                            snapshot,
+                            desired_state_digest,
+                            graph_digest,
+                            provenance_digest,
+                        }))
                     }
                     _ => Err(DurableAuthorityError::AuthorityChanged),
                 }
@@ -504,9 +545,17 @@ where
                     observation
                         .require_current(self.authority_now_unix_ms()?)
                         .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                    let authorized_at_unix_ms = self.authority_now_unix_ms()?;
+                    observation
+                        .require_current(authorized_at_unix_ms)
+                        .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
                     let recovery = self.authority_signer.authorize_recovery(
                         &anchor.snapshot,
-                        RecoveryResolution::ConflictingState { observation_digest },
+                        RecoveryResolution::ConflictingState {
+                            observation_digest: observation_digest.clone(),
+                        },
+                        authorized_at_unix_ms,
+                        observation_expires_at_unix_ms(&observation)?,
                     )?;
                     let outcome = self.transactions.recover(&recovery)?;
                     return match outcome {
@@ -526,11 +575,17 @@ where
                 ) || review.subject().status() != ReviewPlanStatus::ChangeProposed
                     || review.subject().has_blockers()
                 {
+                    let authorized_at_unix_ms = self.authority_now_unix_ms()?;
+                    observation
+                        .require_current(authorized_at_unix_ms)
+                        .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
                     let recovery = self.authority_signer.authorize_recovery(
                         &anchor.snapshot,
                         RecoveryResolution::Ambiguous {
                             observation_digest: observation_digest.clone(),
                         },
+                        authorized_at_unix_ms,
+                        observation_expires_at_unix_ms(&observation)?,
                     )?;
                     let outcome = self.transactions.recover(&recovery)?;
                     return match outcome {
@@ -558,12 +613,21 @@ where
                     approval_evidence_id.as_ref(),
                     now_unix_ms,
                 )?;
+                let authorized_at_unix_ms = self.authority_now_unix_ms()?;
+                candidate
+                    .observation
+                    .require_current(authorized_at_unix_ms)
+                    .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                let expires_at_unix_ms =
+                    authority_expires_at_unix_ms(&candidate.observation, &next_binding)?;
                 let recovery = self.authority_signer.authorize_recovery(
                     &anchor.snapshot,
                     RecoveryResolution::IntendedEffectAbsent {
                         observation_digest,
                         next_binding: Box::new(next_binding.clone()),
                     },
+                    authorized_at_unix_ms,
+                    expires_at_unix_ms,
                 )?;
                 let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
@@ -580,9 +644,15 @@ where
                 }
             }
             linura_planner::PlanStatus::Blocked => {
+                let authorized_at_unix_ms = self.authority_now_unix_ms()?;
+                observation
+                    .require_current(authorized_at_unix_ms)
+                    .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
                 let recovery = self.authority_signer.authorize_recovery(
                     &anchor.snapshot,
                     RecoveryResolution::Ambiguous { observation_digest },
+                    authorized_at_unix_ms,
+                    observation_expires_at_unix_ms(&observation)?,
                 )?;
                 let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
@@ -608,9 +678,30 @@ where
         self.transactions.integrity_check().map_err(Into::into)
     }
 
-    #[must_use]
-    pub fn into_store(self) -> S {
-        self.transactions
+    pub fn commit_verified(
+        &mut self,
+        principal: &AuthenticatedPrincipal,
+        verified: VerifiedDurableAuthority,
+    ) -> Result<TransactionSnapshot, DurableAuthorityError> {
+        if principal.as_str() != verified.principal.as_str()
+            || principal.as_str() != verified.snapshot.principal.as_str()
+            || verified.snapshot.state != TransactionState::Verified
+        {
+            return Err(DurableAuthorityError::AuthorityChanged);
+        }
+        let durable = self
+            .transactions
+            .snapshot(&verified.snapshot.transaction_id)?;
+        if durable != verified.snapshot {
+            return Err(DurableAuthorityError::AuthorityChanged);
+        }
+        let request: CommitRequest = self.authority_signer.authorize_commit(
+            &durable,
+            verified.desired_state_digest,
+            verified.graph_digest,
+            verified.provenance_digest,
+        )?;
+        self.transactions.commit(&request).map_err(Into::into)
     }
 
     fn authority_now_unix_ms(&mut self) -> Result<u64, DurableAuthorityError> {
@@ -1027,4 +1118,59 @@ fn digest_authority_use(
     digest.text(snapshot.binding_digest.as_str())?;
     digest.number(now_unix_ms)?;
     digest.finish()
+}
+
+fn observation_expires_at_unix_ms(
+    observation: &ObservationEnvelope,
+) -> Result<u64, DurableAuthorityError> {
+    observation
+        .observed_at_unix_ms
+        .checked_add(observation.valid_for_ms)
+        .ok_or(DurableAuthorityError::ClockUnavailable)
+}
+
+fn authority_expires_at_unix_ms(
+    observation: &ObservationEnvelope,
+    binding: &AuthorityBinding,
+) -> Result<u64, DurableAuthorityError> {
+    let observation_expiry = observation_expires_at_unix_ms(observation)?;
+    match binding.authorization() {
+        AuthorizationBasis::PolicyAllow => Ok(observation_expiry),
+        AuthorizationBasis::Approval(approval) => {
+            let approval_expiry = approval
+                .expires_at_unix_seconds()
+                .checked_mul(1_000)
+                .ok_or(DurableAuthorityError::ClockUnavailable)?;
+            Ok(observation_expiry.min(approval_expiry))
+        }
+    }
+}
+
+fn verified_commit_digests(
+    anchor: &linura_transaction::RecoveryAnchor,
+    plan: &linura_planner::ReconciliationPlan,
+    observation_digest: &ContentDigest,
+) -> Result<(ContentDigest, ContentDigest, ContentDigest), DurableAuthorityError> {
+    let desired_state_digest = anchor.request_digest.clone();
+    let graph_digest = digest_parts(
+        "linura.control.verified-graph.v1",
+        [
+            plan.id.as_str().as_bytes(),
+            plan.provider.as_str().as_bytes(),
+            plan.resource.as_str().as_bytes(),
+            anchor.precondition_digest.as_str().as_bytes(),
+            observation_digest.as_str().as_bytes(),
+        ],
+    );
+    let provenance_digest = digest_parts(
+        "linura.control.verified-provenance.v1",
+        [
+            anchor.snapshot.transaction_id.as_str().as_bytes(),
+            anchor.snapshot.binding_digest.as_str().as_bytes(),
+            anchor.request_digest.as_str().as_bytes(),
+            anchor.precondition_digest.as_str().as_bytes(),
+            observation_digest.as_str().as_bytes(),
+        ],
+    );
+    Ok((desired_state_digest, graph_digest, provenance_digest))
 }

@@ -29,7 +29,7 @@ fn digest(value: &str) -> ContentDigest {
 }
 
 fn authority() -> Result<(TransactionAuthoritySigner, TransactionAuthorityVerifier), String> {
-    TransactionAuthorityKey::new([0x41; 32])
+    TransactionAuthorityKey::new(vec![0x41; 32])
         .map(TransactionAuthorityKey::split)
         .map_err(|error| error.to_string())
 }
@@ -99,7 +99,12 @@ fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), S
     let mut store =
         SqliteTransactionStore::open(path, verifier).map_err(|error| error.to_string())?;
     let handoff = authority_signer
-        .authorize_handoff(&snapshot, digest(&format!("handoff-authority:{namespace}")))
+        .authorize_handoff(
+            &snapshot,
+            digest(&format!("handoff-authority:{namespace}")),
+            1,
+            u64::MAX,
+        )
         .map_err(|error| error.to_string())?;
     let commit = store.handoff(&handoff).map_err(|error| error.to_string())?;
     if commit.generation != snapshot.current_generation {

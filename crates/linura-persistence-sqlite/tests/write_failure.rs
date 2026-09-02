@@ -57,7 +57,7 @@ mod unix {
     }
 
     fn verifier() -> linura_transaction::TransactionAuthorityVerifier {
-        TransactionAuthorityKey::new([0x41; 32])
+        TransactionAuthorityKey::new(vec![0x41; 32])
             .unwrap_or_else(|error| unreachable!("{error}"))
             .split()
             .1

@@ -491,7 +491,7 @@ type AuthorityHmac = Hmac<Sha256>;
 /// drop. Production callers must provision the same protected 256-bit value on
 /// restart; persistence pins only its domain-separated fingerprint.
 pub struct TransactionAuthorityKey {
-    bytes: [u8; AUTHORITY_MUTATION_KEY_BYTES],
+    bytes: Vec<u8>,
 }
 
 impl std::fmt::Debug for TransactionAuthorityKey {
@@ -507,10 +507,8 @@ impl Drop for TransactionAuthorityKey {
 }
 
 impl TransactionAuthorityKey {
-    pub fn new(
-        bytes: [u8; AUTHORITY_MUTATION_KEY_BYTES],
-    ) -> Result<Self, TransactionValidationError> {
-        if bytes.iter().all(|byte| *byte == 0) {
+    pub fn new(bytes: Vec<u8>) -> Result<Self, TransactionValidationError> {
+        if bytes.len() != AUTHORITY_MUTATION_KEY_BYTES || bytes.iter().all(|byte| *byte == 0) {
             return Err(TransactionValidationError::InvalidAuthorityKey);
         }
         Ok(Self { bytes })
@@ -518,15 +516,19 @@ impl TransactionAuthorityKey {
 
     #[must_use]
     pub fn split(self) -> (TransactionAuthoritySigner, TransactionAuthorityVerifier) {
-        let signer = TransactionAuthoritySigner { bytes: self.bytes };
-        let verifier = TransactionAuthorityVerifier { bytes: self.bytes };
+        let signer = TransactionAuthoritySigner {
+            bytes: self.bytes.clone(),
+        };
+        let verifier = TransactionAuthorityVerifier {
+            bytes: self.bytes.clone(),
+        };
         (signer, verifier)
     }
 }
 
 /// Control-side capability for sealing authority-sensitive durable mutations.
 pub struct TransactionAuthoritySigner {
-    bytes: [u8; AUTHORITY_MUTATION_KEY_BYTES],
+    bytes: Vec<u8>,
 }
 
 impl std::fmt::Debug for TransactionAuthoritySigner {
@@ -544,7 +546,7 @@ impl Drop for TransactionAuthoritySigner {
 /// Persistence-side capability. It can validate sealed mutation requests but
 /// cannot construct them through the public API.
 pub struct TransactionAuthorityVerifier {
-    bytes: [u8; AUTHORITY_MUTATION_KEY_BYTES],
+    bytes: Vec<u8>,
 }
 
 impl std::fmt::Debug for TransactionAuthorityVerifier {
@@ -590,6 +592,16 @@ impl TransactionAuthorityVerifier {
             &request.authority_tag,
         )
     }
+
+    #[must_use]
+    pub fn verify_commit(&self, request: &CommitRequest) -> bool {
+        verify_authority_tag(
+            &self.bytes,
+            "linura.transaction-authority.commit.v1",
+            &request.canonical_bytes(),
+            &request.authority_tag,
+        )
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -599,6 +611,8 @@ pub struct HandoffRequest {
     expected_state_version: u64,
     expected_binding_digest: ContentDigest,
     authority_use_digest: ContentDigest,
+    authorized_at_unix_ms: u64,
+    expires_at_unix_ms: u64,
     authority_tag: [u8; AUTHORITY_MUTATION_TAG_BYTES],
 }
 
@@ -628,6 +642,16 @@ impl HandoffRequest {
         &self.authority_use_digest
     }
 
+    #[must_use]
+    pub const fn authorized_at_unix_ms(&self) -> u64 {
+        self.authorized_at_unix_ms
+    }
+
+    #[must_use]
+    pub const fn expires_at_unix_ms(&self) -> u64 {
+        self.expires_at_unix_ms
+    }
+
     fn canonical_bytes(&self) -> Vec<u8> {
         let mut canonical = Vec::with_capacity(256);
         mutation_field(&mut canonical, self.transaction_id.as_str().as_bytes());
@@ -641,6 +665,8 @@ impl HandoffRequest {
             &mut canonical,
             self.authority_use_digest.as_str().as_bytes(),
         );
+        mutation_field(&mut canonical, &self.authorized_at_unix_ms.to_be_bytes());
+        mutation_field(&mut canonical, &self.expires_at_unix_ms.to_be_bytes());
         canonical
     }
 }
@@ -650,9 +676,13 @@ impl TransactionAuthoritySigner {
         &self,
         snapshot: &TransactionSnapshot,
         authority_use_digest: ContentDigest,
+        authorized_at_unix_ms: u64,
+        expires_at_unix_ms: u64,
     ) -> Result<HandoffRequest, TransactionValidationError> {
         if snapshot.state != TransactionState::Prepared
             || authority_use_digest == ContentDigest::zero()
+            || authorized_at_unix_ms == 0
+            || expires_at_unix_ms < authorized_at_unix_ms
         {
             return Err(TransactionValidationError::InvalidAuthorityMutation);
         }
@@ -662,6 +692,8 @@ impl TransactionAuthoritySigner {
             expected_state_version: snapshot.state_version,
             expected_binding_digest: snapshot.binding_digest.clone(),
             authority_use_digest,
+            authorized_at_unix_ms,
+            expires_at_unix_ms,
             authority_tag: [0; AUTHORITY_MUTATION_TAG_BYTES],
         };
         request.authority_tag = authority_tag(
@@ -676,8 +708,13 @@ impl TransactionAuthoritySigner {
         &self,
         snapshot: &TransactionSnapshot,
         resolution: RecoveryResolution,
+        authorized_at_unix_ms: u64,
+        expires_at_unix_ms: u64,
     ) -> Result<RecoveryRequest, TransactionValidationError> {
-        if snapshot.state != TransactionState::Indeterminate {
+        if snapshot.state != TransactionState::Indeterminate
+            || authorized_at_unix_ms == 0
+            || expires_at_unix_ms < authorized_at_unix_ms
+        {
             return Err(TransactionValidationError::InvalidAuthorityMutation);
         }
         if let RecoveryResolution::IntendedEffectAbsent { next_binding, .. } = &resolution
@@ -690,6 +727,8 @@ impl TransactionAuthoritySigner {
             expected_generation: snapshot.current_generation,
             expected_state_version: snapshot.state_version,
             expected_binding_digest: snapshot.binding_digest.clone(),
+            authorized_at_unix_ms,
+            expires_at_unix_ms,
             resolution,
             authority_tag: [0; AUTHORITY_MUTATION_TAG_BYTES],
         };
@@ -700,10 +739,42 @@ impl TransactionAuthoritySigner {
         )?;
         Ok(request)
     }
+
+    pub fn authorize_commit(
+        &self,
+        snapshot: &TransactionSnapshot,
+        desired_state_digest: ContentDigest,
+        graph_digest: ContentDigest,
+        provenance_digest: ContentDigest,
+    ) -> Result<CommitRequest, TransactionValidationError> {
+        if snapshot.state != TransactionState::Verified
+            || desired_state_digest == ContentDigest::zero()
+            || graph_digest == ContentDigest::zero()
+            || provenance_digest == ContentDigest::zero()
+        {
+            return Err(TransactionValidationError::InvalidAuthorityMutation);
+        }
+        let mut request = CommitRequest {
+            transaction_id: snapshot.transaction_id.clone(),
+            expected_generation: snapshot.current_generation,
+            expected_state_version: snapshot.state_version,
+            expected_binding_digest: snapshot.binding_digest.clone(),
+            desired_state_digest,
+            graph_digest,
+            provenance_digest,
+            authority_tag: [0; AUTHORITY_MUTATION_TAG_BYTES],
+        };
+        request.authority_tag = authority_tag(
+            &self.bytes,
+            "linura.transaction-authority.commit.v1",
+            &request.canonical_bytes(),
+        )?;
+        Ok(request)
+    }
 }
 
 fn authority_tag(
-    key: &[u8; AUTHORITY_MUTATION_KEY_BYTES],
+    key: &[u8],
     domain: &str,
     canonical: &[u8],
 ) -> Result<[u8; AUTHORITY_MUTATION_TAG_BYTES], TransactionValidationError> {
@@ -717,7 +788,7 @@ fn authority_tag(
 }
 
 fn verify_authority_tag(
-    key: &[u8; AUTHORITY_MUTATION_KEY_BYTES],
+    key: &[u8],
     domain: &str,
     canonical: &[u8],
     tag: &[u8; AUTHORITY_MUTATION_TAG_BYTES],
@@ -808,6 +879,8 @@ pub struct RecoveryRequest {
     expected_generation: u64,
     expected_state_version: u64,
     expected_binding_digest: ContentDigest,
+    authorized_at_unix_ms: u64,
+    expires_at_unix_ms: u64,
     resolution: RecoveryResolution,
     authority_tag: [u8; AUTHORITY_MUTATION_TAG_BYTES],
 }
@@ -834,6 +907,16 @@ impl RecoveryRequest {
     }
 
     #[must_use]
+    pub const fn authorized_at_unix_ms(&self) -> u64 {
+        self.authorized_at_unix_ms
+    }
+
+    #[must_use]
+    pub const fn expires_at_unix_ms(&self) -> u64 {
+        self.expires_at_unix_ms
+    }
+
+    #[must_use]
     pub fn resolution(&self) -> &RecoveryResolution {
         &self.resolution
     }
@@ -847,6 +930,8 @@ impl RecoveryRequest {
             &mut canonical,
             self.expected_binding_digest.as_str().as_bytes(),
         );
+        mutation_field(&mut canonical, &self.authorized_at_unix_ms.to_be_bytes());
+        mutation_field(&mut canonical, &self.expires_at_unix_ms.to_be_bytes());
         self.resolution.canonical_fields(&mut canonical);
         canonical
     }
@@ -862,12 +947,69 @@ pub enum RecoveryOutcome {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommitRequest {
-    pub transaction_id: TransactionId,
-    pub expected_generation: u64,
-    pub expected_state_version: u64,
-    pub desired_state_digest: ContentDigest,
-    pub graph_digest: ContentDigest,
-    pub provenance_digest: ContentDigest,
+    transaction_id: TransactionId,
+    expected_generation: u64,
+    expected_state_version: u64,
+    expected_binding_digest: ContentDigest,
+    desired_state_digest: ContentDigest,
+    graph_digest: ContentDigest,
+    provenance_digest: ContentDigest,
+    authority_tag: [u8; AUTHORITY_MUTATION_TAG_BYTES],
+}
+
+impl CommitRequest {
+    #[must_use]
+    pub fn transaction_id(&self) -> &TransactionId {
+        &self.transaction_id
+    }
+
+    #[must_use]
+    pub const fn expected_generation(&self) -> u64 {
+        self.expected_generation
+    }
+
+    #[must_use]
+    pub const fn expected_state_version(&self) -> u64 {
+        self.expected_state_version
+    }
+
+    #[must_use]
+    pub fn expected_binding_digest(&self) -> &ContentDigest {
+        &self.expected_binding_digest
+    }
+
+    #[must_use]
+    pub fn desired_state_digest(&self) -> &ContentDigest {
+        &self.desired_state_digest
+    }
+
+    #[must_use]
+    pub fn graph_digest(&self) -> &ContentDigest {
+        &self.graph_digest
+    }
+
+    #[must_use]
+    pub fn provenance_digest(&self) -> &ContentDigest {
+        &self.provenance_digest
+    }
+
+    fn canonical_bytes(&self) -> Vec<u8> {
+        let mut canonical = Vec::with_capacity(384);
+        mutation_field(&mut canonical, self.transaction_id.as_str().as_bytes());
+        mutation_field(&mut canonical, &self.expected_generation.to_be_bytes());
+        mutation_field(&mut canonical, &self.expected_state_version.to_be_bytes());
+        mutation_field(
+            &mut canonical,
+            self.expected_binding_digest.as_str().as_bytes(),
+        );
+        mutation_field(
+            &mut canonical,
+            self.desired_state_digest.as_str().as_bytes(),
+        );
+        mutation_field(&mut canonical, self.graph_digest.as_str().as_bytes());
+        mutation_field(&mut canonical, self.provenance_digest.as_str().as_bytes());
+        canonical
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
