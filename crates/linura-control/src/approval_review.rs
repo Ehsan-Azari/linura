@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
-use linura_approval::{
-    ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation, ApprovalValidation,
-    AuthenticatedApprover, validate_approval,
+use crate::approval::{
+    ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation,
+    ApprovalValidation, AuthenticatedApprover, validate_approval,
 };
 use linura_core::{ApprovalEvidenceId, ApprovalRequestId, PrincipalId, ValidationError};
 use linura_policy::{ApprovalClass, PolicyDecision, PolicyEvaluation};
@@ -127,8 +127,9 @@ impl ApprovalReviewControl {
         issued_at_unix_seconds: u64,
         expires_at_unix_seconds: u64,
     ) -> Result<PolicyApprovalEvidence, ApprovalControlError> {
-        let requirement = approval_requirement_from_evaluation(evaluation)
-            .map_err(|error| ApprovalControlError::Issue(PolicyApprovalIssueError::Requirement(error)))?;
+        let requirement = approval_requirement_from_evaluation(evaluation).map_err(|error| {
+            ApprovalControlError::Issue(PolicyApprovalIssueError::Requirement(error))
+        })?;
 
         if let Some(existing_id) = self.requests.get(&request_id) {
             let Some(existing) = self.records.get(existing_id) else {
@@ -298,8 +299,7 @@ mod tests {
         );
 
         let mut changed = evaluation;
-        changed.binding.policy_revision_id =
-            id(PolicyRevisionId::new("policy:baseline:v2"));
+        changed.binding.policy_revision_id = id(PolicyRevisionId::new("policy:baseline:v2"));
         assert_eq!(
             validate_policy_approval(&evidence, &changed, 150, None),
             ApprovalValidation::BindingMismatch
