@@ -14,9 +14,6 @@
 //! establishes durable prepare/recovery semantics.
 
 mod approval;
-mod linura_approval {
-    pub use crate::approval::*;
-}
 mod approval_review;
 mod plan_preview;
 mod policy_review;
