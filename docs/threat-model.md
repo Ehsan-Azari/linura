@@ -9,6 +9,7 @@
 - reusable Setup/Profile definitions and Library history;
 - system graph and semantic provenance;
 - audit/policy/grant state;
+- durable authority transaction/idempotency/recovery state;
 - trusted risk-policy state and classification provenance;
 - update/release trust roots;
 - user understanding at approval time.
@@ -57,7 +58,39 @@ A caller attempts to reuse approval for a different principal, plan, evidence sn
 - authority time is monotonic within the process: a backward host wall-clock sample fails closed, so expired evidence cannot revive and replay-tombstone decisions cannot be reversed by clock rollback;
 - cross-principal approval reuse and changed policy/risk-policy revision reuse fail closed;
 - agents/models cannot mint approval evidence or satisfy their own protected human/admin approval requirement;
-- v0.3 approval never creates prepare/executor authority; later prepare must revalidate exact review binding before effects.
+- durable prepare revalidates the exact current review/approval binding instead of trusting a prior UI/review result;
+- approval or a durable prepare record never becomes executor authority by itself.
+
+### Durable prepare substitution or idempotency rebinding
+A caller attempts to reuse a durable request/transaction identifier with changed authority material after process restart, or to substitute plan/evidence/policy/risk/approval content behind a retained identifier.
+- durable idempotency is namespaced by authenticated principal + request ID;
+- the durable prepare row binds a deterministic domain-separated digest of exact trusted review and authorization material;
+- same idempotency namespace + changed binding fails as conflict, including after database reopen;
+- SQLite uniqueness constraints backstop in-process checks;
+- transaction ID, request ID, plan ID and approval ID are references, not sufficient authority evidence;
+- immutable authority-binding fields cannot be silently rewritten after prepare.
+
+### Blind replay after crash / ambiguous external effect
+A crash occurs around a future effect boundary and restart incorrectly assumes the effect did or did not happen.
+- `Indeterminate` is an explicit durable transaction state and survives restart;
+- restart, duplicate delivery, a retained prepare row, executor self-report or local database state never implies retry permission;
+- fresh authoritative re-observation is required to resolve ambiguity;
+- proof that intended state already exists advances to `Verified`;
+- proof that the intended effect did not occur may create a new prepared attempt/generation;
+- conflicting state becomes `RecoveryBlocked`;
+- stale/insufficient/ambiguous evidence keeps the transaction `Indeterminate`;
+- recovery decisions and attempt generation changes are append-only audited;
+- v0.4 exposes no executor/managed effect, so these semantics are qualified before privileged execution is introduced.
+
+### Durable state rollback, schema substitution or corruption
+Local authority persistence is truncated, rolled back, migrated incorrectly, or replaced by a malformed/future database that could reopen stale authority.
+- repository-owned SQLite application ID and explicit supported schema/user version;
+- migration IDs/checksums are verified transactionally;
+- SQLite integrity and foreign-key checks are part of store integrity validation;
+- unsupported newer schema and migration checksum mismatch fail closed;
+- exact binding digests and audit-chain/state consistency are validated;
+- automatic recovery does not silently rewrite corrupted authority history;
+- authority-state backup/restore is distinct from portable profile import and requires an explicit future operational policy before Stable support.
 
 ### Prompt injection / model compromise
 External content manipulates an agent into dangerous proposals.
@@ -127,6 +160,7 @@ Malformed capability/setup definitions cause cycles, hidden conflicts or unsafe 
 - observed-state freshness and preconditions;
 - review is bound to the exact authoritative evidence, material plan and trusted risk classification being approved;
 - policy/risk-policy/approval changes invalidate stale review evidence;
+- durable prepare revalidates exact review/approval material immediately before crossing the prepare boundary;
 - revalidation immediately before high-risk effects;
 - plan expiry/replan rules;
 - setup/profile adoption always plans against current target state.
@@ -143,9 +177,22 @@ Malformed capability/setup definitions cause cycles, hidden conflicts or unsafe 
 - future shared catalogs need content identity/signature policy before being considered trusted distribution channels.
 
 ### Audit/provenance tampering
-- append-only design;
-- corruption detection/chaining/signing evaluated before supported release;
-- optional external export for enterprise durability.
+- append-only transaction audit design;
+- transaction transition + audit append are one local database transaction;
+- ordinary audit UPDATE/DELETE is rejected by the v0.4 SQLite schema;
+- deterministic event sequencing and chained integrity digests detect deletion/reordering/tampering;
+- store integrity validation cross-checks audit continuity against current durable transaction state;
+- corruption fails closed rather than being silently repaired;
+- optional external export/signing remains future enterprise/hardening work.
+
+### Persistence resource exhaustion
+A local client tries to consume unbounded disk/memory with authority or audit records, or maintenance silently discards old authority to make room.
+- per-record and aggregate durable authority/audit bounds;
+- bounded lock/busy waiting;
+- oversized inputs rejected before avoidable retained cloning/serialization;
+- capacity exhaustion fails closed;
+- no silent eviction of authority/audit history in v0.4;
+- WAL checkpoint/maintenance may reclaim physical space without changing semantic history.
 
 ## Deferred threats
 
