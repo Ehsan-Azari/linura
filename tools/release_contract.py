@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tomllib
 
@@ -46,6 +47,8 @@ COMMIT_RE = re.compile(r"https://github\.com/linura-org/linura/commit/([0-9a-f]{
 CLAIM_RE = re.compile(r"^\*\*Claim class:\*\*\s*(.+?)\s*$", re.MULTILINE)
 PROFILES_RE = re.compile(r"^\*\*Supported platform profiles:\*\*\s*(.+?)\s*$", re.MULTILINE)
 STATUS_RE = re.compile(r"^\*\*Status:\*\*\s*(.+?)\s*$", re.MULTILINE)
+REVIEWED_SOURCE_RE = re.compile(r"^Reviewed-Source:\s*([0-9a-f]{40})\s*$", re.MULTILINE)
+REVIEWED_TREE_RE = re.compile(r"^Reviewed-Tree:\s*([0-9a-f]{40})\s*$", re.MULTILINE)
 
 
 class ContractError(ValueError):
@@ -105,6 +108,73 @@ def workspace_version() -> str:
     if not isinstance(value, str) or not value:
         raise ContractError("workspace.package.version is missing from Cargo.toml")
     return value
+
+
+def _git(repository: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=repository,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as error:
+        detail = getattr(error, "stderr", None) or str(error)
+        raise ContractError(f"git {' '.join(args)} failed: {detail.strip()}") from error
+    return result.stdout.strip()
+
+
+def validate_release_intent(source_sha: str, repository: Path = ROOT) -> dict[str, str]:
+    """Prove a release-intent commit authorizes exactly its reviewed parent tree.
+
+    The release-intent commit is metadata-only: it must have exactly one parent,
+    its Git tree must be byte-for-byte identical to that parent's tree, and its
+    commit message must explicitly record that reviewed parent and tree through
+    `Reviewed-Source` and `Reviewed-Tree` trailers. Commit metadata can therefore
+    record the reviewed tree without the self-reference that embedding a tree SHA
+    inside a tracked file would create.
+    """
+    if SHA_RE.fullmatch(source_sha) is None:
+        raise ContractError("release-intent source SHA must be lowercase 40-character hexadecimal")
+
+    lineage = _git(repository, "rev-list", "--parents", "-n", "1", source_sha).split()
+    if len(lineage) != 2 or lineage[0] != source_sha:
+        raise ContractError("release-intent commit must exist and have exactly one reviewed parent")
+    reviewed_source_sha = lineage[1]
+
+    source_tree_sha = _git(repository, "rev-parse", f"{source_sha}^{{tree}}")
+    reviewed_tree_sha = _git(repository, "rev-parse", f"{reviewed_source_sha}^{{tree}}")
+    if source_tree_sha != reviewed_tree_sha:
+        raise ContractError(
+            "release-intent tree differs from its reviewed parent: "
+            f"source={source_tree_sha} reviewed={reviewed_tree_sha}"
+        )
+
+    message = _git(repository, "show", "-s", "--format=%B", source_sha)
+    reviewed_sources = REVIEWED_SOURCE_RE.findall(message)
+    reviewed_trees = REVIEWED_TREE_RE.findall(message)
+    if len(reviewed_sources) != 1 or len(reviewed_trees) != 1:
+        raise ContractError(
+            "release-intent commit must contain exactly one Reviewed-Source and Reviewed-Tree trailer"
+        )
+    if reviewed_sources[0] != reviewed_source_sha:
+        raise ContractError(
+            "release-intent Reviewed-Source does not match its immediate parent: "
+            f"recorded={reviewed_sources[0]} actual={reviewed_source_sha}"
+        )
+    if reviewed_trees[0] != source_tree_sha:
+        raise ContractError(
+            "release-intent Reviewed-Tree does not match the identical source/parent tree: "
+            f"recorded={reviewed_trees[0]} actual={source_tree_sha}"
+        )
+
+    return {
+        "source_sha": source_sha,
+        "reviewed_source_sha": reviewed_source_sha,
+        "reviewed_tree_sha": source_tree_sha,
+    }
 
 
 def validate_contract(notes: Path, tag: str, *, require_workspace_version: bool = False) -> dict[str, object]:
@@ -257,6 +327,10 @@ def main() -> int:
     validate_parser.add_argument("--tag", required=True)
     validate_parser.add_argument("--notes", required=True, type=Path)
     validate_parser.add_argument("--require-workspace-version", action="store_true")
+    intent_parser = subparsers.add_parser("validate-intent")
+    intent_parser.add_argument("--source-sha", required=True)
+    intent_parser.add_argument("--repository", type=Path, default=ROOT)
+    intent_parser.add_argument("--json", action="store_true")
     evidence_parser = subparsers.add_parser("evidence")
     evidence_parser.add_argument("--tag", required=True)
     evidence_parser.add_argument("--source-sha", required=True)
@@ -277,6 +351,17 @@ def main() -> int:
         if args.command == "validate":
             metadata = validate_contract(args.notes, args.tag, require_workspace_version=args.require_workspace_version)
             print("release contract valid: " f"{args.tag} / {metadata['claim_class']} / " f"{len(metadata['pull_requests'])} PR(s) / " f"{len(metadata['commits'])} commit(s)")
+        elif args.command == "validate-intent":
+            metadata = validate_release_intent(args.source_sha, args.repository)
+            if args.json:
+                print(json.dumps(metadata, sort_keys=True))
+            else:
+                print(
+                    "release intent valid: "
+                    f"source={metadata['source_sha']} / "
+                    f"reviewed-source={metadata['reviewed_source_sha']} / "
+                    f"reviewed-tree={metadata['reviewed_tree_sha']}"
+                )
         elif args.command == "evidence":
             write_evidence(args.notes, args.tag, args.source_sha, args.artifacts, args.output)
             print(f"wrote release evidence: {args.output}")
