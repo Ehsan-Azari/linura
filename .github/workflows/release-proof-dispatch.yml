@@ -57,6 +57,7 @@ jobs:
           PY
 
           tag="$(sed -n 's/^tag=//p' "$GITHUB_OUTPUT" | tail -1)"
+          python3 tools/release_contract.py validate-intent --source-sha "$SOURCE_SHA"
           python3 tools/release_contract.py validate \
             --tag "$tag" \
             --notes "docs/releases/${tag}.md" \
