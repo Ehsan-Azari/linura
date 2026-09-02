@@ -21,6 +21,19 @@ PLAN_PREVIEW_OUTPUTS = (
     ("findings", "a(sss)", "out"),
 )
 
+PLAN_REVIEW_OUTPUTS = (
+    ("ids", "(ss)", "out"),
+    ("principal", "s", "out"),
+    ("actor", "(ssb)", "out"),
+    ("route", "(sss)", "out"),
+    ("reason", "(sasasas)", "out"),
+    ("observed_evidence_id", "s", "out"),
+    ("review", "(sssss)", "out"),
+    ("decision", "(sbssb)", "out"),
+    ("changes", "a(sbss)", "out"),
+    ("findings", "a(sss)", "out"),
+)
+
 EXPECTED_METHODS = {
     "GetProtocolVersion": (("major", "q", "out"), ("product_version", "s", "out")),
     "WhoAmI": (
@@ -50,6 +63,8 @@ EXPECTED_METHODS = {
     ),
     "GetPlanPreview": (("plan_id", "s", "in"), *PLAN_PREVIEW_OUTPUTS),
     "ExplainPlanPreview": (("plan_id", "s", "in"), *PLAN_PREVIEW_OUTPUTS),
+    "ReviewPlan": (("plan_id", "s", "in"), *PLAN_REVIEW_OUTPUTS),
+    "ExplainPlanReview": (("plan_id", "s", "in"), *PLAN_REVIEW_OUTPUTS),
 }
 
 RUNTIME_METHODS = {
@@ -62,6 +77,8 @@ RUNTIME_METHODS = {
     "PlanDesiredState": "async fn plan_desired_state(",
     "GetPlanPreview": "async fn get_plan_preview(",
     "ExplainPlanPreview": "async fn explain_plan_preview(",
+    "ReviewPlan": "async fn review_plan(",
+    "ExplainPlanReview": "async fn explain_plan_review(",
 }
 
 REMOVED_EXPERIMENTAL_METHODS = {
@@ -109,7 +126,16 @@ class Control1ContractTests(unittest.TestCase):
         interface = root.find("./interface[@name='org.linura.Control1']")
         assert interface is not None
         method_names = {method.attrib["name"] for method in interface.findall("method")}
-        self.assertTrue({"PlanDesiredState", "GetPlanPreview", "ExplainPlanPreview"} <= method_names)
+        self.assertTrue(
+            {
+                "PlanDesiredState",
+                "GetPlanPreview",
+                "ExplainPlanPreview",
+                "ReviewPlan",
+                "ExplainPlanReview",
+            }
+            <= method_names
+        )
         for forbidden in {"Apply", "Execute", "CommitPlan", "AuthorizePlan", "PreparePlan"}:
             self.assertNotIn(forbidden, method_names)
 

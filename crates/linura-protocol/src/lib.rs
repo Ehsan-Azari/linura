@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use linura_core::{
-    Actor, Capability, CapabilityId, IntentId, PlanId, ProviderId, RequestId, ResourceId,
-    RiskClass, SemanticReason, SetupId,
+    Actor, Capability, CapabilityId, IntentId, PlanId, PolicyId, PolicyRevisionId, PrincipalId,
+    ProviderId, RequestId, ResourceId, RiskClass, SemanticReason, SetupId,
 };
 use linura_graph::{RemovalImpact, SystemGraph};
 use linura_intent::{Intent, IntentProposal, MachineProfile, Setup};
@@ -145,6 +145,72 @@ pub struct PlanPreview {
     pub findings: Vec<PlanPreviewFinding>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanReviewApprovalClass {
+    InteractiveUser,
+    Administrator,
+    DestructiveAction,
+}
+
+impl PlanReviewApprovalClass {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InteractiveUser => "interactive-user",
+            Self::Administrator => "administrator",
+            Self::DestructiveAction => "destructive-action",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PlanReviewDecision {
+    Allow,
+    Deny,
+    RequireApproval,
+    Blocked,
+}
+
+impl PlanReviewDecision {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Allow => "allow",
+            Self::Deny => "deny",
+            Self::RequireApproval => "require-approval",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+/// Public, transport-neutral projection of Control's trusted review of one
+/// retained canonical plan. This is explanation/authorization evidence only;
+/// it deliberately contains no executor handle, grant, prepare record, or
+/// conversion into an external effect.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanReview {
+    pub plan_id: PlanId,
+    pub request_id: RequestId,
+    pub principal: PrincipalId,
+    pub actor: Actor,
+    pub provider: ProviderId,
+    pub resource: ResourceId,
+    pub observation_capability: CapabilityId,
+    pub reason: SemanticReason,
+    pub observed_evidence_id: String,
+    pub planner_risk_floor: RiskClass,
+    pub reviewed_risk: RiskClass,
+    pub status: PlanPreviewStatus,
+    pub policy_id: PolicyId,
+    pub policy_revision_id: PolicyRevisionId,
+    pub decision: PlanReviewDecision,
+    pub approval_class: Option<PlanReviewApprovalClass>,
+    pub decision_reason: String,
+    pub execution_authorized: bool,
+    pub changes: Vec<PlanPreviewChange>,
+    pub findings: Vec<PlanPreviewFinding>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IntentCommand {
     Propose(IntentProposal),
@@ -255,6 +321,14 @@ mod tests {
         );
         assert_eq!(PlanPreviewStatus::Blocked.as_str(), "blocked");
         assert_eq!(PlanPreviewFindingLevel::Blocker.as_str(), "blocker");
+        assert_eq!(
+            PlanReviewDecision::RequireApproval.as_str(),
+            "require-approval"
+        );
+        assert_eq!(
+            PlanReviewApprovalClass::Administrator.as_str(),
+            "administrator"
+        );
     }
 
     #[test]

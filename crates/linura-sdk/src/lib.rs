@@ -12,8 +12,8 @@ pub use linura_capability_sdk::{
 };
 pub use linura_core::{
     Actor, ActorId, ActorKind, AuthorityClass, Capability, CapabilityId, IntentId, PlanId,
-    ProfileId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
-    SetupId, SupportLevel, ValidationError, WorkflowId,
+    PolicyId, PolicyRevisionId, PrincipalId, ProfileId, ProviderId, RequestId, RequirementId,
+    ResourceId, RiskClass, SemanticReason, SetupId, SupportLevel, ValidationError, WorkflowId,
 };
 pub use linura_dbus::{Control1Client as LocalControlClient, TransportError as LocalControlError};
 pub use linura_graph::{
@@ -31,8 +31,9 @@ pub use linura_protocol::{
     CapabilitySnapshot, ExplainResponse, ExplainTarget, IntentCommand, ObservationExplanation,
     ObservationRequest, ObservationResponse, ObservationSystemSnapshot, PROTOCOL_MAJOR,
     PlanDesiredStateRequest, PlanPreview, PlanPreviewChange, PlanPreviewFinding,
-    PlanPreviewFindingLevel, PlanPreviewStatus, PortableProfileExport, PortableSetupExport,
-    ProfileAdoptionRequest, ProfileAdoptionResponse, ProtocolVersion, ProviderSnapshot,
-    SetupAdoptionRequest, SetupAdoptionResponse, SystemSnapshot,
+    PlanPreviewFindingLevel, PlanPreviewStatus, PlanReview, PlanReviewApprovalClass,
+    PlanReviewDecision, PortableProfileExport, PortableSetupExport, ProfileAdoptionRequest,
+    ProfileAdoptionResponse, ProtocolVersion, ProviderSnapshot, SetupAdoptionRequest,
+    SetupAdoptionResponse, SystemSnapshot,
 };
 pub use linura_provenance::{ProvenanceKind, ProvenanceRecord, WhyChain};

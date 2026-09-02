@@ -1,7 +1,8 @@
 use linura_core::{PrincipalId, RiskClass, ValidationError};
 use linura_planner::{PlanFindingLevel, PlanStatus, ReconciliationPlan};
 use linura_policy::{
-    PolicySubject, PolicySubjectValidationError, ReviewFindingLevel, ReviewPlanStatus,
+    BaselinePolicy, PolicyDecision, PolicyEngine, PolicyEvaluation, PolicySubject,
+    PolicySubjectValidationError, ReviewBinding, ReviewFindingLevel, ReviewPlanStatus,
     ReviewedChange, ReviewedFinding,
 };
 
@@ -12,6 +13,40 @@ use crate::risk_classification::{RiskClassification, classify_plan_risk};
 pub enum PolicySubjectError {
     InvalidPrincipal(String),
     InvalidSubject(String),
+}
+
+/// Opaque Control-owned result of evaluating one canonical plan through the
+/// trusted risk-classification and policy path.
+///
+/// Callers may inspect the reviewed material, but cannot construct or replace
+/// the enclosed `PolicyEvaluation`. Approval issuance accepts this type rather
+/// than a freely mutable `PolicyEvaluation`, so client/provider/model code cannot
+/// pair a high-risk subject with a weaker approval decision.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrustedPolicyReview {
+    evaluation: PolicyEvaluation,
+}
+
+impl TrustedPolicyReview {
+    #[must_use]
+    pub fn subject(&self) -> &PolicySubject {
+        &self.evaluation.subject
+    }
+
+    #[must_use]
+    pub fn binding(&self) -> &ReviewBinding {
+        &self.evaluation.binding
+    }
+
+    #[must_use]
+    pub fn decision(&self) -> &PolicyDecision {
+        &self.evaluation.decision
+    }
+
+    #[must_use]
+    pub(crate) const fn evaluation(&self) -> &PolicyEvaluation {
+        &self.evaluation
+    }
 }
 
 /// Derive the internal policy-review subject from Linura's canonical
@@ -31,6 +66,28 @@ pub fn policy_subject_from_plan(
     plan: &ReconciliationPlan,
 ) -> Result<PolicySubject, PolicySubjectError> {
     policy_subject_from_plan_with_classification(principal, plan, classify_plan_risk(plan))
+}
+
+/// Evaluate canonical plan material already owned by Control through the trusted
+/// v0.3 review path.
+///
+/// This constructor is deliberately crate-private. `ReconciliationPlan` remains
+/// an Experimental public data type with public fields, so accepting one through
+/// a public authority constructor would let callers fabricate plan material and
+/// obtain a misleadingly trusted review. The public integration surface will
+/// review a retained canonical plan by identity through Control orchestration.
+pub(crate) fn review_plan(
+    principal: &AuthenticatedPrincipal,
+    plan: &ReconciliationPlan,
+) -> Result<TrustedPolicyReview, PolicySubjectError> {
+    let subject = policy_subject_from_plan(principal, plan)?;
+    Ok(review_subject_for_control(subject))
+}
+
+pub(crate) fn review_subject_for_control(subject: PolicySubject) -> TrustedPolicyReview {
+    TrustedPolicyReview {
+        evaluation: BaselinePolicy::default().evaluate(&subject),
+    }
 }
 
 fn policy_subject_from_plan_with_classification(
@@ -245,17 +302,18 @@ mod tests {
     #[test]
     fn canonical_systemd_change_requires_administrator_approval() {
         let plan = canonical_plan();
-        let subject = policy_subject_from_plan(&principal(), &plan)
-            .unwrap_or_else(|error| unreachable!("{error:?}"));
-        let evaluation = BaselinePolicy::default().evaluate(&subject);
+        let review =
+            review_plan(&principal(), &plan).unwrap_or_else(|error| unreachable!("{error:?}"));
 
         assert!(matches!(
-            evaluation.decision,
+            review.decision(),
             PolicyDecision::RequireApproval {
                 class: ApprovalClass::Administrator,
                 ..
             }
         ));
+        assert_eq!(review.subject().plan_id(), &plan.id);
+        assert_eq!(review.binding().principal.as_str(), "uid:1000");
     }
 
     #[test]

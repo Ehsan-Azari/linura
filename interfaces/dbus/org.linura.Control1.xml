@@ -87,5 +87,31 @@
       <arg name="changes" type="a(sbss)" direction="out"/>
       <arg name="findings" type="a(sss)" direction="out"/>
     </method>
+    <method name="ReviewPlan">
+      <arg name="plan_id" type="s" direction="in"/>
+      <arg name="ids" type="(ss)" direction="out"/>
+      <arg name="principal" type="s" direction="out"/>
+      <arg name="actor" type="(ssb)" direction="out"/>
+      <arg name="route" type="(sss)" direction="out"/>
+      <arg name="reason" type="(sasasas)" direction="out"/>
+      <arg name="observed_evidence_id" type="s" direction="out"/>
+      <arg name="review" type="(sssss)" direction="out"/>
+      <arg name="decision" type="(sbssb)" direction="out"/>
+      <arg name="changes" type="a(sbss)" direction="out"/>
+      <arg name="findings" type="a(sss)" direction="out"/>
+    </method>
+    <method name="ExplainPlanReview">
+      <arg name="plan_id" type="s" direction="in"/>
+      <arg name="ids" type="(ss)" direction="out"/>
+      <arg name="principal" type="s" direction="out"/>
+      <arg name="actor" type="(ssb)" direction="out"/>
+      <arg name="route" type="(sss)" direction="out"/>
+      <arg name="reason" type="(sasasas)" direction="out"/>
+      <arg name="observed_evidence_id" type="s" direction="out"/>
+      <arg name="review" type="(sssss)" direction="out"/>
+      <arg name="decision" type="(sbssb)" direction="out"/>
+      <arg name="changes" type="a(sbss)" direction="out"/>
+      <arg name="findings" type="a(sss)" direction="out"/>
+    </method>
   </interface>
 </node>
