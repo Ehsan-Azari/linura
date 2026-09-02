@@ -8,7 +8,7 @@ use linura_core::{
     RequestId, ResourceId, RiskClass, SemanticReason,
 };
 
-const MAX_EVIDENCE_ID_BYTES: usize = 512;
+const MAX_EVIDENCE_ID_BYTES: usize = 1024;
 const MAX_REVIEW_CHANGES: usize = 256;
 const MAX_REVIEW_FINDINGS: usize = 256;
 
@@ -64,7 +64,6 @@ pub enum PolicySubjectValidationError {
     DuplicateChangeKey(String),
     EmptyFindingCode,
     EmptyFindingMessage,
-    DuplicateFindingCode(String),
     NoChangeContainsChanges,
     NoChangeHasNonReadOnlyRisk,
     ChangeProposedWithoutChanges,
@@ -97,9 +96,6 @@ impl Display for PolicySubjectValidationError {
             Self::EmptyFindingCode => f.write_str("policy subject finding code cannot be empty"),
             Self::EmptyFindingMessage => {
                 f.write_str("policy subject finding message cannot be empty")
-            }
-            Self::DuplicateFindingCode(code) => {
-                write!(f, "policy subject contains duplicate finding code {code:?}")
             }
             Self::NoChangeContainsChanges => {
                 f.write_str("no-change policy subject cannot contain planned changes")
@@ -199,18 +195,12 @@ impl PolicySubject {
             }
         }
 
-        let mut finding_codes = BTreeSet::new();
         for finding in &findings {
             if finding.code.trim().is_empty() {
                 return Err(PolicySubjectValidationError::EmptyFindingCode);
             }
             if finding.message.trim().is_empty() {
                 return Err(PolicySubjectValidationError::EmptyFindingMessage);
-            }
-            if !finding_codes.insert(finding.code.as_str()) {
-                return Err(PolicySubjectValidationError::DuplicateFindingCode(
-                    finding.code.clone(),
-                ));
             }
         }
 
