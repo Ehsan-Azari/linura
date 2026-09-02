@@ -46,6 +46,7 @@ def qemu_command(
     ssh_port: int,
     seed: Path | None = None,
     acceleration: str = "auto",
+    persistent: bool = False,
 ) -> list[str]:
     resolved_acceleration = resolve_acceleration(acceleration)
     command = [
@@ -76,9 +77,13 @@ def qemu_command(
             "none",
             "-serial",
             "mon:stdio",
-            "-snapshot",
         ]
     )
+    # Disposable acceptance remains snapshot-isolated by default. v0.4 durability
+    # qualification opts into writes on an already disposable copied qcow2 so an
+    # abrupt QEMU stop/restart can verify acknowledged SQLite/WAL state survives.
+    if not persistent:
+        command.append("-snapshot")
     return command
 
 
@@ -97,6 +102,14 @@ def main() -> int:
             choices=ACCELERATORS,
             default="auto",
             help="QEMU accelerator: auto uses KVM only when /dev/kvm is actually openable",
+        )
+        command.add_argument(
+            "--persistent",
+            action="store_true",
+            help=(
+                "write to the supplied image instead of QEMU -snapshot mode; intended only "
+                "for fault qualification on a disposable copied image"
+            ),
         )
     sub.add_parser("doctor")
     args = parser.parse_args()
@@ -130,6 +143,7 @@ def main() -> int:
         args.ssh_port,
         args.seed,
         args.accel,
+        args.persistent,
     )
     print(shlex.join(command), flush=True)
     if args.command == "plan":

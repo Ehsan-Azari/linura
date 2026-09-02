@@ -1,0 +1,795 @@
+#![forbid(unsafe_code)]
+
+use std::fmt::{Display, Formatter};
+
+use linura_core::{
+    ApprovalEvidenceId, ApprovalRequestId, CapabilityId, PlanId, PolicyId, PolicyRevisionId,
+    PrincipalId, ProviderId, RequestId, ResourceId, RiskClass, ValidationError,
+};
+use sha2::{Digest, Sha256};
+
+pub const MAX_AUTHORITY_BINDING_BYTES: usize = 256 * 1024;
+pub const MAX_RISK_RULES: usize = 128;
+pub const MAX_RISK_RULE_ID_BYTES: usize = 512;
+pub const MAX_REVISION_BYTES: usize = 1024;
+pub const MAX_TRANSACTION_GENERATIONS: u64 = 64;
+
+const DIGEST_PREFIX: &str = "sha256:";
+const ZERO_DIGEST_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct TransactionId(String);
+
+impl TransactionId {
+    pub fn new(value: impl Into<String>) -> Result<Self, TransactionValidationError> {
+        let value = value.into();
+        validate_token("transaction id", &value, 256)?;
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn for_namespace(principal: &PrincipalId, request_id: &RequestId) -> Self {
+        let digest = digest_parts(
+            "linura.transaction.id.v1",
+            [
+                principal.as_str().as_bytes(),
+                request_id.as_str().as_bytes(),
+            ],
+        );
+        Self(format!("transaction:v1:{}", digest.hex()))
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ContentDigest(String);
+
+impl ContentDigest {
+    pub fn new(value: impl Into<String>) -> Result<Self, TransactionValidationError> {
+        let value = value.into();
+        let Some(hex) = value.strip_prefix(DIGEST_PREFIX) else {
+            return Err(TransactionValidationError::InvalidDigest);
+        };
+        if hex.len() != 64
+            || !hex
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        {
+            return Err(TransactionValidationError::InvalidDigest);
+        }
+        Ok(Self(value))
+    }
+
+    #[must_use]
+    pub fn zero() -> Self {
+        Self(format!("{DIGEST_PREFIX}{ZERO_DIGEST_HEX}"))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn hex(&self) -> &str {
+        &self.0[DIGEST_PREFIX.len()..]
+    }
+}
+
+#[must_use]
+pub fn digest_bytes(domain: &str, bytes: &[u8]) -> ContentDigest {
+    digest_parts(domain, [bytes])
+}
+
+#[must_use]
+pub fn digest_parts<'a>(domain: &str, parts: impl IntoIterator<Item = &'a [u8]>) -> ContentDigest {
+    let mut hasher = Sha256::new();
+    put_len_bytes(&mut hasher, domain.as_bytes());
+    for part in parts {
+        put_len_bytes(&mut hasher, part);
+    }
+    let digest = hasher.finalize();
+    ContentDigest(format!("{DIGEST_PREFIX}{digest:x}"))
+}
+
+fn put_len_bytes(hasher: &mut Sha256, bytes: &[u8]) {
+    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    hasher.update(len.to_be_bytes());
+    hasher.update(bytes);
+}
+
+fn encode_field(buffer: &mut Vec<u8>, bytes: &[u8]) -> Result<(), TransactionValidationError> {
+    let len =
+        u64::try_from(bytes.len()).map_err(|_| TransactionValidationError::BindingTooLarge)?;
+    buffer.extend_from_slice(&len.to_be_bytes());
+    buffer.extend_from_slice(bytes);
+    if buffer.len() > MAX_AUTHORITY_BINDING_BYTES {
+        return Err(TransactionValidationError::BindingTooLarge);
+    }
+    Ok(())
+}
+
+fn encode_str(buffer: &mut Vec<u8>, value: &str) -> Result<(), TransactionValidationError> {
+    encode_field(buffer, value.as_bytes())
+}
+
+fn risk_name(risk: RiskClass) -> &'static str {
+    match risk {
+        RiskClass::ReadOnly => "read-only",
+        RiskClass::UserState => "user-state",
+        RiskClass::SystemMutation => "system-mutation",
+        RiskClass::SecuritySensitive => "security-sensitive",
+        RiskClass::Destructive => "destructive",
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApprovalAuthority {
+    evidence_id: ApprovalEvidenceId,
+    request_id: ApprovalRequestId,
+    approver: PrincipalId,
+    approval_class: String,
+    issued_at_unix_seconds: u64,
+    expires_at_unix_seconds: u64,
+}
+
+impl ApprovalAuthority {
+    pub fn try_new(
+        evidence_id: ApprovalEvidenceId,
+        request_id: ApprovalRequestId,
+        approver: PrincipalId,
+        approval_class: impl Into<String>,
+        issued_at_unix_seconds: u64,
+        expires_at_unix_seconds: u64,
+    ) -> Result<Self, TransactionValidationError> {
+        let approval_class = approval_class.into();
+        validate_token("approval class", &approval_class, 256)?;
+        if issued_at_unix_seconds == 0 || expires_at_unix_seconds <= issued_at_unix_seconds {
+            return Err(TransactionValidationError::InvalidAuthorization);
+        }
+        Ok(Self {
+            evidence_id,
+            request_id,
+            approver,
+            approval_class,
+            issued_at_unix_seconds,
+            expires_at_unix_seconds,
+        })
+    }
+
+    #[must_use]
+    pub fn evidence_id(&self) -> &ApprovalEvidenceId {
+        &self.evidence_id
+    }
+
+    #[must_use]
+    pub fn request_id(&self) -> &ApprovalRequestId {
+        &self.request_id
+    }
+
+    #[must_use]
+    pub fn approver(&self) -> &PrincipalId {
+        &self.approver
+    }
+
+    #[must_use]
+    pub fn approval_class(&self) -> &str {
+        &self.approval_class
+    }
+
+    #[must_use]
+    pub const fn issued_at_unix_seconds(&self) -> u64 {
+        self.issued_at_unix_seconds
+    }
+
+    #[must_use]
+    pub const fn expires_at_unix_seconds(&self) -> u64 {
+        self.expires_at_unix_seconds
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AuthorizationBasis {
+    PolicyAllow,
+    Approval(ApprovalAuthority),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AuthorityBinding {
+    principal: PrincipalId,
+    request_id: RequestId,
+    plan_id: PlanId,
+    request_digest: ContentDigest,
+    precondition_digest: ContentDigest,
+    observation_digest: ContentDigest,
+    provider: ProviderId,
+    resource: ResourceId,
+    capability: CapabilityId,
+    policy_id: PolicyId,
+    policy_revision_id: PolicyRevisionId,
+    trusted_risk: RiskClass,
+    risk_policy_revision: String,
+    risk_rule_ids: Vec<String>,
+    review_digest: ContentDigest,
+    authorization: AuthorizationBasis,
+    canonical: Vec<u8>,
+    digest: ContentDigest,
+}
+
+impl AuthorityBinding {
+    #[allow(clippy::too_many_arguments)]
+    pub fn try_new(
+        principal: PrincipalId,
+        request_id: RequestId,
+        plan_id: PlanId,
+        request_digest: ContentDigest,
+        precondition_digest: ContentDigest,
+        observation_digest: ContentDigest,
+        provider: ProviderId,
+        resource: ResourceId,
+        capability: CapabilityId,
+        policy_id: PolicyId,
+        policy_revision_id: PolicyRevisionId,
+        trusted_risk: RiskClass,
+        risk_policy_revision: impl Into<String>,
+        mut risk_rule_ids: Vec<String>,
+        review_digest: ContentDigest,
+        authorization: AuthorizationBasis,
+    ) -> Result<Self, TransactionValidationError> {
+        let risk_policy_revision = risk_policy_revision.into();
+        validate_token(
+            "risk-policy revision",
+            &risk_policy_revision,
+            MAX_REVISION_BYTES,
+        )?;
+        if risk_rule_ids.len() > MAX_RISK_RULES {
+            return Err(TransactionValidationError::TooManyRiskRules);
+        }
+        risk_rule_ids.sort();
+        if risk_rule_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+            return Err(TransactionValidationError::DuplicateRiskRule);
+        }
+        for rule in &risk_rule_ids {
+            validate_token("risk rule id", rule, MAX_RISK_RULE_ID_BYTES)?;
+        }
+
+        let mut canonical = Vec::with_capacity(4096);
+        encode_str(&mut canonical, "linura.authority-binding.v1")?;
+        encode_str(&mut canonical, principal.as_str())?;
+        encode_str(&mut canonical, request_id.as_str())?;
+        encode_str(&mut canonical, plan_id.as_str())?;
+        encode_str(&mut canonical, request_digest.as_str())?;
+        encode_str(&mut canonical, precondition_digest.as_str())?;
+        encode_str(&mut canonical, observation_digest.as_str())?;
+        encode_str(&mut canonical, provider.as_str())?;
+        encode_str(&mut canonical, resource.as_str())?;
+        encode_str(&mut canonical, capability.as_str())?;
+        encode_str(&mut canonical, policy_id.as_str())?;
+        encode_str(&mut canonical, policy_revision_id.as_str())?;
+        encode_str(&mut canonical, risk_name(trusted_risk))?;
+        encode_str(&mut canonical, &risk_policy_revision)?;
+        encode_str(&mut canonical, &risk_rule_ids.len().to_string())?;
+        for rule in &risk_rule_ids {
+            encode_str(&mut canonical, rule)?;
+        }
+        encode_str(&mut canonical, review_digest.as_str())?;
+        match &authorization {
+            AuthorizationBasis::PolicyAllow => {
+                encode_str(&mut canonical, "policy-allow")?;
+            }
+            AuthorizationBasis::Approval(approval) => {
+                encode_str(&mut canonical, "approval")?;
+                encode_str(&mut canonical, approval.evidence_id.as_str())?;
+                encode_str(&mut canonical, approval.request_id.as_str())?;
+                encode_str(&mut canonical, approval.approver.as_str())?;
+                encode_str(&mut canonical, &approval.approval_class)?;
+                encode_str(&mut canonical, &approval.issued_at_unix_seconds.to_string())?;
+                encode_str(
+                    &mut canonical,
+                    &approval.expires_at_unix_seconds.to_string(),
+                )?;
+            }
+        }
+        if canonical.len() > MAX_AUTHORITY_BINDING_BYTES {
+            return Err(TransactionValidationError::BindingTooLarge);
+        }
+        let digest = digest_bytes("linura.authority-binding.digest.v1", &canonical);
+
+        Ok(Self {
+            principal,
+            request_id,
+            plan_id,
+            request_digest,
+            precondition_digest,
+            observation_digest,
+            provider,
+            resource,
+            capability,
+            policy_id,
+            policy_revision_id,
+            trusted_risk,
+            risk_policy_revision,
+            risk_rule_ids,
+            review_digest,
+            authorization,
+            canonical,
+            digest,
+        })
+    }
+
+    #[must_use]
+    pub fn principal(&self) -> &PrincipalId {
+        &self.principal
+    }
+
+    #[must_use]
+    pub fn request_id(&self) -> &RequestId {
+        &self.request_id
+    }
+
+    #[must_use]
+    pub fn plan_id(&self) -> &PlanId {
+        &self.plan_id
+    }
+
+    #[must_use]
+    pub fn request_digest(&self) -> &ContentDigest {
+        &self.request_digest
+    }
+
+    #[must_use]
+    pub fn precondition_digest(&self) -> &ContentDigest {
+        &self.precondition_digest
+    }
+
+    #[must_use]
+    pub fn observation_digest(&self) -> &ContentDigest {
+        &self.observation_digest
+    }
+
+    #[must_use]
+    pub fn provider(&self) -> &ProviderId {
+        &self.provider
+    }
+
+    #[must_use]
+    pub fn resource(&self) -> &ResourceId {
+        &self.resource
+    }
+
+    #[must_use]
+    pub fn capability(&self) -> &CapabilityId {
+        &self.capability
+    }
+
+    #[must_use]
+    pub fn policy_id(&self) -> &PolicyId {
+        &self.policy_id
+    }
+
+    #[must_use]
+    pub fn policy_revision_id(&self) -> &PolicyRevisionId {
+        &self.policy_revision_id
+    }
+
+    #[must_use]
+    pub const fn trusted_risk(&self) -> RiskClass {
+        self.trusted_risk
+    }
+
+    #[must_use]
+    pub fn risk_policy_revision(&self) -> &str {
+        &self.risk_policy_revision
+    }
+
+    #[must_use]
+    pub fn risk_rule_ids(&self) -> &[String] {
+        &self.risk_rule_ids
+    }
+
+    #[must_use]
+    pub fn review_digest(&self) -> &ContentDigest {
+        &self.review_digest
+    }
+
+    #[must_use]
+    pub fn authorization(&self) -> &AuthorizationBasis {
+        &self.authorization
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical
+    }
+
+    #[must_use]
+    pub fn digest(&self) -> &ContentDigest {
+        &self.digest
+    }
+
+    #[must_use]
+    pub fn transaction_id(&self) -> TransactionId {
+        TransactionId::for_namespace(&self.principal, &self.request_id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransactionState {
+    Prepared,
+    Indeterminate,
+    Verified,
+    Committed,
+    Aborted,
+    RecoveryBlocked,
+}
+
+impl TransactionState {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Prepared => "prepared",
+            Self::Indeterminate => "indeterminate",
+            Self::Verified => "verified",
+            Self::Committed => "committed",
+            Self::Aborted => "aborted",
+            Self::RecoveryBlocked => "recovery-blocked",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, TransactionValidationError> {
+        match value {
+            "prepared" => Ok(Self::Prepared),
+            "indeterminate" => Ok(Self::Indeterminate),
+            "verified" => Ok(Self::Verified),
+            "committed" => Ok(Self::Committed),
+            "aborted" => Ok(Self::Aborted),
+            "recovery-blocked" => Ok(Self::RecoveryBlocked),
+            _ => Err(TransactionValidationError::InvalidState),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransactionSnapshot {
+    pub transaction_id: TransactionId,
+    pub principal: PrincipalId,
+    pub request_id: RequestId,
+    pub current_generation: u64,
+    pub state_version: u64,
+    pub state: TransactionState,
+    pub binding_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrepareOutcome {
+    Created(TransactionSnapshot),
+    Existing(TransactionSnapshot),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryAnchor {
+    pub snapshot: TransactionSnapshot,
+    pub request_digest: ContentDigest,
+    pub precondition_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HandoffRequest {
+    pub transaction_id: TransactionId,
+    pub expected_generation: u64,
+    pub expected_state_version: u64,
+    pub expected_binding_digest: ContentDigest,
+    pub authority_use_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HandoffCommit {
+    pub transaction_id: TransactionId,
+    pub generation: u64,
+    pub state_version: u64,
+    pub binding_digest: ContentDigest,
+    pub authority_use_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecoveryResolution {
+    IntendedStateVerified {
+        observation_digest: ContentDigest,
+    },
+    IntendedEffectAbsent {
+        observation_digest: ContentDigest,
+        next_binding: Box<AuthorityBinding>,
+    },
+    ConflictingState {
+        observation_digest: ContentDigest,
+    },
+    Ambiguous {
+        observation_digest: ContentDigest,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryRequest {
+    pub transaction_id: TransactionId,
+    pub expected_generation: u64,
+    pub expected_state_version: u64,
+    pub expected_binding_digest: ContentDigest,
+    pub resolution: RecoveryResolution,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RecoveryOutcome {
+    Verified(TransactionSnapshot),
+    Reprepared(TransactionSnapshot),
+    Blocked(TransactionSnapshot),
+    StillIndeterminate(TransactionSnapshot),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CommitRequest {
+    pub transaction_id: TransactionId,
+    pub expected_generation: u64,
+    pub expected_state_version: u64,
+    pub desired_state_digest: ContentDigest,
+    pub graph_digest: ContentDigest,
+    pub provenance_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbortRequest {
+    pub transaction_id: TransactionId,
+    pub expected_generation: u64,
+    pub expected_state_version: u64,
+    pub reason_digest: ContentDigest,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TransactionStoreError {
+    IdempotencyConflict,
+    StateConflict,
+    NotFound,
+    CapacityExceeded,
+    Corruption(String),
+    UnsupportedSchema(String),
+    Storage(String),
+}
+
+impl Display for TransactionStoreError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::IdempotencyConflict => f.write_str("durable request idempotency conflict"),
+            Self::StateConflict => f.write_str("durable transaction state/version conflict"),
+            Self::NotFound => f.write_str("durable transaction not found"),
+            Self::CapacityExceeded => f.write_str("durable transaction capacity exceeded"),
+            Self::Corruption(reason) => write!(f, "durable transaction corruption: {reason}"),
+            Self::UnsupportedSchema(reason) => {
+                write!(f, "unsupported durable transaction schema: {reason}")
+            }
+            Self::Storage(reason) => write!(f, "durable transaction storage failure: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for TransactionStoreError {}
+
+pub trait TransactionStore: std::fmt::Debug {
+    fn prepare(
+        &mut self,
+        binding: &AuthorityBinding,
+    ) -> Result<PrepareOutcome, TransactionStoreError>;
+    fn handoff(&mut self, request: &HandoffRequest)
+    -> Result<HandoffCommit, TransactionStoreError>;
+    fn recover(
+        &mut self,
+        request: &RecoveryRequest,
+    ) -> Result<RecoveryOutcome, TransactionStoreError>;
+    fn commit(
+        &mut self,
+        request: &CommitRequest,
+    ) -> Result<TransactionSnapshot, TransactionStoreError>;
+    fn abort_prepared(
+        &mut self,
+        request: &AbortRequest,
+    ) -> Result<TransactionSnapshot, TransactionStoreError>;
+    fn snapshot(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<TransactionSnapshot, TransactionStoreError>;
+    fn recovery_anchor(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<RecoveryAnchor, TransactionStoreError>;
+    fn list_state(
+        &self,
+        state: TransactionState,
+    ) -> Result<Vec<TransactionSnapshot>, TransactionStoreError>;
+    fn integrity_check(&self) -> Result<(), TransactionStoreError>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TransactionValidationError {
+    InvalidToken(&'static str),
+    TokenTooLong(&'static str),
+    InvalidDigest,
+    BindingTooLarge,
+    TooManyRiskRules,
+    DuplicateRiskRule,
+    InvalidAuthorization,
+    InvalidState,
+    Core(String),
+}
+
+impl Display for TransactionValidationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidToken(label) => {
+                write!(f, "{label} is empty or contains control characters")
+            }
+            Self::TokenTooLong(label) => write!(f, "{label} exceeds its UTF-8 byte bound"),
+            Self::InvalidDigest => f.write_str("content digest must be sha256:<64 lowercase hex>"),
+            Self::BindingTooLarge => write!(
+                f,
+                "authority binding exceeds {MAX_AUTHORITY_BINDING_BYTES} bytes"
+            ),
+            Self::TooManyRiskRules => {
+                write!(f, "authority binding exceeds {MAX_RISK_RULES} risk rules")
+            }
+            Self::DuplicateRiskRule => {
+                f.write_str("authority binding contains duplicate risk rule")
+            }
+            Self::InvalidAuthorization => f.write_str("authority authorization basis is invalid"),
+            Self::InvalidState => f.write_str("durable transaction state is invalid"),
+            Self::Core(reason) => write!(f, "invalid core identity: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for TransactionValidationError {}
+
+impl From<ValidationError> for TransactionValidationError {
+    fn from(error: ValidationError) -> Self {
+        Self::Core(error.to_string())
+    }
+}
+
+fn validate_token(
+    label: &'static str,
+    value: &str,
+    max_bytes: usize,
+) -> Result<(), TransactionValidationError> {
+    if value.trim().is_empty() || value.chars().any(char::is_control) {
+        return Err(TransactionValidationError::InvalidToken(label));
+    }
+    if value.len() > max_bytes {
+        return Err(TransactionValidationError::TokenTooLong(label));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use linura_core::ValidationError;
+
+    fn id<T>(value: Result<T, ValidationError>) -> T {
+        value.unwrap_or_else(|error| unreachable!("{error}"))
+    }
+
+    fn digest(value: &str) -> ContentDigest {
+        digest_bytes("test", value.as_bytes())
+    }
+
+    fn binding() -> AuthorityBinding {
+        AuthorityBinding::try_new(
+            id(PrincipalId::new("uid:1000")),
+            id(RequestId::new("request:test")),
+            id(PlanId::new("request:test")),
+            digest("request"),
+            digest("precondition"),
+            digest("observation"),
+            id(ProviderId::new("systemd")),
+            id(ResourceId::new("systemd:unit:test.service")),
+            id(CapabilityId::new("systemd.unit.observe")),
+            id(PolicyId::new("policy:baseline")),
+            id(PolicyRevisionId::new("policy:baseline:v1")),
+            RiskClass::SecuritySensitive,
+            "risk-policy:v0.4:1",
+            vec!["systemd.active-state.security".into()],
+            digest("review"),
+            AuthorizationBasis::PolicyAllow,
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"))
+    }
+
+    #[test]
+    fn transaction_id_is_stable_for_principal_request_namespace() {
+        let binding = binding();
+        assert_eq!(
+            binding.transaction_id(),
+            TransactionId::for_namespace(binding.principal(), binding.request_id())
+        );
+        let other =
+            TransactionId::for_namespace(&id(PrincipalId::new("uid:1001")), binding.request_id());
+        assert_ne!(binding.transaction_id(), other);
+    }
+
+    #[test]
+    fn binding_digest_changes_with_authority_material() {
+        let original = binding();
+        let changed = AuthorityBinding::try_new(
+            original.principal().clone(),
+            original.request_id().clone(),
+            original.plan_id().clone(),
+            original.request_digest().clone(),
+            original.precondition_digest().clone(),
+            digest("different-observation"),
+            original.provider().clone(),
+            original.resource().clone(),
+            original.capability().clone(),
+            original.policy_id().clone(),
+            original.policy_revision_id().clone(),
+            original.trusted_risk(),
+            original.risk_policy_revision(),
+            original.risk_rule_ids().to_vec(),
+            original.review_digest().clone(),
+            original.authorization().clone(),
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_ne!(original.digest(), changed.digest());
+        assert_ne!(original.canonical_bytes(), changed.canonical_bytes());
+    }
+
+    #[test]
+    fn risk_rules_are_canonicalized_and_duplicates_fail_closed() {
+        let original = binding();
+        let reordered = AuthorityBinding::try_new(
+            original.principal().clone(),
+            original.request_id().clone(),
+            original.plan_id().clone(),
+            original.request_digest().clone(),
+            original.precondition_digest().clone(),
+            original.observation_digest().clone(),
+            original.provider().clone(),
+            original.resource().clone(),
+            original.capability().clone(),
+            original.policy_id().clone(),
+            original.policy_revision_id().clone(),
+            original.trusted_risk(),
+            original.risk_policy_revision(),
+            vec!["z".into(), "a".into()],
+            original.review_digest().clone(),
+            original.authorization().clone(),
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(
+            reordered.risk_rule_ids(),
+            &["a".to_string(), "z".to_string()]
+        );
+        assert!(matches!(
+            AuthorityBinding::try_new(
+                original.principal().clone(),
+                original.request_id().clone(),
+                original.plan_id().clone(),
+                original.request_digest().clone(),
+                original.precondition_digest().clone(),
+                original.observation_digest().clone(),
+                original.provider().clone(),
+                original.resource().clone(),
+                original.capability().clone(),
+                original.policy_id().clone(),
+                original.policy_revision_id().clone(),
+                original.trusted_risk(),
+                original.risk_policy_revision(),
+                vec!["dup".into(), "dup".into()],
+                original.review_digest().clone(),
+                original.authorization().clone(),
+            ),
+            Err(TransactionValidationError::DuplicateRiskRule)
+        ));
+    }
+}

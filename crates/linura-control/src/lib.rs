@@ -5,7 +5,9 @@
 //! The current implemented authority surface owns authenticated authoritative
 //! observation and deterministic non-executable plan previews. v0.3 adds
 //! policy/risk review and short-lived exact-bound approval semantics on top of
-//! that canonical plan lineage.
+//! that canonical plan lineage. v0.4 adds durable prepare/recovery and a sealed
+//! pre-dispatch handoff capability while still exposing no executor or managed
+//! external mutation path.
 //!
 //! The superseded 0.0.0 `Provider::plan -> ActionPlan -> ControlPlane::apply`
 //! scaffold was removed rather than preserved as a legacy path. The canonical
@@ -15,6 +17,7 @@
 
 mod approval;
 mod approval_review;
+mod durable_authority;
 mod plan_preview;
 mod policy_review;
 mod review_projection;
@@ -30,6 +33,10 @@ pub use approval_review::{
     MAX_APPROVAL_TOMBSTONE_BYTES, MAX_APPROVAL_TOMBSTONES, MAX_APPROVAL_TOTAL_BYTES,
     PolicyApprovalEvidence, PolicyApprovalIssueError, PolicyApprovalRequirement,
     PolicyAuthenticatedApprover,
+};
+pub use durable_authority::{
+    DispatchPermit, DurableAuthorityCandidate, DurableAuthorityControl, DurableAuthorityError,
+    DurableRecoveryOutcome, PreparedDurableAuthority,
 };
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
