@@ -223,6 +223,11 @@ def _extract_braced_block(text: str, marker: str) -> tuple[str, int] | None:
     return None
 
 
+def _normalize_rust_structure(text: str) -> str:
+    without_string_contents = re.sub(r'"[^"]*"', '""', text)
+    return re.sub(r"\s+", " ", without_string_contents).strip()
+
+
 def validate_policy_approval_strength(policy_text: str) -> list[str]:
     failures: list[str] = []
     source = _sanitize_rust_source(policy_text)
@@ -248,9 +253,25 @@ def validate_policy_approval_strength(policy_text: str) -> list[str]:
         return failures
 
     match_index = function_body.index(risk_match_marker)
-    if "subject.prospective_risk()" in function_body[:match_index]:
+    normalized_prefix = _normalize_rust_structure(function_body[:match_index])
+    expected_prefix = _normalize_rust_structure(
+        """
+        if subject.status() == ReviewPlanStatus::Blocked || subject.has_blockers() {
+            return PolicyDecision::Blocked {
+                reason: "".into(),
+            };
+        }
+        if subject.actor().kind == ActorKind::Remote {
+            return PolicyDecision::Deny {
+                reason: "".into(),
+            };
+        }
+        let agent_proposal = subject.actor().kind == ActorKind::Agent;
+        """
+    )
+    if normalized_prefix != expected_prefix:
         failures.append(
-            "BaselinePolicy::evaluate_decision must not short-circuit on prospective risk before the canonical risk match"
+            "BaselinePolicy::evaluate_decision pre-risk control flow changed; only blocker rejection, remote denial, and agent provenance capture are permitted before the canonical risk match"
         )
 
     risk_match = _extract_braced_block(function_body, risk_match_marker)
@@ -264,11 +285,23 @@ def validate_policy_approval_strength(policy_text: str) -> list[str]:
             "canonical prospective-risk match must remain the tail decision expression"
         )
 
+    if match_body.count("=>") != 4:
+        failures.append(
+            "canonical prospective-risk match must contain exactly four top-level decision arms"
+        )
+
     for risk_name, expected_class in EXPECTED_APPROVAL_BY_RISK.items():
+        risk_marker = f"RiskClass::{risk_name}"
+        if match_body.count(risk_marker) != 1:
+            failures.append(
+                f"canonical risk match must reference RiskClass::{risk_name} exactly once; guarded, duplicate, or alternative shadow arms are forbidden"
+            )
+            continue
+
         arm_marker = f"RiskClass::{risk_name} => PolicyDecision::RequireApproval"
         if match_body.count(arm_marker) != 1:
             failures.append(
-                f"canonical risk match must contain exactly one {risk_name} RequireApproval arm"
+                f"canonical risk match must contain exactly one unguarded {risk_name} RequireApproval arm"
             )
             continue
 
