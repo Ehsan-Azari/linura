@@ -13,11 +13,16 @@
 //! narrow executor package scaffolds remain for v0.5 qualification after v0.4
 //! establishes durable prepare/recovery semantics.
 
+mod approval;
 mod approval_review;
 mod plan_preview;
 mod policy_review;
 mod risk_classification;
 
+pub use approval::{
+    ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation,
+    ApprovalValidation, AuthenticatedApprover, MAX_APPROVAL_TTL_SECONDS, validate_approval,
+};
 pub use approval_review::{
     ApprovalControlError, ApprovalRequirementError, ApprovalReviewControl, MAX_APPROVAL_ENTRIES,
     PolicyApprovalEvidence, PolicyApprovalIssueError, PolicyApprovalRequirement,
