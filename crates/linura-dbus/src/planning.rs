@@ -4,12 +4,13 @@ use linura_control::{
     MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_SUMMARY_BYTES, MAX_TOTAL_ORIGINS,
 };
 use linura_core::{
-    Actor, ActorId, ActorKind, CapabilityId, IntentId, PlanId, ProviderId, RequestId,
-    RequirementId, ResourceId, RiskClass, SemanticReason,
+    Actor, ActorId, ActorKind, CapabilityId, IntentId, PlanId, PolicyId, PolicyRevisionId,
+    PrincipalId, ProviderId, RequestId, RequirementId, ResourceId, RiskClass, SemanticReason,
 };
 use linura_protocol::{
     PlanDesiredStateRequest, PlanPreview, PlanPreviewChange, PlanPreviewFinding,
-    PlanPreviewFindingLevel, PlanPreviewStatus,
+    PlanPreviewFindingLevel, PlanPreviewStatus, PlanReview, PlanReviewApprovalClass,
+    PlanReviewDecision,
 };
 
 pub(crate) type PlanRequestRouteWire = (String, String, String, String);
@@ -29,6 +30,21 @@ pub(crate) type PlanPreviewWire = (
     String,
     String,
     bool,
+    Vec<PlanChangeWire>,
+    Vec<PlanFindingWire>,
+);
+
+pub(crate) type PlanReviewPolicyWire = (String, String, String, String, String);
+pub(crate) type PlanReviewDecisionWire = (String, bool, String, String, bool);
+pub(crate) type PlanReviewWire = (
+    PlanIdsWire,
+    String,
+    PlanActorWire,
+    PlanRouteWire,
+    PlanReasonWire,
+    String,
+    PlanReviewPolicyWire,
+    PlanReviewDecisionWire,
     Vec<PlanChangeWire>,
     Vec<PlanFindingWire>,
 );
@@ -347,6 +363,197 @@ pub(crate) fn plan_preview_from_wire(wire: PlanPreviewWire) -> Result<PlanPrevie
         changes,
         findings,
     })
+}
+
+pub(crate) fn plan_review_wire(review: &PlanReview) -> PlanReviewWire {
+    let approval_class = review
+        .approval_class
+        .map_or_else(String::new, |class| class.as_str().into());
+    (
+        (
+            review.plan_id.as_str().into(),
+            review.request_id.as_str().into(),
+        ),
+        review.principal.as_str().into(),
+        (
+            review.actor.id.as_str().into(),
+            actor_kind_name(review.actor.kind).into(),
+            review.actor.interactive,
+        ),
+        (
+            review.provider.as_str().into(),
+            review.resource.as_str().into(),
+            review.observation_capability.as_str().into(),
+        ),
+        (
+            review.reason.summary.clone(),
+            review
+                .reason
+                .intent_ids
+                .iter()
+                .map(|id| id.as_str().into())
+                .collect(),
+            review
+                .reason
+                .requirement_ids
+                .iter()
+                .map(|id| id.as_str().into())
+                .collect(),
+            review
+                .reason
+                .capability_ids
+                .iter()
+                .map(|id| id.as_str().into())
+                .collect(),
+        ),
+        review.observed_evidence_id.clone(),
+        (
+            risk_name(review.planner_risk_floor).into(),
+            risk_name(review.reviewed_risk).into(),
+            review.status.as_str().into(),
+            review.policy_id.as_str().into(),
+            review.policy_revision_id.as_str().into(),
+        ),
+        (
+            review.decision.as_str().into(),
+            review.approval_class.is_some(),
+            approval_class,
+            review.decision_reason.clone(),
+            review.execution_authorized,
+        ),
+        review
+            .changes
+            .iter()
+            .map(|change| {
+                (
+                    change.key.clone(),
+                    change.current.is_some(),
+                    change.current.clone().unwrap_or_default(),
+                    change.desired.clone(),
+                )
+            })
+            .collect(),
+        review
+            .findings
+            .iter()
+            .map(|finding| {
+                (
+                    finding.code.clone(),
+                    finding.level.as_str().into(),
+                    finding.message.clone(),
+                )
+            })
+            .collect(),
+    )
+}
+
+pub(crate) fn plan_review_from_wire(wire: PlanReviewWire) -> Result<PlanReview, String> {
+    let (
+        ids,
+        principal,
+        actor,
+        route,
+        reason,
+        observed_evidence_id,
+        (planner_risk_floor, reviewed_risk, status, policy_id, policy_revision_id),
+        (decision, has_approval_class, approval_class, decision_reason, execution_authorized),
+        changes,
+        findings,
+    ) = wire;
+
+    let preview = plan_preview_from_wire((
+        ids,
+        actor,
+        route,
+        reason,
+        observed_evidence_id,
+        planner_risk_floor.clone(),
+        status,
+        execution_authorized,
+        changes,
+        findings,
+    ))?;
+    if decision_reason.len() > 16 * 1024 || decision_reason.chars().any(char::is_control) {
+        return Err("plan review decision reason violates transport bounds".into());
+    }
+
+    let decision = parse_review_decision(&decision)?;
+    let approval_class = if has_approval_class {
+        Some(parse_review_approval_class(&approval_class)?)
+    } else {
+        if !approval_class.is_empty() {
+            return Err(
+                "plan review supplied an approval class while has_approval_class=false".into(),
+            );
+        }
+        None
+    };
+    match decision {
+        PlanReviewDecision::RequireApproval => {
+            if approval_class.is_none() || decision_reason.trim().is_empty() {
+                return Err("require-approval review lacks class or reason".into());
+            }
+        }
+        PlanReviewDecision::Deny | PlanReviewDecision::Blocked => {
+            if approval_class.is_some() || decision_reason.trim().is_empty() {
+                return Err("deny/blocked review has inconsistent approval metadata".into());
+            }
+        }
+        PlanReviewDecision::Allow => {
+            if approval_class.is_some() {
+                return Err("allow review unexpectedly carries an approval class".into());
+            }
+        }
+    }
+
+    let planner_risk_floor = parse_risk(&planner_risk_floor)?;
+    let reviewed_risk = parse_risk(&reviewed_risk)?;
+    if reviewed_risk < planner_risk_floor && decision != PlanReviewDecision::Blocked {
+        return Err("plan review lowered the planner risk floor without blocking".into());
+    }
+
+    Ok(PlanReview {
+        plan_id: preview.plan_id,
+        request_id: preview.request_id,
+        principal: PrincipalId::new(principal).map_err(|error| error.to_string())?,
+        actor: preview.actor,
+        provider: preview.provider,
+        resource: preview.resource,
+        observation_capability: preview.observation_capability,
+        reason: preview.reason,
+        observed_evidence_id: preview.observed_evidence_id,
+        planner_risk_floor,
+        reviewed_risk,
+        status: preview.status,
+        policy_id: PolicyId::new(policy_id).map_err(|error| error.to_string())?,
+        policy_revision_id: PolicyRevisionId::new(policy_revision_id)
+            .map_err(|error| error.to_string())?,
+        decision,
+        approval_class,
+        decision_reason,
+        execution_authorized: false,
+        changes: preview.changes,
+        findings: preview.findings,
+    })
+}
+
+fn parse_review_decision(value: &str) -> Result<PlanReviewDecision, String> {
+    match value {
+        "allow" => Ok(PlanReviewDecision::Allow),
+        "deny" => Ok(PlanReviewDecision::Deny),
+        "require-approval" => Ok(PlanReviewDecision::RequireApproval),
+        "blocked" => Ok(PlanReviewDecision::Blocked),
+        _ => Err(format!("unknown plan review decision {value:?}")),
+    }
+}
+
+fn parse_review_approval_class(value: &str) -> Result<PlanReviewApprovalClass, String> {
+    match value {
+        "interactive-user" => Ok(PlanReviewApprovalClass::InteractiveUser),
+        "administrator" => Ok(PlanReviewApprovalClass::Administrator),
+        "destructive-action" => Ok(PlanReviewApprovalClass::DestructiveAction),
+        _ => Err(format!("unknown plan review approval class {value:?}")),
+    }
 }
 
 fn parse_ids<T, E, F>(values: Vec<String>, constructor: F) -> Result<Vec<T>, String>

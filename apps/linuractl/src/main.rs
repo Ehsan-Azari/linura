@@ -6,8 +6,8 @@ use std::fmt::{Display, Formatter};
 
 use linura_sdk::{
     ActorKind, CapabilityId, IntentId, LocalControlClient, PlanDesiredStateRequest, PlanId,
-    PlanPreview, ProtocolVersion, ProviderId, RequestId, RequirementId, ResourceId, RiskClass,
-    SemanticReason,
+    PlanPreview, PlanReview, ProtocolVersion, ProviderId, RequestId, RequirementId, ResourceId,
+    RiskClass, SemanticReason,
 };
 
 #[derive(Clone, Copy)]
@@ -66,6 +66,16 @@ const COMMANDS: &[CommandInfo] = &[
     CommandInfo {
         name: "explain-plan-preview",
         summary: "Explain one retained non-executable preview",
+        offline: false,
+    },
+    CommandInfo {
+        name: "review-plan",
+        summary: "Review one retained canonical plan through trusted policy",
+        offline: false,
+    },
+    CommandInfo {
+        name: "explain-plan-review",
+        summary: "Explain the trusted review of one retained canonical plan",
         offline: false,
     },
     CommandInfo {
@@ -209,6 +219,18 @@ fn run() -> Result<(), Box<dyn Error>> {
             let plan_id = PlanId::new(args[1].clone())?;
             let preview = LocalControlClient::connect()?.explain_plan_preview(&plan_id)?;
             print_plan_preview(&preview);
+        }
+        Some("review-plan") => {
+            require_arity(&args, 2, "review-plan <plan-id>")?;
+            let plan_id = PlanId::new(args[1].clone())?;
+            let review = LocalControlClient::connect()?.review_plan(&plan_id)?;
+            print_plan_review(&review);
+        }
+        Some("explain-plan-review") => {
+            require_arity(&args, 2, "explain-plan-review <plan-id>")?;
+            let plan_id = PlanId::new(args[1].clone())?;
+            let review = LocalControlClient::connect()?.explain_plan_review(&plan_id)?;
+            print_plan_review(&review);
         }
         Some("help") | Some("--help") | Some("-h") | None => print_help(),
         Some(other) => {
@@ -392,6 +414,58 @@ fn print_plan_preview(preview: &PlanPreview) {
         field(&format!("change.{index}.desired"), &change.desired);
     }
     for (index, finding) in preview.findings.iter().enumerate() {
+        field(&format!("finding.{index}.code"), &finding.code);
+        field(&format!("finding.{index}.level"), finding.level.as_str());
+        field(&format!("finding.{index}.message"), &finding.message);
+    }
+}
+
+fn print_plan_review(review: &PlanReview) {
+    field("plan_id", review.plan_id.as_str());
+    field("request_id", review.request_id.as_str());
+    field("principal", review.principal.as_str());
+    field("actor_id", review.actor.id.as_str());
+    field("actor_kind", actor_kind_name(review.actor.kind));
+    field("provider", review.provider.as_str());
+    field("resource", review.resource.as_str());
+    field("capability", review.observation_capability.as_str());
+    field("evidence_id", &review.observed_evidence_id);
+    field("planner_risk_floor", risk_name(review.planner_risk_floor));
+    field("reviewed_risk", risk_name(review.reviewed_risk));
+    field("status", review.status.as_str());
+    field("policy_id", review.policy_id.as_str());
+    field("policy_revision_id", review.policy_revision_id.as_str());
+    field("decision", review.decision.as_str());
+    field(
+        "approval_required",
+        if review.approval_class.is_some() {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    if let Some(class) = review.approval_class {
+        field("approval_class", class.as_str());
+    }
+    if !review.decision_reason.is_empty() {
+        field("decision_reason", &review.decision_reason);
+    }
+    field(
+        "execution_authorized",
+        if review.execution_authorized {
+            "true"
+        } else {
+            "false"
+        },
+    );
+    for (index, change) in review.changes.iter().enumerate() {
+        field(&format!("change.{index}.key"), &change.key);
+        if let Some(current) = &change.current {
+            field(&format!("change.{index}.current"), current);
+        }
+        field(&format!("change.{index}.desired"), &change.desired);
+    }
+    for (index, finding) in review.findings.iter().enumerate() {
         field(&format!("finding.{index}.code"), &finding.code);
         field(&format!("finding.{index}.level"), finding.level.as_str());
         field(&format!("finding.{index}.message"), &finding.message);

@@ -14,9 +14,9 @@ use linura_graph::{EdgeKind, NodeId, SystemGraph};
 use linura_observation_control::ObservationCoordinator;
 use linura_protocol::{
     ObservationExplanation, ObservationRequest, ObservationResponse, PlanDesiredStateRequest,
-    PlanPreview, ProtocolVersion, ProviderSnapshot,
+    PlanPreview, PlanReview, ProtocolVersion, ProviderSnapshot,
 };
-use planning::{PlanPreviewWire, PlanRequestWire};
+use planning::{PlanPreviewWire, PlanRequestWire, PlanReviewWire};
 use zbus::blocking::{Connection as BlockingConnection, Proxy as BlockingProxy};
 use zbus::message::Header;
 use zbus::object_server::{DispatchResult2, Interface, SignalEmitter};
@@ -251,6 +251,42 @@ impl Control1Service {
             state
                 .explain_plan_preview(&principal, &plan_id)
                 .map(|preview| planning::plan_preview_wire(&preview))
+                .map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    async fn review_plan(
+        &self,
+        plan_id: &str,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<PlanReviewWire> {
+        let caller = authenticated_caller(connection, &header).await?;
+        let principal = principal_from_caller(&caller)?;
+        let plan_id = PlanId::new(plan_id).map_err(|error| fdo_failed(error.to_string()))?;
+        self.with_state(move |state| {
+            state
+                .review_plan(&principal, &plan_id)
+                .map(|review| planning::plan_review_wire(&review))
+                .map_err(|error| error.to_string())
+        })
+        .await
+    }
+
+    async fn explain_plan_review(
+        &self,
+        plan_id: &str,
+        #[zbus(connection)] connection: &zbus::Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> zbus::fdo::Result<PlanReviewWire> {
+        let caller = authenticated_caller(connection, &header).await?;
+        let principal = principal_from_caller(&caller)?;
+        let plan_id = PlanId::new(plan_id).map_err(|error| fdo_failed(error.to_string()))?;
+        self.with_state(move |state| {
+            state
+                .explain_plan_review(&principal, &plan_id)
+                .map(|review| planning::plan_review_wire(&review))
                 .map_err(|error| error.to_string())
         })
         .await
@@ -525,6 +561,22 @@ impl Control1Client {
             .call("ExplainPlanPreview", &(plan_id.as_str(),))
             .map_err(TransportError::from)?;
         planning::plan_preview_from_wire(response).map_err(TransportError::new)
+    }
+
+    pub fn review_plan(&self, plan_id: &PlanId) -> Result<PlanReview, TransportError> {
+        let response: PlanReviewWire = self
+            .proxy()?
+            .call("ReviewPlan", &(plan_id.as_str(),))
+            .map_err(TransportError::from)?;
+        planning::plan_review_from_wire(response).map_err(TransportError::new)
+    }
+
+    pub fn explain_plan_review(&self, plan_id: &PlanId) -> Result<PlanReview, TransportError> {
+        let response: PlanReviewWire = self
+            .proxy()?
+            .call("ExplainPlanReview", &(plan_id.as_str(),))
+            .map_err(TransportError::from)?;
+        planning::plan_review_from_wire(response).map_err(TransportError::new)
     }
 }
 
@@ -824,7 +876,13 @@ mod tests {
             assert_eq!(canonical.matches(&marker).count(), 1, "canonical {name}");
             assert_eq!(live.matches(&marker).count(), 1, "live {name}");
         }
-        for method in ["PlanDesiredState", "GetPlanPreview", "ExplainPlanPreview"] {
+        for method in [
+            "PlanDesiredState",
+            "GetPlanPreview",
+            "ExplainPlanPreview",
+            "ReviewPlan",
+            "ExplainPlanReview",
+        ] {
             let marker = format!("<method name=\"{method}\">");
             assert!(canonical.contains(&marker), "canonical {method}");
             assert!(live.contains(&marker), "live {method}");

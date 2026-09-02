@@ -17,6 +17,7 @@ mod approval;
 mod approval_review;
 mod plan_preview;
 mod policy_review;
+mod review_projection;
 mod risk_classification;
 
 pub use approval::{

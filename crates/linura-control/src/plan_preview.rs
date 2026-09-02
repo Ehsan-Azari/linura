@@ -70,6 +70,7 @@ pub enum PlanPreviewControlError {
     IdempotencyConflict { plan_id: PlanId },
     Observation { reason: String },
     Planning { reason: String },
+    Review { reason: String },
     Retention { reason: String },
     NotRetained { plan_id: PlanId },
 }
@@ -88,6 +89,7 @@ impl Display for PlanPreviewControlError {
             ),
             Self::Observation { reason } => write!(f, "authoritative observation failed: {reason}"),
             Self::Planning { reason } => write!(f, "deterministic planning failed: {reason}"),
+            Self::Review { reason } => write!(f, "trusted plan review failed: {reason}"),
             Self::Retention { reason } => write!(f, "plan preview retention failed: {reason}"),
             Self::NotRetained { plan_id } => write!(
                 f,
@@ -393,6 +395,18 @@ impl PlanPreviewControl {
             })?;
         self.previews.insert(input, plan.clone())?;
         Ok(preview_from_plan(&plan))
+    }
+
+    pub(crate) fn retained_plan(
+        &self,
+        principal: &AuthenticatedPrincipal,
+        plan_id: &PlanId,
+    ) -> Result<ReconciliationPlan, PlanPreviewControlError> {
+        self.previews
+            .get(principal, plan_id)
+            .ok_or_else(|| PlanPreviewControlError::NotRetained {
+                plan_id: plan_id.clone(),
+            })
     }
 
     pub fn get_plan_preview(
