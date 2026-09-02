@@ -3,8 +3,9 @@
 //! Linura's unprivileged local authority/control-plane orchestration.
 //!
 //! The current implemented authority surface owns authenticated authoritative
-//! observation and deterministic non-executable plan previews. Policy/approval
-//! review is added on top of that canonical plan lineage in v0.3.
+//! observation and deterministic non-executable plan previews. v0.3 adds
+//! policy/risk review and short-lived exact-bound approval semantics on top of
+//! that canonical plan lineage.
 //!
 //! The superseded 0.0.0 `Provider::plan -> ActionPlan -> ControlPlane::apply`
 //! scaffold was removed rather than preserved as a legacy path. The canonical
@@ -12,10 +13,16 @@
 //! narrow executor package scaffolds remain for v0.5 qualification after v0.4
 //! establishes durable prepare/recovery semantics.
 
+mod approval_review;
 mod plan_preview;
 mod policy_review;
 mod risk_classification;
 
+pub use approval_review::{
+    ApprovalRequirementError, PolicyApprovalEvidence, PolicyApprovalIssueError,
+    PolicyApprovalRequirement, PolicyAuthenticatedApprover, approval_requirement_from_evaluation,
+    issue_policy_approval, validate_policy_approval,
+};
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
     MAX_PREVIEW_ENTRY_BYTES, MAX_PREVIEW_TOTAL_BYTES, MAX_REQUEST_BYTES, MAX_SUMMARY_BYTES,
