@@ -4,7 +4,6 @@ use linura_core::{
     Actor, ActorKind, CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId,
     RequestId, ResourceId, RiskClass, SemanticReason,
 };
-use linura_planner::{PlanFinding, PlanStatus, ReconciliationPlan, StateChange};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ApprovalClass {
@@ -13,18 +12,47 @@ pub enum ApprovalClass {
     DestructiveAction,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewPlanStatus {
+    NoChange,
+    ChangeProposed,
+    Blocked,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewFindingLevel {
+    Pass,
+    Warning,
+    Blocker,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewedChange {
+    pub key: String,
+    pub current: Option<String>,
+    pub desired: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReviewedFinding {
+    pub code: String,
+    pub level: ReviewFindingLevel,
+    pub message: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicySnapshot {
     pub policy_id: PolicyId,
     pub revision_id: PolicyRevisionId,
 }
 
-/// Canonical policy-review projection derived from a `ReconciliationPlan`.
+/// Transport/provider-neutral projection of the canonical reconciliation plan at
+/// the policy boundary.
 ///
-/// External callers cannot assemble this type field-by-field. Linura Control must
-/// obtain it from the canonical planner output plus an authenticated principal,
-/// preventing policy evaluation from drifting onto a second independently
-/// authored plan model.
+/// `linura-policy` deliberately does not depend on the planner crate. Linura
+/// Control owns conversion from the canonical `ReconciliationPlan` into this
+/// projection and binds the transport-authenticated principal at the same time.
+/// The public SDK does not expose this internal authority type.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PolicySubject {
     principal: PrincipalId,
@@ -37,28 +65,42 @@ pub struct PolicySubject {
     reason: SemanticReason,
     observed_evidence_id: String,
     prospective_risk: RiskClass,
-    status: PlanStatus,
-    changes: Vec<StateChange>,
-    findings: Vec<PlanFinding>,
+    status: ReviewPlanStatus,
+    changes: Vec<ReviewedChange>,
+    findings: Vec<ReviewedFinding>,
 }
 
 impl PolicySubject {
-    #[must_use]
-    pub fn from_plan(principal: PrincipalId, plan: &ReconciliationPlan) -> Self {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        principal: PrincipalId,
+        plan_id: PlanId,
+        request_id: RequestId,
+        actor: Actor,
+        provider: ProviderId,
+        resource: ResourceId,
+        capability: CapabilityId,
+        reason: SemanticReason,
+        observed_evidence_id: String,
+        prospective_risk: RiskClass,
+        status: ReviewPlanStatus,
+        changes: Vec<ReviewedChange>,
+        findings: Vec<ReviewedFinding>,
+    ) -> Self {
         Self {
             principal,
-            plan_id: plan.id.clone(),
-            request_id: plan.request_id.clone(),
-            actor: plan.actor.clone(),
-            provider: plan.provider.clone(),
-            resource: plan.resource.clone(),
-            capability: plan.observation_capability.clone(),
-            reason: plan.reason.clone(),
-            observed_evidence_id: plan.observed_evidence_id.clone(),
-            prospective_risk: plan.prospective_risk,
-            status: plan.status,
-            changes: plan.changes.clone(),
-            findings: plan.findings.clone(),
+            plan_id,
+            request_id,
+            actor,
+            provider,
+            resource,
+            capability,
+            reason,
+            observed_evidence_id,
+            prospective_risk,
+            status,
+            changes,
+            findings,
         }
     }
 
@@ -113,17 +155,17 @@ impl PolicySubject {
     }
 
     #[must_use]
-    pub const fn status(&self) -> PlanStatus {
+    pub const fn status(&self) -> ReviewPlanStatus {
         self.status
     }
 
     #[must_use]
-    pub fn changes(&self) -> &[StateChange] {
+    pub fn changes(&self) -> &[ReviewedChange] {
         &self.changes
     }
 
     #[must_use]
-    pub fn findings(&self) -> &[PlanFinding] {
+    pub fn findings(&self) -> &[ReviewedFinding] {
         &self.findings
     }
 
@@ -131,18 +173,15 @@ impl PolicySubject {
     pub fn has_blockers(&self) -> bool {
         self.findings
             .iter()
-            .any(|finding| finding.level == linura_planner::PlanFindingLevel::Blocker)
+            .any(|finding| finding.level == ReviewFindingLevel::Blocker)
     }
 }
 
 /// Identity binding for one policy evaluation.
 ///
-/// v0.3 approval evidence must match this exact binding. A different principal,
-/// plan, authoritative evidence identity, policy revision, resource or capability
-/// is a different review subject and cannot reuse the previous decision. The
-/// enclosing `PolicyEvaluation` also retains the full exact `PolicySubject`, so
-/// material planned changes/findings/provenance can be compared rather than
-/// relying on `PlanId` alone.
+/// v0.3 approval evidence must match this exact binding. The enclosing
+/// `PolicyEvaluation` also retains the full `PolicySubject`, so material planned
+/// changes/findings/provenance can be compared instead of relying on `PlanId`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewBinding {
     pub principal: PrincipalId,
@@ -159,16 +198,12 @@ pub struct ReviewBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PolicyDecision {
     Allow,
-    Deny {
-        reason: String,
-    },
+    Deny { reason: String },
     RequireApproval {
         class: ApprovalClass,
         reason: String,
     },
-    Blocked {
-        reason: String,
-    },
+    Blocked { reason: String },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -227,7 +262,7 @@ impl PolicyEngine for BaselinePolicy {
     }
 
     fn evaluate_decision(&self, subject: &PolicySubject) -> PolicyDecision {
-        if subject.status() == PlanStatus::Blocked || subject.has_blockers() {
+        if subject.status() == ReviewPlanStatus::Blocked || subject.has_blockers() {
             return PolicyDecision::Blocked {
                 reason: "plan contains blockers and cannot enter approval review".into(),
             };
@@ -268,49 +303,48 @@ impl PolicyEngine for BaselinePolicy {
 mod tests {
     use super::*;
     use linura_core::{ActorId, IntentId, ValidationError};
-    use linura_planner::{PlanFindingLevel, StateChange};
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
     }
 
-    fn subject(kind: ActorKind, risk: RiskClass, status: PlanStatus) -> PolicySubject {
-        PolicySubject {
-            principal: id(PrincipalId::new("uid:1000")),
-            plan_id: id(PlanId::new("plan:test")),
-            request_id: id(RequestId::new("req:test")),
-            actor: Actor {
+    fn subject(kind: ActorKind, risk: RiskClass, status: ReviewPlanStatus) -> PolicySubject {
+        PolicySubject::new(
+            id(PrincipalId::new("uid:1000")),
+            id(PlanId::new("plan:test")),
+            id(RequestId::new("req:test")),
+            Actor {
                 id: id(ActorId::new("actor:test")),
                 kind,
                 interactive: kind == ActorKind::Human,
             },
-            provider: id(ProviderId::new("systemd")),
-            resource: id(ResourceId::new("systemd:unit:test.service")),
-            capability: id(CapabilityId::new("systemd.unit.observe")),
-            reason: SemanticReason {
+            id(ProviderId::new("systemd")),
+            id(ResourceId::new("systemd:unit:test.service")),
+            id(CapabilityId::new("systemd.unit.observe")),
+            SemanticReason {
                 summary: "test intent".into(),
                 intent_ids: vec![id(IntentId::new("intent:test"))],
                 requirement_ids: vec![],
                 capability_ids: vec![],
             },
-            observed_evidence_id: "evidence:test".into(),
-            prospective_risk: risk,
+            "evidence:test".into(),
+            risk,
             status,
-            changes: vec![StateChange {
+            vec![ReviewedChange {
                 key: "active_state".into(),
                 current: Some("inactive".into()),
                 desired: "active".into(),
             }],
-            findings: if status == PlanStatus::Blocked {
-                vec![PlanFinding {
+            if status == ReviewPlanStatus::Blocked {
+                vec![ReviewedFinding {
                     code: "blocked".into(),
-                    level: PlanFindingLevel::Blocker,
+                    level: ReviewFindingLevel::Blocker,
                     message: "blocked for test".into(),
                 }]
             } else {
                 vec![]
             },
-        }
+        )
     }
 
     #[test]
@@ -319,7 +353,7 @@ mod tests {
         let expected_subject = subject(
             ActorKind::Agent,
             RiskClass::SystemMutation,
-            PlanStatus::ChangeProposed,
+            ReviewPlanStatus::ChangeProposed,
         );
         let evaluation = policy.evaluate(&expected_subject);
         assert!(matches!(
@@ -337,7 +371,7 @@ mod tests {
         let evaluation = policy.evaluate(&subject(
             ActorKind::Remote,
             RiskClass::ReadOnly,
-            PlanStatus::NoChange,
+            ReviewPlanStatus::NoChange,
         ));
         assert!(matches!(evaluation.decision, PolicyDecision::Deny { .. }));
     }
@@ -348,7 +382,7 @@ mod tests {
         let evaluation = policy.evaluate(&subject(
             ActorKind::Human,
             RiskClass::SystemMutation,
-            PlanStatus::Blocked,
+            ReviewPlanStatus::Blocked,
         ));
         assert!(matches!(evaluation.decision, PolicyDecision::Blocked { .. }));
     }
