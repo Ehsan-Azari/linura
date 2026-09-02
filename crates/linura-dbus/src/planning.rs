@@ -332,8 +332,10 @@ pub(crate) fn plan_preview_from_wire(wire: PlanPreviewWire) -> Result<PlanPrevie
             }
         }
         PlanPreviewStatus::ChangeProposed => {
-            if changes.is_empty() || has_blocker {
-                return Err("change-proposed preview violates change/blocker invariants".into());
+            if changes.is_empty() || prospective_risk == RiskClass::ReadOnly || has_blocker {
+                return Err(
+                    "change-proposed preview violates change/risk/blocker invariants".into(),
+                );
             }
         }
         PlanPreviewStatus::Blocked => {
@@ -795,6 +797,15 @@ mod tests {
         assert!(plan_review_from_wire(blocked_review_wire("blocked")).is_ok());
         assert!(plan_review_from_wire(blocked_review_wire("allow")).is_err());
         assert!(plan_review_from_wire(blocked_review_wire("deny")).is_err());
+    }
+
+    #[test]
+    fn review_wire_decoder_rejects_change_proposed_read_only_risk() {
+        let mut wire = protected_review_wire("system-mutation", "interactive-user");
+        wire.6.0 = "read-only".into();
+        wire.6.1 = "read-only".into();
+        wire.7 = ("allow".into(), false, String::new(), String::new(), false);
+        assert!(plan_review_from_wire(wire).is_err());
     }
 
     #[test]

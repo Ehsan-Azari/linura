@@ -458,6 +458,16 @@ fn print_plan_review(review: &PlanReview) {
             "false"
         },
     );
+    field("reason.summary", &review.reason.summary);
+    for (index, id) in review.reason.intent_ids.iter().enumerate() {
+        field(&format!("reason.intent.{index}"), id.as_str());
+    }
+    for (index, id) in review.reason.requirement_ids.iter().enumerate() {
+        field(&format!("reason.requirement.{index}"), id.as_str());
+    }
+    for (index, id) in review.reason.capability_ids.iter().enumerate() {
+        field(&format!("reason.capability.{index}"), id.as_str());
+    }
     for (index, change) in review.changes.iter().enumerate() {
         field(&format!("change.{index}.key"), &change.key);
         if let Some(current) = &change.current {
