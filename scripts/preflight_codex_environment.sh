@@ -9,12 +9,15 @@ fi
 # shellcheck disable=SC1090
 source "$VERSION_CONTRACT"
 
+: "${RUSTUP_VERSION:?}"
 : "${RUST_VERSION:?}"
 : "${CARGO_AUDIT_VERSION:?}"
 : "${ACTIONLINT_VERSION:?}"
 : "${PYTHON_MAJOR_MINOR:?}"
 : "${HOST_OS:?}"
 : "${HOST_ARCH:?}"
+
+export PATH="${HOME}/.cargo/bin:${HOME}/.local/bin:${PATH}"
 
 require_command() {
   local command_name="$1"
@@ -51,6 +54,11 @@ test "$actual_arch" = "$HOST_ARCH"
 
 actual_python="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
 test "$actual_python" = "$PYTHON_MAJOR_MINOR"
+
+if ! reports_exact_version "$RUSTUP_VERSION" rustup --version; then
+  printf 'unexpected rustup version; expected exactly %s (run Codex environment setup)\n' "$RUSTUP_VERSION" >&2
+  exit 1
+fi
 
 repo_rust_version="$(python3 - <<'PY'
 import pathlib
@@ -119,6 +127,7 @@ fi
 printf 'Linura Codex environment preflight passed.\n'
 printf '  host: %s-%s\n' "$actual_os" "$actual_arch"
 printf '  python: %s\n' "$(python3 --version)"
+printf '  rustup: %s\n' "$(rustup --version | head -1)"
 printf '  rustc: %s\n' "$("$rustc_bin" --version)"
 printf '  cargo-audit: %s\n' "$(cargo-audit --version)"
 printf '  actionlint: %s\n' "$("$actionlint_bin" -version | head -1)"
