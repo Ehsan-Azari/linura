@@ -8,7 +8,6 @@ repository.workspace = true
 
 [dependencies]
 linura-core = { path = "../linura-core" }
-linura-policy = { path = "../linura-policy" }
 
 [lints]
 workspace = true
