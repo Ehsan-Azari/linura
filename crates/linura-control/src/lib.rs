@@ -19,9 +19,10 @@ mod policy_review;
 mod risk_classification;
 
 pub use approval_review::{
-    ApprovalRequirementError, PolicyApprovalEvidence, PolicyApprovalIssueError,
-    PolicyApprovalRequirement, PolicyAuthenticatedApprover, approval_requirement_from_evaluation,
-    issue_policy_approval, validate_policy_approval,
+    ApprovalControlError, ApprovalRequirementError, ApprovalReviewControl, MAX_APPROVAL_ENTRIES,
+    PolicyApprovalEvidence, PolicyApprovalIssueError, PolicyApprovalRequirement,
+    PolicyAuthenticatedApprover, approval_requirement_from_evaluation, issue_policy_approval,
+    validate_policy_approval,
 };
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
