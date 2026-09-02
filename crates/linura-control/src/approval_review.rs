@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::fmt::Debug;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::approval::{
     ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation,
@@ -163,6 +165,23 @@ pub enum ApprovalControlError {
     SequenceExhausted,
     EvidenceNotFound,
     RevokerNotAuthorized,
+    ClockUnavailable,
+}
+
+trait ApprovalClock: Debug + Send + Sync {
+    fn now_unix_seconds(&self) -> Result<u64, ApprovalControlError>;
+}
+
+#[derive(Debug, Default)]
+struct SystemApprovalClock;
+
+impl ApprovalClock for SystemApprovalClock {
+    fn now_unix_seconds(&self) -> Result<u64, ApprovalControlError> {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .map_err(|_| ApprovalControlError::ClockUnavailable)
+    }
 }
 
 /// Bounded, process-local v0.3 approval lifecycle.
@@ -173,8 +192,9 @@ pub enum ApprovalControlError {
 /// replay tombstone is retained. Expired/revoked records are reclaimed before
 /// live-capacity checks, so inactive authority does not permanently consume the
 /// live approval budget. Live authority evidence is never silently evicted.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ApprovalReviewControl {
+    clock: Box<dyn ApprovalClock>,
     records: BTreeMap<ApprovalEvidenceId, ApprovalRecord>,
     requests: BTreeMap<ApprovalRequestId, ApprovalEvidenceId>,
     tombstones: BTreeMap<ApprovalRequestId, ApprovalTombstone>,
@@ -183,7 +203,29 @@ pub struct ApprovalReviewControl {
     tombstone_accounted_bytes: usize,
 }
 
+impl Default for ApprovalReviewControl {
+    fn default() -> Self {
+        Self::with_clock(Box::new(SystemApprovalClock))
+    }
+}
+
 impl ApprovalReviewControl {
+    fn with_clock(clock: Box<dyn ApprovalClock>) -> Self {
+        Self {
+            clock,
+            records: BTreeMap::new(),
+            requests: BTreeMap::new(),
+            tombstones: BTreeMap::new(),
+            next_evidence_sequence: 0,
+            total_accounted_bytes: 0,
+            tombstone_accounted_bytes: 0,
+        }
+    }
+
+    fn authority_now_unix_seconds(&self) -> Result<u64, ApprovalControlError> {
+        self.clock.now_unix_seconds()
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.records.len()
@@ -298,7 +340,29 @@ impl ApprovalReviewControl {
         Ok(())
     }
 
+    /// Issue approval evidence using Control-owned current time.
+    ///
+    /// The caller may request an absolute expiry, but cannot supply the
+    /// authority clock used for issuance, reclamation, validation, revocation,
+    /// or replay-tombstone pruning.
     pub fn issue(
+        &mut self,
+        request_id: ApprovalRequestId,
+        review: &TrustedPolicyReview,
+        approver: &PolicyAuthenticatedApprover,
+        expires_at_unix_seconds: u64,
+    ) -> Result<PolicyApprovalEvidence, ApprovalControlError> {
+        let issued_at_unix_seconds = self.authority_now_unix_seconds()?;
+        self.issue_at(
+            request_id,
+            review,
+            approver,
+            issued_at_unix_seconds,
+            expires_at_unix_seconds,
+        )
+    }
+
+    fn issue_at(
         &mut self,
         request_id: ApprovalRequestId,
         review: &TrustedPolicyReview,
@@ -323,7 +387,6 @@ impl ApprovalReviewControl {
             if existing.evidence.requirement().binding() == review.evaluation()
                 && existing.evidence.requirement().class() == &class
                 && existing.evidence.approver() == approver.principal()
-                && existing.evidence.issued_at_unix_seconds() == issued_at_unix_seconds
                 && existing.evidence.expires_at_unix_seconds() == expires_at_unix_seconds
             {
                 return Ok(existing.evidence.clone());
@@ -387,8 +450,18 @@ impl ApprovalReviewControl {
         Ok(evidence)
     }
 
-    #[must_use]
+    /// Validate retained approval against Control-owned current time and
+    /// authoritative revocation state.
     pub fn validate(
+        &self,
+        evidence_id: &ApprovalEvidenceId,
+        review: &TrustedPolicyReview,
+    ) -> Result<ApprovalValidation, ApprovalControlError> {
+        let now_unix_seconds = self.authority_now_unix_seconds()?;
+        Ok(self.validate_at(evidence_id, review, now_unix_seconds))
+    }
+
+    fn validate_at(
         &self,
         evidence_id: &ApprovalEvidenceId,
         review: &TrustedPolicyReview,
@@ -405,7 +478,17 @@ impl ApprovalReviewControl {
         )
     }
 
+    /// Revoke retained approval using Control-owned current time.
     pub fn revoke(
+        &mut self,
+        evidence_id: &ApprovalEvidenceId,
+        revoker: &PolicyAuthenticatedApprover,
+    ) -> Result<(), ApprovalControlError> {
+        let revoked_at_unix_seconds = self.authority_now_unix_seconds()?;
+        self.revoke_at(evidence_id, revoker, revoked_at_unix_seconds)
+    }
+
+    fn revoke_at(
         &mut self,
         evidence_id: &ApprovalEvidenceId,
         revoker: &PolicyAuthenticatedApprover,
@@ -435,6 +518,8 @@ impl ApprovalReviewControl {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     use linura_core::{
         Actor, ActorId, ActorKind, CapabilityId, IntentId, PlanId, PrincipalId, ProviderId,
@@ -450,6 +535,36 @@ mod tests {
 
     fn id<T>(result: Result<T, ValidationError>) -> T {
         result.unwrap_or_else(|error| unreachable!("{error}"))
+    }
+
+    #[derive(Clone, Debug)]
+    struct TestClock {
+        now_unix_seconds: Arc<AtomicU64>,
+    }
+
+    impl TestClock {
+        fn new(now_unix_seconds: u64) -> Self {
+            Self {
+                now_unix_seconds: Arc::new(AtomicU64::new(now_unix_seconds)),
+            }
+        }
+
+        fn set(&self, now_unix_seconds: u64) {
+            self.now_unix_seconds
+                .store(now_unix_seconds, Ordering::SeqCst);
+        }
+    }
+
+    impl ApprovalClock for TestClock {
+        fn now_unix_seconds(&self) -> Result<u64, ApprovalControlError> {
+            Ok(self.now_unix_seconds.load(Ordering::SeqCst))
+        }
+    }
+
+    fn control_with_clock(now_unix_seconds: u64) -> (ApprovalReviewControl, TestClock) {
+        let clock = TestClock::new(now_unix_seconds);
+        let control = ApprovalReviewControl::with_clock(Box::new(clock.clone()));
+        (control, clock)
     }
 
     fn review_with(
@@ -533,7 +648,7 @@ mod tests {
         );
         let mut control = ApprovalReviewControl::default();
         let evidence = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:control")),
                 &review,
                 &admin(),
@@ -542,11 +657,11 @@ mod tests {
             )
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(
-            control.validate(evidence.id(), &review, 150),
+            control.validate_at(evidence.id(), &review, 150),
             ApprovalValidation::Satisfied
         );
         assert_eq!(
-            control.validate(evidence.id(), &changed, 150),
+            control.validate_at(evidence.id(), &changed, 150),
             ApprovalValidation::BindingMismatch
         );
     }
@@ -574,7 +689,7 @@ mod tests {
         );
         let mut control = ApprovalReviewControl::default();
         assert!(matches!(
-            control.issue(
+            control.issue_at(
                 id(ApprovalRequestId::new("approval:request:forged")),
                 &review,
                 &weak,
@@ -599,7 +714,7 @@ mod tests {
         );
         let mut control = ApprovalReviewControl::default();
         assert!(matches!(
-            control.issue(
+            control.issue_at(
                 id(ApprovalRequestId::new("approval:request:weak-control")),
                 &review,
                 &weak,
@@ -645,15 +760,15 @@ mod tests {
         let request = id(ApprovalRequestId::new("approval:request:idempotent"));
         let mut control = ApprovalReviewControl::default();
         let first = control
-            .issue(request.clone(), &review, &admin(), 100, 200)
+            .issue_at(request.clone(), &review, &admin(), 100, 200)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         let retry = control
-            .issue(request.clone(), &review, &admin(), 100, 200)
+            .issue_at(request.clone(), &review, &admin(), 100, 200)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(first, retry);
         assert_eq!(control.len(), 1);
         assert_eq!(
-            control.issue(request, &review, &admin(), 100, 201),
+            control.issue_at(request, &review, &admin(), 100, 201),
             Err(ApprovalControlError::IdempotencyConflict)
         );
     }
@@ -663,7 +778,7 @@ mod tests {
         let review = review(RiskClass::SecuritySensitive);
         let mut control = ApprovalReviewControl::default();
         let evidence = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:revoke")),
                 &review,
                 &admin(),
@@ -673,14 +788,14 @@ mod tests {
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         let stolen_clone = evidence.clone();
         assert_eq!(
-            control.validate(stolen_clone.id(), &review, 150),
+            control.validate_at(stolen_clone.id(), &review, 150),
             ApprovalValidation::Satisfied
         );
         control
-            .revoke(evidence.id(), &admin(), 151)
+            .revoke_at(evidence.id(), &admin(), 151)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(
-            control.validate(stolen_clone.id(), &review, 152),
+            control.validate_at(stolen_clone.id(), &review, 152),
             ApprovalValidation::Revoked
         );
     }
@@ -690,7 +805,7 @@ mod tests {
         let review = review(RiskClass::SecuritySensitive);
         let mut control = ApprovalReviewControl::default();
         let evidence = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:revoker")),
                 &review,
                 &admin(),
@@ -704,7 +819,7 @@ mod tests {
             BTreeSet::from([ApprovalClass::InteractiveUser]),
         );
         assert_eq!(
-            control.revoke(evidence.id(), &weak, 150),
+            control.revoke_at(evidence.id(), &weak, 150),
             Err(ApprovalControlError::RevokerNotAuthorized)
         );
     }
@@ -719,7 +834,7 @@ mod tests {
         );
         let mut control = ApprovalReviewControl::default();
         assert_eq!(
-            control.issue(
+            control.issue_at(
                 id(ApprovalRequestId::new("approval:request:oversized")),
                 &review,
                 &admin(),
@@ -741,13 +856,13 @@ mod tests {
                 "approval:request:capacity:{index}"
             )));
             let _ = control
-                .issue(request, &review, &admin(), 100, 101)
+                .issue_at(request, &review, &admin(), 100, 101)
                 .unwrap_or_else(|error| unreachable!("{error:?}"));
         }
         assert_eq!(control.len(), MAX_APPROVAL_ENTRIES);
 
         let _ = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:after-reclaim")),
                 &review,
                 &admin(),
@@ -760,7 +875,7 @@ mod tests {
         assert!(control.tombstone_accounted_bytes() <= MAX_APPROVAL_TOMBSTONE_BYTES);
 
         assert_eq!(
-            control.issue(
+            control.issue_at(
                 id(ApprovalRequestId::new("approval:request:capacity:0")),
                 &review,
                 &admin(),
@@ -777,14 +892,14 @@ mod tests {
         let request = id(ApprovalRequestId::new("approval:request:reclaimed-revoked"));
         let mut control = ApprovalReviewControl::default();
         let evidence = control
-            .issue(request.clone(), &review, &admin(), 100, 200)
+            .issue_at(request.clone(), &review, &admin(), 100, 200)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         control
-            .revoke(evidence.id(), &admin(), 120)
+            .revoke_at(evidence.id(), &admin(), 120)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
 
         let _ = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:reclaim-trigger")),
                 &review,
                 &admin(),
@@ -794,7 +909,7 @@ mod tests {
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert!(control.get(evidence.id()).is_none());
         assert_eq!(
-            control.issue(request, &review, &admin(), 121, 200),
+            control.issue_at(request, &review, &admin(), 121, 200),
             Err(ApprovalControlError::IdempotencyConflict)
         );
     }
@@ -805,10 +920,10 @@ mod tests {
         let request = id(ApprovalRequestId::new("approval:request:tombstone-window"));
         let mut control = ApprovalReviewControl::default();
         let _ = control
-            .issue(request.clone(), &review, &admin(), 100, 101)
+            .issue_at(request.clone(), &review, &admin(), 100, 101)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         let _ = control
-            .issue(
+            .issue_at(
                 id(ApprovalRequestId::new("approval:request:tombstone-trigger")),
                 &review,
                 &admin(),
@@ -820,7 +935,7 @@ mod tests {
 
         let after_retention = 102 + APPROVAL_TOMBSTONE_RETENTION_SECONDS;
         let _ = control
-            .issue(
+            .issue_at(
                 request,
                 &review,
                 &admin(),
@@ -832,18 +947,66 @@ mod tests {
     }
 
     #[test]
+    fn public_authority_api_uses_control_owned_time() {
+        let review = review(RiskClass::SecuritySensitive);
+        let request = id(ApprovalRequestId::new("approval:request:authority-clock"));
+        let (mut control, clock) = control_with_clock(100);
+
+        let evidence = control
+            .issue(request.clone(), &review, &admin(), 200)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert_eq!(evidence.issued_at_unix_seconds(), 100);
+        assert_eq!(evidence.expires_at_unix_seconds(), 200);
+
+        clock.set(101);
+        let retry = control
+            .issue(request.clone(), &review, &admin(), 200)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert_eq!(retry, evidence);
+
+        clock.set(150);
+        assert_eq!(
+            control.validate(evidence.id(), &review),
+            Ok(ApprovalValidation::Satisfied)
+        );
+
+        clock.set(200);
+        assert_eq!(
+            control.validate(evidence.id(), &review),
+            Ok(ApprovalValidation::Expired)
+        );
+
+        let _ = control
+            .issue_at(
+                id(ApprovalRequestId::new(
+                    "approval:request:authority-clock-trigger",
+                )),
+                &review,
+                &admin(),
+                200,
+                250,
+            )
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert!(control.get(evidence.id()).is_none());
+        assert_eq!(
+            control.issue_at(request, &review, &admin(), 200, 250),
+            Err(ApprovalControlError::IdempotencyConflict)
+        );
+    }
+
+    #[test]
     fn retained_bytes_are_bounded_and_idempotent_retry_does_not_grow_store() {
         let review = review(RiskClass::SecuritySensitive);
         let request = id(ApprovalRequestId::new("approval:request:bytes"));
         let mut control = ApprovalReviewControl::default();
         let _ = control
-            .issue(request.clone(), &review, &admin(), 100, 200)
+            .issue_at(request.clone(), &review, &admin(), 100, 200)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         let first_bytes = control.total_accounted_bytes();
         assert!(first_bytes > 0);
         assert!(first_bytes <= MAX_APPROVAL_TOTAL_BYTES);
         let _ = control
-            .issue(request, &review, &admin(), 100, 200)
+            .issue_at(request, &review, &admin(), 100, 200)
             .unwrap_or_else(|error| unreachable!("{error:?}"));
         assert_eq!(control.total_accounted_bytes(), first_bytes);
     }

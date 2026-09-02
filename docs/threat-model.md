@@ -53,6 +53,7 @@ A caller attempts to reuse approval for a different principal, plan, evidence sn
 - material planned changes/findings and semantic provenance are revalidated against the reviewed subject before approval evidence is accepted;
 - `PlanId` alone is never sufficient authority evidence;
 - approval evidence is authenticated, scoped to an explicit approval requirement, and checked for approver constraints, expiry and revocation at use time;
+- approval issuance/validation/revocation and replay-tombstone pruning obtain current time inside Linura Control; callers cannot supply the authority clock used to keep evidence current or reopen replay IDs;
 - cross-principal approval reuse and changed policy/risk-policy revision reuse fail closed;
 - agents/models cannot mint approval evidence or satisfy their own protected human/admin approval requirement;
 - v0.3 approval never creates prepare/executor authority; later prepare must revalidate exact review binding before effects.
