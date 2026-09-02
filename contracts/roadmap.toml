@@ -24,6 +24,7 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "none"
 release_contract = "docs/releases/v0.0.0.md"
 
 [[milestone]]
@@ -38,6 +39,7 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "none"
 release_contract = "docs/releases/v0.1.0.md"
 qualification = "docs/qualification/v0.1.0.md"
 
@@ -53,6 +55,7 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "none"
 release_contract = "docs/releases/v0.2.0.md"
 qualification = "docs/qualification/v0.2.0.md"
 
@@ -68,6 +71,9 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "review-only"
+milestone_contract = "docs/milestones/v0.3.0.md"
+qualification = "docs/qualification/v0.3.0.md"
 
 [[milestone]]
 version = "v0.4.0"
@@ -81,6 +87,7 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "durable-reviewed"
 
 [[milestone]]
 version = "v0.5.0"
@@ -94,6 +101,7 @@ complete_lifecycle = false
 managed_mutation_support = "none"
 agent_role = "none"
 platform_support = "none"
+authority_state = "durable-reviewed"
 
 [[milestone]]
 version = "v0.6.0"
@@ -107,6 +115,7 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "none"
 platform_support = "none"
+authority_state = "lifecycle-integrated"
 
 [[milestone]]
 version = "v0.7.0"
@@ -120,6 +129,7 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "none"
 platform_support = "none"
+authority_state = "lifecycle-integrated"
 
 [[milestone]]
 version = "v0.8.0"
@@ -133,6 +143,7 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "proposal-only"
 platform_support = "none"
+authority_state = "lifecycle-integrated"
 
 [[milestone]]
 version = "v0.9.0"
@@ -146,6 +157,7 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "proposal-only"
 platform_support = "reference-experimental"
+authority_state = "lifecycle-integrated"
 
 [[milestone]]
 version = "v0.10.0"
@@ -159,6 +171,7 @@ complete_lifecycle = true
 managed_mutation_support = "narrow-experimental"
 agent_role = "proposal-only"
 platform_support = "reference-experimental"
+authority_state = "lifecycle-integrated"
 
 [[milestone]]
 version = "v1.0.0"
@@ -172,3 +185,4 @@ complete_lifecycle = true
 managed_mutation_support = "reference-stable"
 agent_role = "proposal-only"
 platform_support = "reference-stable"
+authority_state = "lifecycle-integrated"
