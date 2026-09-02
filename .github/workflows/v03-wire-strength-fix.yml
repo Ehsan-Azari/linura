@@ -1,0 +1,53 @@
+name: Temporary v0.3 wire-strength correction
+
+on:
+  push:
+    branches: [feat/v0.3-approval-lifecycle-clean]
+    paths:
+      - tools/v03_authority_wire_fix.py
+      - .github/workflows/v03-wire-strength-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Assert exact staged lineage
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "c63f685f56c7bee2556f04d9992466f3466eb040"
+      - name: Install canonical development environment
+        run: bash scripts/setup_codex_environment.sh
+      - name: Verify clean exact environment before edits
+        run: bash scripts/preflight_codex_environment.sh --full
+      - name: Apply asserted wire-strength correction
+        run: python3 tools/v03_authority_wire_fix.py
+      - name: Format and validate transformed source
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo fmt --all --check
+          cargo test -p linura-dbus
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --all-targets --all-features
+          cargo xtask check
+      - name: Remove temporary patch machinery
+        run: rm -f tools/v03_authority_wire_fix.py .github/workflows/v03-wire-strength-fix.yml
+      - name: Verify intended diff and commit
+        run: |
+          set -euo pipefail
+          actual="$(git diff --name-only c63f685f56c7bee2556f04d9992466f3466eb040 | sort)"
+          expected="crates/linura-dbus/src/planning.rs"
+          test "$actual" = "$expected"
+          git diff --check
+          git status --short
+          git config user.name "Ehsan Azari"
+          git config user.email "im.ehsan.azari@gmail.com"
+          git add -A
+          git commit -m "fix(dbus): enforce reviewed-risk approval strength"
+          git push origin HEAD:feat/v0.3-approval-lifecycle-clean
