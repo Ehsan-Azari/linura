@@ -1,7 +1,8 @@
 version = 1
 
 [semantics]
-actor_term = "authenticated-principal"
+principal_term = "authenticated-authority-identity"
+actor_term = "request-provenance"
 canonical_observation = "linura-observation::ObservationEnvelope"
 query_orchestration = "control-plane-owned"
 transport_role = "adapter-only"
@@ -116,7 +117,11 @@ forbid_external = []
 
 [[markers]]
 path = "docs/terminology.md"
-contains = "**Actor:** authenticated principal requesting an operation."
+contains = "**Principal:** authenticated authority identity used to namespace policy/review/approval state."
+
+[[markers]]
+path = "docs/terminology.md"
+contains = "**Actor:** request-provenance identity and classification attached to a request/plan"
 
 [[markers]]
 path = "docs/provider-model.md"
