@@ -502,6 +502,9 @@ fn append_canonical_field(
     Ok(())
 }
 
+#[allow(dead_code)]
+fn _settings_type_remains_part_of_the_public_contract(_: Option<SqliteSettings>) {}
+
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
@@ -555,6 +558,3 @@ mod tests {
         let _ = fs::remove_file(format!("{}-shm", database.display()));
     }
 }
-
-#[allow(dead_code)]
-fn _settings_type_remains_part_of_the_public_contract(_: Option<SqliteSettings>) {}
