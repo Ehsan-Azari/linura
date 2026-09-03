@@ -11,7 +11,7 @@ mod unix {
         CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId, RequestId,
         ResourceId, RiskClass, ValidationError,
     };
-    use linura_persistence_sqlite::SqliteTransactionStore;
+    use linura_persistence_sqlite::{SqliteIntegrityKey, SqliteTransactionStore};
     use linura_transaction::{
         AuthorityBinding, AuthorizationBasis, ContentDigest, TransactionAuthorityKey,
         TransactionStore, TransactionStoreError, TransactionValidationError, digest_bytes,
@@ -63,6 +63,10 @@ mod unix {
             .1
     }
 
+    fn integrity_key() -> SqliteIntegrityKey {
+        SqliteIntegrityKey::new(vec![0x73; 32]).unwrap_or_else(|error| unreachable!("{error}"))
+    }
+
     fn binding() -> AuthorityBinding {
         AuthorityBinding::try_new(
             id(PrincipalId::new("uid:1000")),
@@ -95,7 +99,7 @@ mod unix {
         let db = directory.db();
         let binding = binding();
         {
-            let mut store = SqliteTransactionStore::open(&db, verifier())
+            let mut store = SqliteTransactionStore::open(&db, verifier(), integrity_key())
                 .unwrap_or_else(|error| unreachable!("{error}"));
             store
                 .prepare(&binding)
@@ -113,7 +117,7 @@ mod unix {
         fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o500))
             .unwrap_or_else(|error| unreachable!("{error}"));
 
-        let result = SqliteTransactionStore::open(&db, verifier());
+        let result = SqliteTransactionStore::open(&db, verifier(), integrity_key());
         assert!(matches!(
             result,
             Err(TransactionStoreError::Storage(_))
@@ -127,7 +131,7 @@ mod unix {
         let after = fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(before, after);
 
-        let reopened = SqliteTransactionStore::open(&db, verifier())
+        let reopened = SqliteTransactionStore::open(&db, verifier(), integrity_key())
             .unwrap_or_else(|error| unreachable!("{error}"));
         reopened
             .integrity_check()

@@ -12,7 +12,7 @@ use linura_core::{
     CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId, RequestId,
     ResourceId, RiskClass, ValidationError,
 };
-use linura_persistence_sqlite::SqliteTransactionStore;
+use linura_persistence_sqlite::{SqliteIntegrityKey, SqliteTransactionStore};
 use linura_transaction::{
     AuthorityBinding, AuthorizationBasis, ContentDigest, PrepareOutcome, TransactionAuthorityKey,
     TransactionAuthoritySigner, TransactionAuthorityVerifier, TransactionSnapshot,
@@ -32,6 +32,12 @@ fn authority() -> Result<(TransactionAuthoritySigner, TransactionAuthorityVerifi
     TransactionAuthorityKey::new(vec![0x41; 32])
         .map(TransactionAuthorityKey::split)
         .map_err(|error| error.to_string())
+}
+
+fn integrity_key() -> Result<SqliteIntegrityKey, String> {
+    // Qualification-only deterministic provisioning. Production composition
+    // roots must load this independent secret from protected durable storage.
+    SqliteIntegrityKey::new(vec![0x73; 32]).map_err(|error| error.to_string())
 }
 
 fn binding(namespace: &str) -> Result<AuthorityBinding, String> {
@@ -65,8 +71,8 @@ fn prepared_snapshot(outcome: PrepareOutcome) -> TransactionSnapshot {
 
 fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let mut store =
-        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
+    let mut store = SqliteTransactionStore::open(path, authority()?.1, integrity_key()?)
+        .map_err(|error| error.to_string())?;
     let snapshot = prepared_snapshot(store.prepare(&binding).map_err(|error| error.to_string())?);
     if snapshot.state != TransactionState::Prepared || snapshot.binding_digest != *binding.digest()
     {
@@ -84,8 +90,8 @@ fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
 
 fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let store =
-        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
+    let store = SqliteTransactionStore::open(path, authority()?.1, integrity_key()?)
+        .map_err(|error| error.to_string())?;
     let snapshot = store
         .snapshot(&binding.transaction_id())
         .map_err(|error| error.to_string())?;
@@ -96,8 +102,8 @@ fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), S
 
     let (authority_signer, verifier) = authority()?;
     drop(store);
-    let mut store =
-        SqliteTransactionStore::open(path, verifier).map_err(|error| error.to_string())?;
+    let mut store = SqliteTransactionStore::open(path, verifier, integrity_key()?)
+        .map_err(|error| error.to_string())?;
     let handoff = authority_signer
         .authorize_handoff(
             &snapshot,
@@ -148,8 +154,8 @@ fn handoff_and_wait(path: &Path, namespace: &str, marker: &Path) -> Result<(), S
 
 fn inspect_indeterminate(path: &Path, namespace: &str) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let store =
-        SqliteTransactionStore::open(path, authority()?.1).map_err(|error| error.to_string())?;
+    let store = SqliteTransactionStore::open(path, authority()?.1, integrity_key()?)
+        .map_err(|error| error.to_string())?;
     store.integrity_check().map_err(|error| error.to_string())?;
     let snapshot = store
         .snapshot(&binding.transaction_id())

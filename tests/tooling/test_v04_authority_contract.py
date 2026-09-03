@@ -6,7 +6,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 CONTROL = ROOT / "crates/linura-control/src/durable_authority.rs"
 TRANSACTION = ROOT / "crates/linura-transaction/src/lib.rs"
-SQLITE = ROOT / "crates/linura-persistence-sqlite/src/lib.rs"
+SQLITE_STORE = ROOT / "crates/linura-persistence-sqlite/src/store.rs"
+SQLITE_SCHEMA = ROOT / "crates/linura-persistence-sqlite/src/schema.rs"
+SQLITE_VALIDATION = ROOT / "crates/linura-persistence-sqlite/src/validation.rs"
 
 
 class V04AuthorityContractTests(unittest.TestCase):
@@ -44,12 +46,15 @@ class V04AuthorityContractTests(unittest.TestCase):
         self.assertIn("VerifiedDurableAuthority", text)
 
     def test_sqlite_checks_freshness_under_lock_and_blocks_replace_delete(self) -> None:
-        text = SQLITE.read_text(encoding="utf-8")
-        self.assertIn("enforce_authority_window", text)
-        self.assertIn("PRAGMA recursive_triggers=ON", text)
-        self.assertIn("CREATE TRIGGER generations_no_delete", text)
-        self.assertIn("CREATE TRIGGER transactions_no_delete", text)
-        self.assertIn("verify_commit(request)", text)
+        store = SQLITE_STORE.read_text(encoding="utf-8")
+        schema = SQLITE_SCHEMA.read_text(encoding="utf-8")
+        validation = SQLITE_VALIDATION.read_text(encoding="utf-8")
+        self.assertIn("enforce_authority_window", store)
+        self.assertIn("verify_commit(request)", store)
+        self.assertIn("PRAGMA recursive_triggers=ON", validation)
+        self.assertIn("CREATE TRIGGER generations_no_delete", schema)
+        self.assertIn("CREATE TRIGGER transactions_no_delete", schema)
+        self.assertIn("integrity_tag", schema)
 
 
 if __name__ == "__main__":
