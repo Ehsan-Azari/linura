@@ -1,0 +1,54 @@
+name: temporary v0.4 release-blocker patcher
+
+on:
+  push:
+    branches:
+      - tmp/v0.4-review-closure
+    paths:
+      - ".github/workflows/tmp-v0.4-release-blocker-patch.yml"
+      - ".github/workflows/tmp-v04-release-blocker-patch.yml"
+      - "tools/tmp_v04_release_blocker_patch.py"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: tmp/v0.4-review-closure
+          fetch-depth: 0
+
+      - name: Load pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          source tools/codex/versions.env
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Apply guarded release-blocker patch
+        run: python3 tools/tmp_v04_release_blocker_patch.py
+
+      - name: Format and qualify focused Rust changes
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test --locked -p linura-persistence-sqlite
+          cargo clippy --locked -p linura-persistence-sqlite --all-targets -- -D warnings
+
+      - name: Commit isolated qualification tree
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: close final v0.4 release blockers"
+          git push origin HEAD:tmp/v0.4-review-closure
