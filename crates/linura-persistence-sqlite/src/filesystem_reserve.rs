@@ -202,42 +202,28 @@ pub(crate) fn validate_filesystem_reserve(
     page_size: u64,
     reservation_rows: u64,
 ) -> Result<(), TransactionStoreError> {
-    // Reservation rows and the same-filesystem sidecar form one availability
-    // invariant. Reconciliation may shrink the sidecar, so it must serialize
-    // with every SQLite writer that can add/remove `audit_reservations` rows.
-    // The caller's count is retained as a race detector: if another writer
-    // committed after the outer integrity scan, fail closed without touching
-    // the reserve and let a fresh validation retry from a coherent snapshot.
-    connection.execute_batch("BEGIN IMMEDIATE").map_err(sqlite_store)?;
-    let result = (|| {
-        let locked_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM audit_reservations", [], |row| row.get(0))
-            .map_err(sqlite_store)?;
-        let locked_rows = u64::try_from(locked_rows).map_err(|_| {
-            TransactionStoreError::Corruption(
-                "negative aggregate physical reservation count under reconciliation lock".into(),
-            )
-        })?;
-        if locked_rows != reservation_rows {
-            return Err(TransactionStoreError::StateConflict);
-        }
-        RecoveryReserve::from_connection(connection, page_size)?
-            .validate_and_reconcile(locked_rows)
-    })();
-
-    match result {
-        Ok(()) => {
-            if let Err(error) = connection.execute_batch("COMMIT") {
-                let _ = connection.execute_batch("ROLLBACK");
-                return Err(sqlite_store(error));
-            }
-            Ok(())
-        }
-        Err(error) => {
-            let _ = connection.execute_batch("ROLLBACK");
-            Err(error)
-        }
+    // The complete durable reservation scan and this reconciliation must share
+    // one SQLite write-serialization point. Reconciliation may shrink the
+    // same-filesystem sidecar, so accepting an autocommit caller would re-open
+    // the mixed-snapshot race this invariant is intended to prevent.
+    if connection.is_autocommit() {
+        return Err(TransactionStoreError::StateConflict);
     }
+    let locked_rows: i64 = connection
+        .query_row("SELECT COUNT(*) FROM audit_reservations", [], |row| row.get(0))
+        .map_err(sqlite_store)?;
+    let locked_rows = u64::try_from(locked_rows).map_err(|_| {
+        TransactionStoreError::Corruption(
+            "negative aggregate physical reservation count under reconciliation lock".into(),
+        )
+    })?;
+    if locked_rows != reservation_rows {
+        return Err(TransactionStoreError::Corruption(
+            "physical reservation count changed inside serialized validation".into(),
+        ));
+    }
+    RecoveryReserve::from_connection(connection, page_size)?
+        .validate_and_reconcile(locked_rows)
 }
 
 pub(crate) fn reserve_path_for_database(database: &Path) -> PathBuf {
@@ -388,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_prelock_count_cannot_shrink_a_newer_filesystem_reserve() {
+    fn filesystem_reconciliation_requires_database_write_serialization() {
         let database = temporary_database_path();
         let path = reserve_path_for_database(&database);
         let _ = fs::remove_file(&database);
@@ -417,9 +403,24 @@ mod tests {
             .len();
 
         assert!(matches!(
-            validate_filesystem_reserve(&connection, page_size, 1),
+            validate_filesystem_reserve(&connection, page_size, 2),
             Err(TransactionStoreError::StateConflict)
         ));
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            before
+        );
+
+        connection
+            .execute_batch("BEGIN IMMEDIATE")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        validate_filesystem_reserve(&connection, page_size, 2)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute_batch("COMMIT")
+            .unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(
             fs::metadata(&path)
                 .unwrap_or_else(|error| unreachable!("{error}"))

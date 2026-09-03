@@ -379,7 +379,37 @@ fn expected_schema_fingerprint() -> Result<ContentDigest, TransactionStoreError>
     schema_fingerprint(&reference)
 }
 
+fn with_immediate_validation<T>(
+    connection: &Connection,
+    validate: impl FnOnce() -> Result<T, TransactionStoreError>,
+) -> Result<T, TransactionStoreError> {
+    connection.execute_batch("BEGIN IMMEDIATE").map_err(sqlite)?;
+    let result = validate();
+    match result {
+        Ok(value) => {
+            if let Err(error) = connection.execute_batch("COMMIT") {
+                let _ = connection.execute_batch("ROLLBACK");
+                return Err(sqlite(error));
+            }
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
 pub(crate) fn validate_physical_reservations(
+    connection: &Connection,
+    key: &SqliteIntegrityKey,
+) -> Result<(), TransactionStoreError> {
+    with_immediate_validation(connection, || {
+        validate_physical_reservations_locked(connection, key)
+    })
+}
+
+fn validate_physical_reservations_locked(
     connection: &Connection,
     key: &SqliteIntegrityKey,
 ) -> Result<(), TransactionStoreError> {
@@ -470,6 +500,60 @@ fn append_canonical_field(
     buffer.extend_from_slice(&length.to_be_bytes());
     buffer.extend_from_slice(bytes);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn immediate_validation_acquires_write_lock_before_scanning() {
+        let database = std::env::temp_dir().join(format!(
+            "linura-v04-physical-validation-lock-{}.db",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&database);
+        let _ = fs::remove_file(format!("{}-wal", database.display()));
+        let _ = fs::remove_file(format!("{}-shm", database.display()));
+
+        let writer = Connection::open(&database)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        writer
+            .execute_batch("CREATE TABLE validation_lock_probe (id INTEGER PRIMARY KEY); BEGIN IMMEDIATE;")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let reader = Connection::open(&database)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        reader
+            .busy_timeout(Duration::ZERO)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        let entered = Cell::new(false);
+        let blocked = with_immediate_validation(&reader, || {
+            entered.set(true);
+            Ok(())
+        });
+        assert!(blocked.is_err());
+        assert!(!entered.get());
+
+        writer
+            .execute_batch("ROLLBACK")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        with_immediate_validation(&reader, || {
+            entered.set(true);
+            Ok(())
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(entered.get());
+
+        drop(reader);
+        drop(writer);
+        let _ = fs::remove_file(&database);
+        let _ = fs::remove_file(format!("{}-wal", database.display()));
+        let _ = fs::remove_file(format!("{}-shm", database.display()));
+    }
 }
 
 #[allow(dead_code)]
