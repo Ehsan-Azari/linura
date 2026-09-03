@@ -133,6 +133,7 @@ impl RecoveryReserve {
         let existed = self.path.exists();
         let file = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&self.path)?;
@@ -146,11 +147,11 @@ impl RecoveryReserve {
     fn target_len(&self, slots: u64) -> io::Result<u64> {
         self.slot_bytes
             .checked_mul(slots)
-            .ok_or_else(|| io::Error::other("filesystem recovery reserve size overflow"))
+            .ok_or_else(|| io::Error::other("recovery reserve size overflow"))
     }
 
     fn require_aligned(&self, length: u64) -> io::Result<()> {
-        if length % self.slot_bytes != 0 {
+        if !length.is_multiple_of(self.slot_bytes) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "filesystem recovery reserve length is not slot-aligned",
