@@ -1,5 +1,6 @@
 name: temporary v0.4 release-blocker patcher
 
+# This workflow is qualification-only and deletes itself before committing the candidate tree.
 on:
   push:
     branches:
