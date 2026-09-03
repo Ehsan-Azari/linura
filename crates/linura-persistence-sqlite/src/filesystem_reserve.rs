@@ -96,6 +96,7 @@ impl RecoveryReserve {
         let expected_slots = reservation_rows
             .checked_add(1)
             .ok_or(TransactionStoreError::CapacityExceeded)?;
+        let expected_len = self.target_len(expected_slots).map_err(io_store)?;
         if !self.path.exists() {
             if reservation_rows == 0 {
                 return self.ensure_slots(1).map_err(io_store);
@@ -107,7 +108,25 @@ impl RecoveryReserve {
 
         let file = self.open_locked().map_err(io_store)?;
         let current = file.metadata().map_err(io_store)?.len();
-        self.require_aligned(current).map_err(io_store)?;
+        if !current.is_multiple_of(self.slot_bytes) {
+            // Reserve growth is deliberately performed before the SQLite write
+            // that depends on it becomes durable. A process kill can therefore
+            // leave only a partial, unaligned append while SQLite rolls back the
+            // corresponding reservation row. Under the database write lock the
+            // authenticated reservation count is authoritative: bytes strictly
+            // beyond its exact target are uncommitted crash residue and can be
+            // discarded. Missing required bytes are never repaired or hidden.
+            if current <= expected_len {
+                return Err(TransactionStoreError::Corruption(
+                    "filesystem recovery reserve is unaligned and does not contain provably excess crash residue"
+                        .into(),
+                ));
+            }
+            file.set_len(expected_len).map_err(io_store)?;
+            file.sync_all().map_err(io_store)?;
+            verify_physical_allocation(&file, expected_len).map_err(io_store)?;
+            return Ok(());
+        }
         let current_slots = current / self.slot_bytes;
         drop(file);
 
@@ -349,6 +368,59 @@ mod tests {
                 .len(),
             2 * 64 * 1024
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn interrupted_unaligned_growth_is_trimmed_only_when_provably_excess() {
+        let database = temporary_database_path();
+        let path = reserve_path_for_database(&database);
+        let reserve = RecoveryReserve {
+            path: path.clone(),
+            slot_bytes: 64 * 1024,
+        };
+        let _ = fs::remove_file(&path);
+        reserve
+            .ensure_slots(2)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        file.write_all(&vec![0x5a; 32 * 1024])
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        file.sync_all()
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        drop(file);
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            2 * 64 * 1024 + 32 * 1024
+        );
+
+        reserve
+            .validate_and_reconcile(1)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            2 * 64 * 1024
+        );
+
+        let undersized = 64 * 1024 + 32 * 1024;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_len(undersized))
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            reserve.validate_and_reconcile(1),
+            Err(TransactionStoreError::Corruption(reason))
+                if reason.contains("does not contain provably excess crash residue")
+        ));
         let _ = fs::remove_file(path);
     }
 
