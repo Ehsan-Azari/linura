@@ -66,7 +66,9 @@ fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
     store.integrity_check().map_err(|error| error.to_string())?;
     println!(
         "prepared transaction={} generation={} version={}",
-        snapshot.transaction_id, snapshot.current_generation, snapshot.state_version
+        snapshot.transaction_id.as_str(),
+        snapshot.current_generation,
+        snapshot.state_version
     );
     Ok(())
 }
@@ -98,7 +100,9 @@ fn abort(path: &Path, namespace: &str) -> Result<(), String> {
     store.integrity_check().map_err(|error| error.to_string())?;
     println!(
         "aborted transaction={} generation={} version={}",
-        aborted.transaction_id, aborted.current_generation, aborted.state_version
+        aborted.transaction_id.as_str(),
+        aborted.current_generation,
+        aborted.state_version
     );
     Ok(())
 }
@@ -122,7 +126,9 @@ fn inspect_aborted(path: &Path, namespace: &str) -> Result<(), String> {
     }
     println!(
         "aborted-reopen transaction={} generation={} version={}",
-        snapshot.transaction_id, snapshot.current_generation, snapshot.state_version
+        snapshot.transaction_id.as_str(),
+        snapshot.current_generation,
+        snapshot.state_version
     );
     Ok(())
 }

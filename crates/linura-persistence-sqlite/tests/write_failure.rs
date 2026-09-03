@@ -93,10 +93,26 @@ mod unix {
         PathBuf::from(format!("{}{suffix}", path.display()))
     }
 
+    fn reserve(path: &Path) -> PathBuf {
+        let mut reserve = path.as_os_str().to_os_string();
+        reserve.push(".linura-recovery-reserve");
+        PathBuf::from(reserve)
+    }
+
+    fn set_mode_if_present(path: &Path, mode: u32) {
+        if path.exists() {
+            fs::set_permissions(path, fs::Permissions::from_mode(mode))
+                .unwrap_or_else(|error| unreachable!("{error}"));
+        }
+    }
+
     #[test]
     fn write_denial_fails_closed_without_rewriting_durable_history() {
         let directory = TestDirectory::new();
         let db = directory.db();
+        let wal = sidecar(&db, "-wal");
+        let shm = sidecar(&db, "-shm");
+        let recovery_reserve = reserve(&db);
         let binding = binding();
         {
             let mut store = SqliteTransactionStore::open(&db, verifier(), integrity_key())
@@ -109,11 +125,14 @@ mod unix {
                 .unwrap_or_else(|error| unreachable!("{error}"));
         }
 
-        let before = fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"));
-        let _ = fs::remove_file(sidecar(&db, "-wal"));
-        let _ = fs::remove_file(sidecar(&db, "-shm"));
-        fs::set_permissions(&db, fs::Permissions::from_mode(0o400))
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        let before_db = fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"));
+        let before_wal = fs::read(&wal).ok();
+        let before_reserve =
+            fs::read(&recovery_reserve).unwrap_or_else(|error| unreachable!("{error}"));
+
+        for path in [&db, &wal, &shm, &recovery_reserve] {
+            set_mode_if_present(path, 0o400);
+        }
         fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o500))
             .unwrap_or_else(|error| unreachable!("{error}"));
 
@@ -126,10 +145,19 @@ mod unix {
 
         fs::set_permissions(&directory.path, fs::Permissions::from_mode(0o700))
             .unwrap_or_else(|error| unreachable!("{error}"));
-        fs::set_permissions(&db, fs::Permissions::from_mode(0o600))
-            .unwrap_or_else(|error| unreachable!("{error}"));
-        let after = fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"));
-        assert_eq!(before, after);
+        for path in [&db, &wal, &shm, &recovery_reserve] {
+            set_mode_if_present(path, 0o600);
+        }
+
+        assert_eq!(
+            before_db,
+            fs::read(&db).unwrap_or_else(|error| unreachable!("{error}"))
+        );
+        assert_eq!(before_wal, fs::read(&wal).ok());
+        assert_eq!(
+            before_reserve,
+            fs::read(&recovery_reserve).unwrap_or_else(|error| unreachable!("{error}"))
+        );
 
         let reopened = SqliteTransactionStore::open(&db, verifier(), integrity_key())
             .unwrap_or_else(|error| unreachable!("{error}"));
