@@ -8,15 +8,21 @@
 
 use std::fmt::{Debug, Formatter};
 use std::path::Path;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use linura_core::{PrincipalId, RequestId};
 use linura_transaction::{
     AbortRequest, AuthorityBinding, CommitRequest, ContentDigest, HandoffCommit, HandoffRequest,
-    MAX_TRANSACTION_GENERATIONS, PrepareOutcome, RecoveryAnchor, RecoveryOutcome, RecoveryRequest,
-    RecoveryResolution, TransactionAuthorityVerifier, TransactionId, TransactionSnapshot,
-    TransactionState, TransactionStore, TransactionStoreError, digest_bytes, digest_parts,
+    MAX_AUTHORITY_BINDING_BYTES, MAX_TRANSACTION_GENERATIONS, PrepareOutcome, RecoveryAnchor,
+    RecoveryOutcome, RecoveryRequest, RecoveryResolution, TransactionAuthorityVerifier,
+    TransactionId, TransactionSnapshot, TransactionState, TransactionStore, TransactionStoreError,
+    VerifiedCommitMaterial, digest_bytes, digest_parts,
 };
+use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
 const APPLICATION_ID: i64 = 0x4c4e5254; // "LNRT"
@@ -51,7 +57,7 @@ CREATE TABLE generations (
         'prepared', 'indeterminate', 'verified', 'committed', 'aborted', 'recovery-blocked'
     )),
     binding_digest TEXT NOT NULL,
-    binding_canonical BLOB NOT NULL,
+    binding_canonical BLOB NOT NULL CHECK (length(binding_canonical) <= 262144),
     request_digest TEXT NOT NULL,
     precondition_digest TEXT NOT NULL,
     observation_digest TEXT NOT NULL,
@@ -75,6 +81,104 @@ CREATE TABLE audit_events (
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE RESTRICT
 ) STRICT;
 
+CREATE TRIGGER transactions_authenticated_insert
+BEFORE INSERT ON transactions
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER generations_authenticated_insert
+BEFORE INSERT ON generations
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER audit_events_authenticated_insert
+BEFORE INSERT ON audit_events
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER schema_migrations_authenticated_insert
+BEFORE INSERT ON schema_migrations
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER authority_store_identity_authenticated_insert
+BEFORE INSERT ON authority_store_identity
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER transactions_authenticated_update
+BEFORE UPDATE ON transactions
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER generations_authenticated_update
+BEFORE UPDATE ON generations
+WHEN linura_internal_mutation_gate() != 1
+BEGIN
+    SELECT RAISE(ABORT, 'authenticated store mutation required');
+END;
+
+CREATE TRIGGER transactions_no_conflicting_insert
+BEFORE INSERT ON transactions
+WHEN EXISTS (
+    SELECT 1 FROM transactions
+    WHERE transaction_id = NEW.transaction_id
+       OR (principal = NEW.principal AND request_id = NEW.request_id)
+)
+BEGIN
+    SELECT RAISE(ABORT, 'immutable transaction identity conflict');
+END;
+
+CREATE TRIGGER generations_no_conflicting_insert
+BEFORE INSERT ON generations
+WHEN EXISTS (
+    SELECT 1 FROM generations
+    WHERE transaction_id = NEW.transaction_id AND generation = NEW.generation
+)
+BEGIN
+    SELECT RAISE(ABORT, 'immutable generation history conflict');
+END;
+
+CREATE TRIGGER audit_events_no_conflicting_insert
+BEFORE INSERT ON audit_events
+WHEN EXISTS (
+    SELECT 1 FROM audit_events
+    WHERE transaction_id = NEW.transaction_id AND event_sequence = NEW.event_sequence
+)
+BEGIN
+    SELECT RAISE(ABORT, 'append-only audit history conflict');
+END;
+
+CREATE TRIGGER schema_migrations_no_conflicting_insert
+BEFORE INSERT ON schema_migrations
+WHEN EXISTS (
+    SELECT 1 FROM schema_migrations WHERE migration_id = NEW.migration_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'immutable migration ledger conflict');
+END;
+
+CREATE TRIGGER authority_store_identity_no_conflicting_insert
+BEFORE INSERT ON authority_store_identity
+WHEN EXISTS (
+    SELECT 1 FROM authority_store_identity WHERE singleton = NEW.singleton
+)
+BEGIN
+    SELECT RAISE(ABORT, 'immutable authority verifier identity conflict');
+END;
+
 CREATE TRIGGER transactions_no_delete
 BEFORE DELETE ON transactions
 BEGIN
@@ -96,12 +200,12 @@ END;
 CREATE TRIGGER generations_commit_provenance_guard
 BEFORE UPDATE OF desired_state_digest, graph_digest, provenance_digest ON generations
 WHEN NOT (
-    OLD.state = 'verified' AND NEW.state = 'committed'
+    OLD.state = 'indeterminate' AND NEW.state = 'verified'
     AND OLD.desired_state_digest IS NULL AND OLD.graph_digest IS NULL AND OLD.provenance_digest IS NULL
     AND NEW.desired_state_digest IS NOT NULL AND NEW.graph_digest IS NOT NULL AND NEW.provenance_digest IS NOT NULL
 )
 BEGIN
-    SELECT RAISE(ABORT, 'immutable committed generation provenance');
+    SELECT RAISE(ABORT, 'immutable verified commit material');
 END;
 
 CREATE TRIGGER authority_store_identity_no_update
@@ -188,6 +292,7 @@ pub struct SqliteTransactionStore {
     connection: Connection,
     limits: StoreLimits,
     authority_verifier: TransactionAuthorityVerifier,
+    mutation_gate: Arc<AtomicBool>,
 }
 
 impl Debug for SqliteTransactionStore {
@@ -216,17 +321,20 @@ impl SqliteTransactionStore {
         let path = path.as_ref();
 
         let mut connection = Connection::open(path).map_err(sqlite)?;
+        let mutation_gate = Arc::new(AtomicBool::new(false));
+        register_mutation_gate(&connection, Arc::clone(&mutation_gate))?;
         connection
             .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))
             .map_err(sqlite)?;
         configure_connection(&connection, limits)?;
         let authority_fingerprint = authority_verifier.fingerprint();
-        initialize_or_validate_schema(&mut connection, &authority_fingerprint)?;
+        initialize_or_validate_schema(&mut connection, &authority_fingerprint, &mutation_gate)?;
 
         let store = Self {
             connection,
             limits,
             authority_verifier,
+            mutation_gate,
         };
         store.integrity_check()?;
         Ok(store)
@@ -266,6 +374,54 @@ impl SqliteTransactionStore {
         let count = u64::try_from(count)
             .map_err(|_| TransactionStoreError::Corruption("negative row count".into()))?;
         if count.saturating_add(additional) > maximum {
+            return Err(TransactionStoreError::CapacityExceeded);
+        }
+        Ok(())
+    }
+
+    fn check_audit_reserve(
+        transaction: &Transaction<'_>,
+        limits: StoreLimits,
+        additional_events: u64,
+        nonterminal_delta: i64,
+    ) -> Result<(), TransactionStoreError> {
+        let audit_count: i64 = transaction
+            .query_row("SELECT COUNT(*) FROM audit_events", [], |row| row.get(0))
+            .map_err(sqlite)?;
+        let nonterminal_count: i64 = transaction
+            .query_row(
+                "SELECT COUNT(*) FROM transactions t \
+                 JOIN generations g ON g.transaction_id=t.transaction_id \
+                  AND g.generation=t.current_generation \
+                 WHERE g.state IN ('prepared','indeterminate','verified')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(sqlite)?;
+        let audit_count = u64::try_from(audit_count)
+            .map_err(|_| TransactionStoreError::Corruption("negative audit row count".into()))?;
+        let nonterminal_count = u64::try_from(nonterminal_count).map_err(|_| {
+            TransactionStoreError::Corruption("negative nonterminal transaction count".into())
+        })?;
+        let resulting_nonterminal = if nonterminal_delta >= 0 {
+            nonterminal_count
+                .checked_add(
+                    u64::try_from(nonterminal_delta)
+                        .map_err(|_| TransactionStoreError::CapacityExceeded)?,
+                )
+                .ok_or(TransactionStoreError::CapacityExceeded)?
+        } else {
+            nonterminal_count
+                .checked_sub(nonterminal_delta.unsigned_abs())
+                .ok_or_else(|| {
+                    TransactionStoreError::Corruption("nonterminal reserve underflow".into())
+                })?
+        };
+        let required = audit_count
+            .checked_add(additional_events)
+            .and_then(|value| value.checked_add(resulting_nonterminal))
+            .ok_or(TransactionStoreError::CapacityExceeded)?;
+        if required > limits.max_audit_events {
             return Err(TransactionStoreError::CapacityExceeded);
         }
         Ok(())
@@ -392,6 +548,7 @@ impl TransactionStore for SqliteTransactionStore {
         binding: &AuthorityBinding,
     ) -> Result<PrepareOutcome, TransactionStoreError> {
         let transaction_id = binding.transaction_id();
+        let _mutation_gate = MutationGateGuard::enter(&self.mutation_gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -421,6 +578,7 @@ impl TransactionStore for SqliteTransactionStore {
             1,
         )?;
         Self::check_count_capacity(&transaction, "generations", self.limits.max_generations, 1)?;
+        Self::check_audit_reserve(&transaction, self.limits, 1, 1)?;
 
         transaction
             .execute(
@@ -479,6 +637,7 @@ impl TransactionStore for SqliteTransactionStore {
         if !self.authority_verifier.verify_handoff(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
+        let _mutation_gate = MutationGateGuard::enter(&self.mutation_gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -498,6 +657,7 @@ impl TransactionStore for SqliteTransactionStore {
         if request.authority_use_digest() == &ContentDigest::zero() {
             return Err(TransactionStoreError::StateConflict);
         }
+        Self::check_audit_reserve(&transaction, self.limits, 1, 0)?;
         let next_version = snapshot
             .state_version
             .checked_add(1)
@@ -556,6 +716,7 @@ impl TransactionStore for SqliteTransactionStore {
         if !self.authority_verifier.verify_recovery(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
+        let _mutation_gate = MutationGateGuard::enter(&self.mutation_gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -578,13 +739,20 @@ impl TransactionStore for SqliteTransactionStore {
             .ok_or(TransactionStoreError::CapacityExceeded)?;
 
         let outcome = match request.resolution() {
-            RecoveryResolution::IntendedStateVerified { observation_digest } => {
-                transition_generation_state(
+            RecoveryResolution::IntendedStateVerified {
+                observation_digest,
+                desired_state_digest,
+                graph_digest,
+                provenance_digest,
+            } => {
+                Self::check_audit_reserve(&transaction, self.limits, 1, 0)?;
+                transition_generation_to_verified(
                     &transaction,
                     request.transaction_id(),
                     snapshot.current_generation,
-                    TransactionState::Indeterminate,
-                    TransactionState::Verified,
+                    desired_state_digest,
+                    graph_digest,
+                    provenance_digest,
                 )?;
                 update_transaction_pointer(
                     &transaction,
@@ -610,6 +778,7 @@ impl TransactionStore for SqliteTransactionStore {
                 })
             }
             RecoveryResolution::ConflictingState { observation_digest } => {
+                Self::check_audit_reserve(&transaction, self.limits, 1, -1)?;
                 transition_generation_state(
                     &transaction,
                     request.transaction_id(),
@@ -641,6 +810,7 @@ impl TransactionStore for SqliteTransactionStore {
                 })
             }
             RecoveryResolution::Ambiguous { observation_digest } => {
+                Self::check_audit_reserve(&transaction, self.limits, 1, 0)?;
                 update_transaction_pointer(
                     &transaction,
                     request.transaction_id(),
@@ -683,12 +853,7 @@ impl TransactionStore for SqliteTransactionStore {
                     self.limits.max_generations,
                     1,
                 )?;
-                Self::check_count_capacity(
-                    &transaction,
-                    "audit_events",
-                    self.limits.max_audit_events,
-                    2,
-                )?;
+                Self::check_audit_reserve(&transaction, self.limits, 2, 0)?;
 
                 transition_generation_state(
                     &transaction,
@@ -762,6 +927,7 @@ impl TransactionStore for SqliteTransactionStore {
         if !self.authority_verifier.verify_commit(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
+        let _mutation_gate = MutationGateGuard::enter(&self.mutation_gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -774,6 +940,7 @@ impl TransactionStore for SqliteTransactionStore {
         {
             return Err(TransactionStoreError::StateConflict);
         }
+        Self::check_audit_reserve(&transaction, self.limits, 1, -1)?;
         let next_version = snapshot
             .state_version
             .checked_add(1)
@@ -781,9 +948,9 @@ impl TransactionStore for SqliteTransactionStore {
         let updated = transaction
             .execute(
                 "UPDATE generations
-                 SET state = 'committed', desired_state_digest = ?3,
-                     graph_digest = ?4, provenance_digest = ?5
-                 WHERE transaction_id = ?1 AND generation = ?2 AND state = 'verified'",
+                 SET state = 'committed'
+                 WHERE transaction_id = ?1 AND generation = ?2 AND state = 'verified'
+                   AND desired_state_digest = ?3 AND graph_digest = ?4 AND provenance_digest = ?5",
                 params![
                     request.transaction_id().as_str(),
                     as_i64(snapshot.current_generation)?,
@@ -833,6 +1000,7 @@ impl TransactionStore for SqliteTransactionStore {
         &mut self,
         request: &AbortRequest,
     ) -> Result<TransactionSnapshot, TransactionStoreError> {
+        let _mutation_gate = MutationGateGuard::enter(&self.mutation_gate)?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -844,6 +1012,7 @@ impl TransactionStore for SqliteTransactionStore {
         {
             return Err(TransactionStoreError::StateConflict);
         }
+        Self::check_audit_reserve(&transaction, self.limits, 1, -1)?;
         let next_version = snapshot
             .state_version
             .checked_add(1)
@@ -934,6 +1103,34 @@ impl TransactionStore for SqliteTransactionStore {
             })
     }
 
+    fn verified_commit_material(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<VerifiedCommitMaterial, TransactionStoreError> {
+        let snapshot = Self::raw_snapshot(&self.connection, transaction_id)?;
+        if snapshot.state != TransactionState::Verified {
+            return Err(TransactionStoreError::StateConflict);
+        }
+        let (desired_state_digest, graph_digest, provenance_digest): (String, String, String) = self
+            .connection
+            .query_row(
+                "SELECT desired_state_digest, graph_digest, provenance_digest
+                 FROM generations WHERE transaction_id = ?1 AND generation = ?2 AND state = 'verified'",
+                params![transaction_id.as_str(), as_i64(snapshot.current_generation)?],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(sqlite)?;
+        Ok(VerifiedCommitMaterial {
+            snapshot,
+            desired_state_digest: ContentDigest::new(desired_state_digest)
+                .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?,
+            graph_digest: ContentDigest::new(graph_digest)
+                .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?,
+            provenance_digest: ContentDigest::new(provenance_digest)
+                .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?,
+        })
+    }
+
     fn list_state(
         &self,
         state: TransactionState,
@@ -988,6 +1185,7 @@ impl TransactionStore for SqliteTransactionStore {
             "audit_events",
             self.limits.max_audit_events,
         )?;
+        validate_audit_reserve(&self.connection, self.limits)?;
 
         let integrity: String = self
             .connection
@@ -1069,6 +1267,46 @@ impl TransactionStore for SqliteTransactionStore {
     }
 }
 
+struct MutationGateGuard {
+    gate: Arc<AtomicBool>,
+}
+
+impl MutationGateGuard {
+    fn enter(gate: &Arc<AtomicBool>) -> Result<Self, TransactionStoreError> {
+        gate.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| TransactionStoreError::Corruption("nested SQLite mutation gate".into()))?;
+        Ok(Self {
+            gate: Arc::clone(gate),
+        })
+    }
+}
+
+impl Drop for MutationGateGuard {
+    fn drop(&mut self) {
+        self.gate.store(false, Ordering::Release);
+    }
+}
+
+fn register_mutation_gate(
+    connection: &Connection,
+    gate: Arc<AtomicBool>,
+) -> Result<(), TransactionStoreError> {
+    connection
+        .create_scalar_function(
+            "linura_internal_mutation_gate",
+            0,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_INNOCUOUS,
+            move |_| {
+                Ok(if gate.load(Ordering::Acquire) {
+                    1_i64
+                } else {
+                    0_i64
+                })
+            },
+        )
+        .map_err(sqlite)
+}
+
 fn enforce_authority_window(
     authorized_at_unix_ms: u64,
     expires_at_unix_ms: u64,
@@ -1110,6 +1348,7 @@ fn configure_connection(
 fn initialize_or_validate_schema(
     connection: &mut Connection,
     authority_fingerprint: &ContentDigest,
+    mutation_gate: &Arc<AtomicBool>,
 ) -> Result<(), TransactionStoreError> {
     let application_id = pragma_i64(connection, "application_id")?;
     let user_version = pragma_i64(connection, "user_version")?;
@@ -1126,6 +1365,7 @@ fn initialize_or_validate_schema(
                 "unidentified authority database contains application schema objects".into(),
             ));
         }
+        let _mutation_gate = MutationGateGuard::enter(mutation_gate)?;
         let migration = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(sqlite)?;
@@ -1327,6 +1567,38 @@ fn validate_aggregate_capacity(
     Ok(())
 }
 
+fn validate_audit_reserve(
+    connection: &Connection,
+    limits: StoreLimits,
+) -> Result<(), TransactionStoreError> {
+    let audit_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM audit_events", [], |row| row.get(0))
+        .map_err(sqlite)?;
+    let nonterminal_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM transactions t \
+             JOIN generations g ON g.transaction_id=t.transaction_id \
+              AND g.generation=t.current_generation \
+             WHERE g.state IN ('prepared','indeterminate','verified')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(sqlite)?;
+    let audit_count = u64::try_from(audit_count)
+        .map_err(|_| TransactionStoreError::Corruption("negative aggregate audit count".into()))?;
+    let nonterminal_count = u64::try_from(nonterminal_count).map_err(|_| {
+        TransactionStoreError::Corruption("negative aggregate nonterminal count".into())
+    })?;
+    if audit_count
+        .checked_add(nonterminal_count)
+        .ok_or(TransactionStoreError::CapacityExceeded)?
+        > limits.max_audit_events
+    {
+        return Err(TransactionStoreError::CapacityExceeded);
+    }
+    Ok(())
+}
+
 fn validate_generations(
     connection: &Connection,
     transaction_id: &TransactionId,
@@ -1338,27 +1610,31 @@ fn validate_generations(
             "current generation exceeds domain bound".into(),
         ));
     }
+    let max_binding_bytes = i64::try_from(MAX_AUTHORITY_BINDING_BYTES)
+        .map_err(|_| TransactionStoreError::CapacityExceeded)?;
     let mut statement = connection
         .prepare(
-            "SELECT generation, state, binding_digest, binding_canonical,
+            "SELECT generation, state, binding_digest, length(binding_canonical),
+                    CASE WHEN length(binding_canonical) <= ?2 THEN binding_canonical ELSE NULL END,
                     request_digest, precondition_digest, observation_digest,
                     desired_state_digest, graph_digest, provenance_digest
              FROM generations WHERE transaction_id = ?1 ORDER BY generation",
         )
         .map_err(sqlite)?;
     let rows = statement
-        .query_map(params![transaction_id.as_str()], |row| {
+        .query_map(params![transaction_id.as_str(), max_binding_bytes], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-                row.get::<_, String>(4)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<Vec<u8>>>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .map_err(sqlite)?;
@@ -1369,6 +1645,7 @@ fn validate_generations(
             generation,
             state,
             binding_digest,
+            canonical_length,
             canonical,
             request_digest,
             precondition_digest,
@@ -1388,6 +1665,24 @@ fn validate_generations(
             .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?;
         let binding_digest = ContentDigest::new(binding_digest)
             .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?;
+        let canonical_length = usize::try_from(canonical_length).map_err(|_| {
+            TransactionStoreError::Corruption("negative authority binding length".into())
+        })?;
+        if canonical_length > MAX_AUTHORITY_BINDING_BYTES {
+            return Err(TransactionStoreError::Corruption(
+                "stored authority binding exceeds domain byte bound".into(),
+            ));
+        }
+        let canonical = canonical.ok_or_else(|| {
+            TransactionStoreError::Corruption(
+                "stored authority binding was withheld by length preflight".into(),
+            )
+        })?;
+        if canonical.len() != canonical_length {
+            return Err(TransactionStoreError::Corruption(
+                "stored authority binding length changed during validation".into(),
+            ));
+        }
         ContentDigest::new(request_digest)
             .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?;
         ContentDigest::new(precondition_digest)
@@ -1404,10 +1699,13 @@ fn validate_generations(
             graph_digest.as_deref(),
             provenance_digest.as_deref(),
         ];
-        if state == TransactionState::Committed {
+        if matches!(
+            state,
+            TransactionState::Verified | TransactionState::Committed
+        ) {
             if commit_digests.iter().any(|value| value.is_none()) {
                 return Err(TransactionStoreError::Corruption(
-                    "committed generation is missing commit provenance digests".into(),
+                    "verified/committed generation is missing durable commit material".into(),
                 ));
             }
             for value in commit_digests.into_iter().flatten() {
@@ -1416,7 +1714,7 @@ fn validate_generations(
             }
         } else if commit_digests.iter().any(|value| value.is_some()) {
             return Err(TransactionStoreError::Corruption(
-                "non-committed generation contains commit provenance digests".into(),
+                "non-verified generation contains durable commit material".into(),
             ));
         }
         if generation < current_generation && state != TransactionState::Aborted {
@@ -1579,6 +1877,35 @@ fn state_for_event_kind(kind: &str) -> Result<TransactionState, TransactionStore
             "unknown audit event kind {kind:?}"
         ))),
     }
+}
+
+fn transition_generation_to_verified(
+    transaction: &Transaction<'_>,
+    transaction_id: &TransactionId,
+    generation: u64,
+    desired_state_digest: &ContentDigest,
+    graph_digest: &ContentDigest,
+    provenance_digest: &ContentDigest,
+) -> Result<(), TransactionStoreError> {
+    let updated = transaction
+        .execute(
+            "UPDATE generations
+             SET state = 'verified', desired_state_digest = ?3,
+                 graph_digest = ?4, provenance_digest = ?5
+             WHERE transaction_id = ?1 AND generation = ?2 AND state = 'indeterminate'",
+            params![
+                transaction_id.as_str(),
+                as_i64(generation)?,
+                desired_state_digest.as_str(),
+                graph_digest.as_str(),
+                provenance_digest.as_str(),
+            ],
+        )
+        .map_err(sqlite)?;
+    if updated != 1 {
+        return Err(TransactionStoreError::StateConflict);
+    }
+    Ok(())
 }
 
 fn transition_generation_state(
@@ -1910,6 +2237,9 @@ mod tests {
                 &indeterminate,
                 RecoveryResolution::IntendedStateVerified {
                     observation_digest: digest("forged-observation"),
+                    desired_state_digest: digest("forged-desired"),
+                    graph_digest: digest("forged-graph"),
+                    provenance_digest: digest("forged-provenance"),
                 },
                 1,
                 u64::MAX,
@@ -2115,6 +2445,9 @@ mod tests {
                 &indeterminate,
                 RecoveryResolution::IntendedStateVerified {
                     observation_digest: digest("verified-observation"),
+                    desired_state_digest: digest("desired"),
+                    graph_digest: digest("graph"),
+                    provenance_digest: digest("provenance"),
                 },
                 1,
                 u64::MAX,
@@ -2189,6 +2522,258 @@ mod tests {
         store
             .integrity_check()
             .unwrap_or_else(|error| unreachable!("{error}"));
+    }
+
+    #[test]
+    fn raw_connections_cannot_replace_insert_or_directly_advance_authority_state() {
+        let db = TestDatabase::new();
+        let binding = binding_with_observation("raw-guard");
+        let (_, mut store) = open_store(&db.path);
+        let prepared = prepared_snapshot(
+            store
+                .prepare(&binding)
+                .unwrap_or_else(|error| unreachable!("{error}")),
+        );
+        drop(store);
+
+        let raw = Connection::open(&db.path).unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(
+            pragma_i64(&raw, "recursive_triggers").unwrap_or_default(),
+            0
+        );
+        for sql in [
+            "INSERT OR REPLACE INTO transactions SELECT * FROM transactions",
+            "INSERT OR REPLACE INTO generations SELECT * FROM generations",
+            "INSERT OR REPLACE INTO audit_events SELECT * FROM audit_events",
+            "INSERT OR REPLACE INTO schema_migrations SELECT * FROM schema_migrations",
+            "INSERT OR REPLACE INTO authority_store_identity SELECT * FROM authority_store_identity",
+        ] {
+            assert!(
+                raw.execute(sql, []).is_err(),
+                "raw replacement unexpectedly succeeded: {sql}"
+            );
+        }
+        assert!(
+            raw.execute(
+                "UPDATE generations SET state='verified' WHERE transaction_id=?1 AND generation=0",
+                params![prepared.transaction_id.as_str()],
+            )
+            .is_err()
+        );
+        assert!(
+            raw.execute(
+                "UPDATE transactions SET state_version=state_version+1 WHERE transaction_id=?1",
+                params![prepared.transaction_id.as_str()],
+            )
+            .is_err()
+        );
+        drop(raw);
+        open_store(&db.path)
+            .1
+            .integrity_check()
+            .unwrap_or_else(|error| unreachable!("{error}"));
+    }
+
+    #[test]
+    fn audit_capacity_reserves_a_safe_exit_for_every_nonterminal_transaction() {
+        let rejected = TestDatabase::new();
+        let limits = StoreLimits {
+            max_audit_events: 1,
+            ..StoreLimits::default()
+        };
+        let (_, verifier) = authority();
+        let mut store = SqliteTransactionStore::open_with_limits(&rejected.path, limits, verifier)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            store.prepare(&binding_with_observation("reserve-reject")),
+            Err(TransactionStoreError::CapacityExceeded)
+        ));
+        let rows: i64 = store
+            .connection
+            .query_row("SELECT COUNT(*) FROM transactions", [], |row| row.get(0))
+            .unwrap_or_default();
+        assert_eq!(rows, 0);
+
+        let abortable = TestDatabase::new();
+        let limits = StoreLimits {
+            max_audit_events: 2,
+            ..StoreLimits::default()
+        };
+        let (_, verifier) = authority();
+        let mut store = SqliteTransactionStore::open_with_limits(&abortable.path, limits, verifier)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let prepared = prepared_snapshot(
+            store
+                .prepare(&binding_with_observation("reserve-abort"))
+                .unwrap_or_else(|error| unreachable!("{error}")),
+        );
+        let aborted = store
+            .abort_prepared(&AbortRequest {
+                transaction_id: prepared.transaction_id.clone(),
+                expected_generation: prepared.current_generation,
+                expected_state_version: prepared.state_version,
+                reason_digest: digest("capacity-reserved-abort"),
+            })
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(aborted.state, TransactionState::Aborted);
+
+        let reprepare = TestDatabase::new();
+        let limits = StoreLimits {
+            max_audit_events: 4,
+            ..StoreLimits::default()
+        };
+        let (signer, verifier) = authority();
+        let mut store = SqliteTransactionStore::open_with_limits(&reprepare.path, limits, verifier)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let first = binding_with_request("request:reserve-reprepare", "observation-a");
+        let next = binding_with_request("request:reserve-reprepare", "observation-b");
+        let prepared = prepared_snapshot(
+            store
+                .prepare(&first)
+                .unwrap_or_else(|error| unreachable!("{error}")),
+        );
+        let handoff = store
+            .handoff(
+                &signer
+                    .authorize_handoff(&prepared, digest("reserve-use"), 1, u64::MAX)
+                    .unwrap_or_else(|error| unreachable!("{error}")),
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let indeterminate = TransactionSnapshot {
+            state: TransactionState::Indeterminate,
+            state_version: handoff.state_version,
+            ..prepared.clone()
+        };
+        let request = signer
+            .authorize_recovery(
+                &indeterminate,
+                RecoveryResolution::IntendedEffectAbsent {
+                    observation_digest: digest("reserve-no-effect"),
+                    next_binding: Box::new(next),
+                },
+                1,
+                u64::MAX,
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            store.recover(&request),
+            Err(TransactionStoreError::CapacityExceeded)
+        ));
+        assert_eq!(
+            store
+                .snapshot(&prepared.transaction_id)
+                .unwrap_or_else(|error| unreachable!("{error}")),
+            indeterminate
+        );
+    }
+
+    #[test]
+    fn oversized_binding_is_rejected_without_materializing_the_blob() {
+        let connection =
+            Connection::open_in_memory().unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute_batch(
+                "CREATE TABLE generations (
+                    transaction_id TEXT NOT NULL, generation INTEGER NOT NULL, state TEXT NOT NULL,
+                    binding_digest TEXT NOT NULL, binding_canonical BLOB NOT NULL,
+                    request_digest TEXT NOT NULL, precondition_digest TEXT NOT NULL,
+                    observation_digest TEXT NOT NULL, desired_state_digest TEXT,
+                    graph_digest TEXT, provenance_digest TEXT
+                ) STRICT;",
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let transaction_id = TransactionId::new("transaction:test:oversized")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let oversized_len = MAX_AUTHORITY_BINDING_BYTES + 1;
+        connection
+            .execute(
+                "INSERT INTO generations (
+                    transaction_id, generation, state, binding_digest, binding_canonical,
+                    request_digest, precondition_digest, observation_digest
+                 ) VALUES (?1, 0, 'prepared', ?2, zeroblob(?3), ?4, ?5, ?6)",
+                params![
+                    transaction_id.as_str(),
+                    digest("binding").as_str(),
+                    i64::try_from(oversized_len).unwrap_or(i64::MAX),
+                    digest("request").as_str(),
+                    digest("precondition").as_str(),
+                    digest("observation").as_str(),
+                ],
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            validate_generations(&connection, &transaction_id, 0, StoreLimits::default()),
+            Err(TransactionStoreError::Corruption(reason))
+                if reason.contains("exceeds domain byte bound")
+        ));
+    }
+
+    #[test]
+    fn verified_commit_material_survives_reopen_and_can_be_resumed() {
+        let db = TestDatabase::new();
+        let binding = binding_with_observation("verified-resume");
+        let (signer, mut store) = open_store(&db.path);
+        let prepared = prepared_snapshot(
+            store
+                .prepare(&binding)
+                .unwrap_or_else(|error| unreachable!("{error}")),
+        );
+        let handoff = store
+            .handoff(
+                &signer
+                    .authorize_handoff(&prepared, digest("resume-use"), 1, u64::MAX)
+                    .unwrap_or_else(|error| unreachable!("{error}")),
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let indeterminate = TransactionSnapshot {
+            state: TransactionState::Indeterminate,
+            state_version: handoff.state_version,
+            ..prepared.clone()
+        };
+        let desired = digest("resume-desired");
+        let graph = digest("resume-graph");
+        let provenance = digest("resume-provenance");
+        let recovery = signer
+            .authorize_recovery(
+                &indeterminate,
+                RecoveryResolution::IntendedStateVerified {
+                    observation_digest: digest("resume-observation"),
+                    desired_state_digest: desired.clone(),
+                    graph_digest: graph.clone(),
+                    provenance_digest: provenance.clone(),
+                },
+                1,
+                u64::MAX,
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let RecoveryOutcome::Verified(verified) = store
+            .recover(&recovery)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+        else {
+            unreachable!("expected verified")
+        };
+        drop(store);
+
+        let (signer, mut reopened) = open_store(&db.path);
+        let material = reopened
+            .verified_commit_material(&verified.transaction_id)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(material.snapshot, verified);
+        assert_eq!(material.desired_state_digest, desired);
+        assert_eq!(material.graph_digest, graph);
+        assert_eq!(material.provenance_digest, provenance);
+        let request = signer
+            .authorize_commit(
+                &material.snapshot,
+                material.desired_state_digest,
+                material.graph_digest,
+                material.provenance_digest,
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let committed = reopened
+            .commit(&request)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(committed.state, TransactionState::Committed);
     }
 
     #[test]

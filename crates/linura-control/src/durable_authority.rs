@@ -515,10 +515,15 @@ where
                 observation
                     .require_current(authorized_at_unix_ms)
                     .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                let (desired_state_digest, graph_digest, provenance_digest) =
+                    verified_commit_digests(&anchor, &plan, &observation_digest)?;
                 let recovery = self.authority_signer.authorize_recovery(
                     &anchor.snapshot,
                     RecoveryResolution::IntendedStateVerified {
                         observation_digest: observation_digest.clone(),
+                        desired_state_digest: desired_state_digest.clone(),
+                        graph_digest: graph_digest.clone(),
+                        provenance_digest: provenance_digest.clone(),
                     },
                     authorized_at_unix_ms,
                     observation_expires_at_unix_ms(&observation)?,
@@ -526,14 +531,22 @@ where
                 let outcome = self.transactions.recover(&recovery)?;
                 match outcome {
                     RecoveryOutcome::Verified(snapshot) => {
-                        let (desired_state_digest, graph_digest, provenance_digest) =
-                            verified_commit_digests(&anchor, &plan, &observation_digest)?;
+                        let material = self
+                            .transactions
+                            .verified_commit_material(&snapshot.transaction_id)?;
+                        if material.snapshot != snapshot
+                            || material.desired_state_digest != desired_state_digest
+                            || material.graph_digest != graph_digest
+                            || material.provenance_digest != provenance_digest
+                        {
+                            return Err(DurableAuthorityError::AuthorityChanged);
+                        }
                         Ok(DurableRecoveryOutcome::Verified(VerifiedDurableAuthority {
-                            principal: snapshot.principal.clone(),
-                            snapshot,
-                            desired_state_digest,
-                            graph_digest,
-                            provenance_digest,
+                            principal: material.snapshot.principal.clone(),
+                            snapshot: material.snapshot,
+                            desired_state_digest: material.desired_state_digest,
+                            graph_digest: material.graph_digest,
+                            provenance_digest: material.provenance_digest,
                         }))
                     }
                     _ => Err(DurableAuthorityError::AuthorityChanged),
@@ -676,6 +689,29 @@ where
 
     pub fn integrity_check(&self) -> Result<(), DurableAuthorityError> {
         self.transactions.integrity_check().map_err(Into::into)
+    }
+
+    /// Reconstruct the process-local verified commit capability from the exact
+    /// durable, signer-bound verification material after restart or a retryable
+    /// persistence failure. No policy/approval authority is reconstructed.
+    pub fn resume_verified(
+        &self,
+        principal: &AuthenticatedPrincipal,
+        transaction_id: &TransactionId,
+    ) -> Result<VerifiedDurableAuthority, DurableAuthorityError> {
+        let material = self.transactions.verified_commit_material(transaction_id)?;
+        if material.snapshot.state != TransactionState::Verified
+            || principal.as_str() != material.snapshot.principal.as_str()
+        {
+            return Err(DurableAuthorityError::AuthorityChanged);
+        }
+        Ok(VerifiedDurableAuthority {
+            principal: material.snapshot.principal.clone(),
+            snapshot: material.snapshot,
+            desired_state_digest: material.desired_state_digest,
+            graph_digest: material.graph_digest,
+            provenance_digest: material.provenance_digest,
+        })
     }
 
     pub fn commit_verified(

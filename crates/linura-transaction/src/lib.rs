@@ -480,6 +480,14 @@ pub struct RecoveryAnchor {
     pub precondition_digest: ContentDigest,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedCommitMaterial {
+    pub snapshot: TransactionSnapshot,
+    pub desired_state_digest: ContentDigest,
+    pub graph_digest: ContentDigest,
+    pub provenance_digest: ContentDigest,
+}
+
 const AUTHORITY_MUTATION_KEY_BYTES: usize = 32;
 const AUTHORITY_MUTATION_TAG_BYTES: usize = 32;
 type AuthorityHmac = Hmac<Sha256>;
@@ -728,6 +736,18 @@ impl TransactionAuthoritySigner {
         {
             return Err(TransactionValidationError::InvalidAuthorityMutation);
         }
+        if let RecoveryResolution::IntendedStateVerified {
+            desired_state_digest,
+            graph_digest,
+            provenance_digest,
+            ..
+        } = &resolution
+            && (desired_state_digest == &ContentDigest::zero()
+                || graph_digest == &ContentDigest::zero()
+                || provenance_digest == &ContentDigest::zero())
+        {
+            return Err(TransactionValidationError::InvalidAuthorityMutation);
+        }
         let mut request = RecoveryRequest {
             transaction_id: snapshot.transaction_id.clone(),
             expected_generation: snapshot.current_generation,
@@ -839,6 +859,9 @@ pub struct HandoffCommit {
 pub enum RecoveryResolution {
     IntendedStateVerified {
         observation_digest: ContentDigest,
+        desired_state_digest: ContentDigest,
+        graph_digest: ContentDigest,
+        provenance_digest: ContentDigest,
     },
     IntendedEffectAbsent {
         observation_digest: ContentDigest,
@@ -855,9 +878,17 @@ pub enum RecoveryResolution {
 impl RecoveryResolution {
     fn canonical_fields(&self, canonical: &mut Vec<u8>) {
         match self {
-            Self::IntendedStateVerified { observation_digest } => {
+            Self::IntendedStateVerified {
+                observation_digest,
+                desired_state_digest,
+                graph_digest,
+                provenance_digest,
+            } => {
                 mutation_field(canonical, b"intended-state-verified");
                 mutation_field(canonical, observation_digest.as_str().as_bytes());
+                mutation_field(canonical, desired_state_digest.as_str().as_bytes());
+                mutation_field(canonical, graph_digest.as_str().as_bytes());
+                mutation_field(canonical, provenance_digest.as_str().as_bytes());
             }
             Self::IntendedEffectAbsent {
                 observation_digest,
@@ -1086,6 +1117,10 @@ pub trait TransactionStore: std::fmt::Debug {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<RecoveryAnchor, TransactionStoreError>;
+    fn verified_commit_material(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> Result<VerifiedCommitMaterial, TransactionStoreError>;
     fn list_state(
         &self,
         state: TransactionState,
