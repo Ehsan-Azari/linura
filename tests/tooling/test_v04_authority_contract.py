@@ -99,10 +99,11 @@ class V04AuthorityContractTests(unittest.TestCase):
 
     def test_adr_describes_keyed_tamper_detection_not_sql_gate(self) -> None:
         text = ADR.read_text(encoding="utf-8")
+        lower = text.lower()
         self.assertNotIn("linura_internal_mutation_gate", text)
-        self.assertIn("raw SQLite writes can physically alter", text)
-        self.assertIn("record-integrity", text)
-        self.assertIn("whole-database", text)
+        self.assertIn("raw sqlite writes can physically alter", lower)
+        self.assertIn("record-integrity", lower)
+        self.assertIn("coherent rollback", lower)
 
 
 if __name__ == "__main__":
