@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "0001-v04-hardened-authority-transactions",
+  "introduced_in": "0.4.0",
+  "scope": "system",
+  "reversible": false,
+  "requires_snapshot": false,
+  "preconditions": [
+    "sqlite.application_id == 0",
+    "sqlite.user_version == 0",
+    "sqlite_schema contains no non-SQLite application objects",
+    "transaction authority verifier fingerprint and SQLite record-integrity fingerprint are provisioned"
+  ],
+  "verification": {
+    "ledger": "schema_migrations",
+    "ledger_id": "0001-v04-hardened-authority-transactions",
+    "checksum_domain": "linura.sqlite.migration.v1"
+  }
+}

@@ -94,6 +94,26 @@ CREATE TABLE audit_reservations (
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE RESTRICT
 ) STRICT;
 
+CREATE TRIGGER audit_reservations_filesystem_reserve
+BEFORE INSERT ON audit_reservations
+BEGIN
+    SELECT CASE linura_fs_reserve_slots((SELECT COUNT(*) FROM audit_reservations) + 2)
+        WHEN 1 THEN NULL
+        WHEN 0 THEN RAISE(ABORT, 'filesystem recovery reserve capacity exceeded')
+        ELSE RAISE(ABORT, 'filesystem recovery reserve failure')
+    END;
+END;
+
+CREATE TRIGGER audit_reservations_filesystem_release
+BEFORE DELETE ON audit_reservations
+BEGIN
+    SELECT CASE linura_fs_release_slots((SELECT COUNT(*) FROM audit_reservations))
+        WHEN 1 THEN NULL
+        WHEN 0 THEN RAISE(ABORT, 'filesystem recovery reserve capacity exceeded')
+        ELSE RAISE(ABORT, 'filesystem recovery reserve failure')
+    END;
+END;
+
 CREATE TRIGGER transactions_no_conflicting_insert
 BEFORE INSERT ON transactions
 WHEN EXISTS (
