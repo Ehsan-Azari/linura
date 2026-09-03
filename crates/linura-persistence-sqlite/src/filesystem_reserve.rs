@@ -202,8 +202,42 @@ pub(crate) fn validate_filesystem_reserve(
     page_size: u64,
     reservation_rows: u64,
 ) -> Result<(), TransactionStoreError> {
-    RecoveryReserve::from_connection(connection, page_size)?
-        .validate_and_reconcile(reservation_rows)
+    // Reservation rows and the same-filesystem sidecar form one availability
+    // invariant. Reconciliation may shrink the sidecar, so it must serialize
+    // with every SQLite writer that can add/remove `audit_reservations` rows.
+    // The caller's count is retained as a race detector: if another writer
+    // committed after the outer integrity scan, fail closed without touching
+    // the reserve and let a fresh validation retry from a coherent snapshot.
+    connection.execute_batch("BEGIN IMMEDIATE").map_err(sqlite_store)?;
+    let result = (|| {
+        let locked_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM audit_reservations", [], |row| row.get(0))
+            .map_err(sqlite_store)?;
+        let locked_rows = u64::try_from(locked_rows).map_err(|_| {
+            TransactionStoreError::Corruption(
+                "negative aggregate physical reservation count under reconciliation lock".into(),
+            )
+        })?;
+        if locked_rows != reservation_rows {
+            return Err(TransactionStoreError::StateConflict);
+        }
+        RecoveryReserve::from_connection(connection, page_size)?
+            .validate_and_reconcile(locked_rows)
+    })();
+
+    match result {
+        Ok(()) => {
+            if let Err(error) = connection.execute_batch("COMMIT") {
+                let _ = connection.execute_batch("ROLLBACK");
+                return Err(sqlite_store(error));
+            }
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
 }
 
 pub(crate) fn reserve_path_for_database(database: &Path) -> PathBuf {
@@ -350,6 +384,51 @@ mod tests {
         reserve
             .validate_and_reconcile(1)
             .unwrap_or_else(|error| unreachable!("{error}"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn stale_prelock_count_cannot_shrink_a_newer_filesystem_reserve() {
+        let database = temporary_database_path();
+        let path = reserve_path_for_database(&database);
+        let _ = fs::remove_file(&database);
+        let _ = fs::remove_file(&path);
+
+        let connection = Connection::open(&database)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute_batch("CREATE TABLE audit_reservations (slot INTEGER NOT NULL);")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute("INSERT INTO audit_reservations(slot) VALUES (0), (1)", [])
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let page_size: i64 = connection
+            .query_row("PRAGMA page_size", [], |row| row.get(0))
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let page_size = u64::try_from(page_size)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let reserve = RecoveryReserve::from_connection(&connection, page_size)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        reserve
+            .ensure_slots(3)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let before = fs::metadata(&path)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len();
+
+        assert!(matches!(
+            validate_filesystem_reserve(&connection, page_size, 1),
+            Err(TransactionStoreError::StateConflict)
+        ));
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            before
+        );
+
+        drop(connection);
+        let _ = fs::remove_file(database);
         let _ = fs::remove_file(path);
     }
 }
