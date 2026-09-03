@@ -9,21 +9,25 @@
 //! keeps physically allocated same-filesystem headroom for terminal recovery
 //! when SQLite/WAL reaches real ENOSPC.
 
+#[rustfmt::skip]
 mod filesystem_reserve;
+#[rustfmt::skip]
 mod integrity;
+#[rustfmt::skip]
 mod schema;
+#[rustfmt::skip]
+#[allow(clippy::too_many_arguments)]
 mod store;
-
-// Record/history decoding remains isolated from connection/schema validation so
-// aggregate schema bounds and external recovery-reserve checks can fail closed
-// before attacker-controlled schema material is accumulated in memory.
+#[rustfmt::skip]
+mod validation;
+#[rustfmt::skip]
 #[allow(dead_code)]
 #[path = "validation_base.rs"]
 mod validation_base;
-mod validation;
 
 pub use integrity::SqliteIntegrityKey;
 pub use store::{SqliteSettings, SqliteTransactionStore, StoreLimits};
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod tests;

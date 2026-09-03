@@ -27,17 +27,10 @@ fn binding(namespace: &str) -> Result<AuthorityBinding, String> {
         PrincipalId::new("uid:1000").map_err(|error| error.to_string())?,
         RequestId::new(format!("request:v04-enospc:{namespace}"))
             .map_err(|error| error.to_string())?,
-        PlanId::new(format!("plan:v04-enospc:{namespace}"))
-            .map_err(|error| error.to_string())?,
+        PlanId::new(format!("plan:v04-enospc:{namespace}")).map_err(|error| error.to_string())?,
         digest_bytes("v04-enospc", format!("request:{namespace}").as_bytes()),
-        digest_bytes(
-            "v04-enospc",
-            format!("precondition:{namespace}").as_bytes(),
-        ),
-        digest_bytes(
-            "v04-enospc",
-            format!("observation:{namespace}").as_bytes(),
-        ),
+        digest_bytes("v04-enospc", format!("precondition:{namespace}").as_bytes()),
+        digest_bytes("v04-enospc", format!("observation:{namespace}").as_bytes()),
         ProviderId::new("systemd").map_err(|error| error.to_string())?,
         ResourceId::new(format!("systemd:unit:{namespace}.service"))
             .map_err(|error| error.to_string())?,
@@ -66,7 +59,9 @@ fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
     let snapshot = prepared(store.prepare(&binding).map_err(|error| error.to_string())?);
     if snapshot.state != TransactionState::Prepared || snapshot.binding_digest != *binding.digest()
     {
-        return Err(format!("prepare did not persist exact Prepared state: {snapshot:?}"));
+        return Err(format!(
+            "prepare did not persist exact Prepared state: {snapshot:?}"
+        ));
     }
     store.integrity_check().map_err(|error| error.to_string())?;
     println!(
@@ -145,8 +140,7 @@ fn main() {
             inspect_aborted(Path::new(database), namespace)
         }
         _ => Err(
-            "usage: v04_enospc_probe <prepare|abort|inspect-aborted> <database> <namespace>"
-                .into(),
+            "usage: v04_enospc_probe <prepare|abort|inspect-aborted> <database> <namespace>".into(),
         ),
     };
     if let Err(error) = result {

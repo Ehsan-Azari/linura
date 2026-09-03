@@ -68,8 +68,7 @@ fn binding() -> AuthorityBinding {
             .unwrap_or_else(|error| unreachable!("{error}")),
         CapabilityId::new("systemd.unit.observe").unwrap_or_else(|error| unreachable!("{error}")),
         PolicyId::new("policy:baseline").unwrap_or_else(|error| unreachable!("{error}")),
-        PolicyRevisionId::new("policy:baseline:v1")
-            .unwrap_or_else(|error| unreachable!("{error}")),
+        PolicyRevisionId::new("policy:baseline:v1").unwrap_or_else(|error| unreachable!("{error}")),
         RiskClass::SecuritySensitive,
         "risk-policy:v0.4:1",
         vec!["release-blocker-regression".into()],
