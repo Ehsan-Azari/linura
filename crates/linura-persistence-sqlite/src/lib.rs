@@ -20,7 +20,6 @@ mod store;
 #[allow(dead_code)]
 #[path = "validation_base.rs"]
 mod validation_base;
-#[path = "validation_hardened.rs"]
 mod validation;
 
 pub use integrity::SqliteIntegrityKey;

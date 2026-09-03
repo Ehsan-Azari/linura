@@ -58,8 +58,7 @@ fn verifier() -> linura_transaction::TransactionAuthorityVerifier {
 fn binding() -> AuthorityBinding {
     AuthorityBinding::try_new(
         PrincipalId::new("uid:1000").unwrap_or_else(|error| unreachable!("{error}")),
-        RequestId::new("request:release-blockers")
-            .unwrap_or_else(|error| unreachable!("{error}")),
+        RequestId::new("request:release-blockers").unwrap_or_else(|error| unreachable!("{error}")),
         PlanId::new("plan:release-blockers").unwrap_or_else(|error| unreachable!("{error}")),
         digest_bytes("test", b"request"),
         digest_bytes("test", b"precondition"),
@@ -67,8 +66,7 @@ fn binding() -> AuthorityBinding {
         ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}")),
         ResourceId::new("systemd:unit:test.service")
             .unwrap_or_else(|error| unreachable!("{error}")),
-        CapabilityId::new("systemd.unit.observe")
-            .unwrap_or_else(|error| unreachable!("{error}")),
+        CapabilityId::new("systemd.unit.observe").unwrap_or_else(|error| unreachable!("{error}")),
         PolicyId::new("policy:baseline").unwrap_or_else(|error| unreachable!("{error}")),
         PolicyRevisionId::new("policy:baseline:v1")
             .unwrap_or_else(|error| unreachable!("{error}")),
@@ -138,8 +136,10 @@ fn aggregate_schema_fingerprint_input_is_bounded_before_materialization() {
 
     let raw = Connection::open(&db.path).unwrap_or_else(|error| unreachable!("{error}"));
     for index in 0..300_u64 {
-        raw.execute_batch(&format!("CREATE TABLE extra_{index} (value INTEGER) STRICT;"))
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        raw.execute_batch(&format!(
+            "CREATE TABLE extra_{index} (value INTEGER) STRICT;"
+        ))
+        .unwrap_or_else(|error| unreachable!("{error}"));
     }
     drop(raw);
 
