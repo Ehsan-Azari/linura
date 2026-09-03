@@ -21,7 +21,7 @@ The trusted composition root provisions one 256-bit durable mutation authority k
 
 The root key and signer are not persisted in SQLite. The database stores only a domain-separated verifier fingerprint and immutably pins that identity when the authority store is initialized. Reopening the same authority database with a different verifier fails closed.
 
-All in-process root/signer/verifier secret holders are non-`Clone`, redact `Debug`, and explicitly zeroize their 256-bit key material on drop using the `zeroize` primitive rather than relying on an ordinary compiler-optimizable fill. Rejected owned key buffers are zeroized before validation errors return.
+All in-process root/signer/verifier secret holders are non-`Clone`, redact `Debug`, and explicitly zeroize their 256-bit key material on drop using non-elidable secret-memory writes. Rejected owned key buffers are scrubbed before validation errors return.
 
 Production composition must therefore provision the same protected authority key across supported process restarts. Test fixtures may use deterministic keys only inside qualification code.
 
@@ -49,13 +49,15 @@ Handoff and recovery envelopes carry signer-authenticated `authorized_at_unix_ms
 
 The no-effect/reprepare path continues to perform complete current authority re-establishment, including observation freshness, policy, risk provenance, and approval validation, before appending generation N+1.
 
-### 5. Capacity is a recoverability invariant, not only a row-count limit
+### 5. Capacity is a recoverability invariant, including real filesystem capacity
 
 Store limits are recovery invariants. `integrity_check` validates aggregate row counts for transactions, generations, and audit events against configured `StoreLimits` whenever the authority database is opened.
 
-In addition, the store reserves at least one future audit slot for every current nonterminal transaction (`Prepared`, `Indeterminate`, or `Verified`). Admission for each transition accounts for the audit events consumed by that transition and the resulting number of nonterminal transactions. A successful write therefore cannot strand another live transaction by consuming its only safe retirement/recovery/commit audit slot.
+The store also reserves at least one future logical audit slot and one preallocated SQLite page-reservation record for every current nonterminal transaction (`Prepared`, `Indeterminate`, or `Verified`). Admission accounts for events consumed by the transition and the resulting set of nonterminal transactions.
 
-The same aggregate audit-reserve invariant is checked on reopen so an existing database that violates the configured recoverability reserve fails closed.
+SQLite page availability is not treated as equivalent to backing-filesystem availability. A separate same-directory recovery-reserve sidecar is physically written and `fsync`ed on the same filesystem as the authority database. The sidecar retains emergency WAL/filesystem headroom in addition to the in-database `audit_reservations`. Store-owned reservation changes reconcile that sidecar conservatively: failed database writes may leave excess reserved bytes, but must not leave less than the recoverability invariant. Terminal retirement consumes already reserved headroom before the corresponding SQLite/WAL write can require new filesystem blocks; nonterminal advancement must first retain the required future reserve.
+
+A permanent disposable-VM qualification mounts the authority database on a dedicated ext4 filesystem, drives that filesystem to genuine `ENOSPC`, starts a new process, retires a durable `Prepared` transaction to `Aborted`, then unmounts/remounts the same filesystem and verifies the terminal record. `PRAGMA max_page_count` tests remain useful but are not represented as evidence for real filesystem exhaustion.
 
 ### 6. Retained history is immutable independently of caller PRAGMAs
 
@@ -65,11 +67,15 @@ The canonical schema includes `BEFORE INSERT` conflict guards for transaction id
 
 The schema also keeps fail-closed update/delete guards for immutable authority, migration, audit, and committed provenance material. Live `sqlite_schema` fingerprint validation covers the complete guard set.
 
-### 7. Raw SQLite connections cannot advance the authority state machine
+### 7. Raw SQLite mutation is detected cryptographically and fails closed
 
-The SQLite adapter registers a connection-local, non-exported mutation-gate SQL function backed by an in-process capability. Canonical schema triggers require that gate for authority-table inserts and for state/pointer updates. The adapter enables it only within its own RAII-guarded write paths and resets it on scope exit.
+The SQLite adapter does **not** rely on a connection-local SQL function name as an unforgeable mutation capability. Independently opened writers can physically alter SQLite bytes if operating-system permissions allow them to write the database.
 
-An independently opened SQLite connection does not possess that registered capability. Direct attempts to insert authority history, rewrite transaction pointers, or advance generation state therefore fail before mutation. This storage-level gate complements, rather than replaces, the cryptographic HMAC contract: handoff, recovery, and commit still require signer-authenticated requests, while prepare and fail-closed abort remain mechanically constrained store operations.
+Instead, a separately provisioned `SqliteIntegrityKey` authenticates every trusted transaction, generation, and audit record with domain-separated keyed tags. SQLite stores only the integrity-key fingerprint. The integrity key is distinct from Control's mutation signer: it authenticates durable storage facts and cannot mint `HandoffRequest`, `RecoveryRequest`, `CommitRequest`, or a `DispatchPermit`.
+
+Raw SQLite writes can physically alter a row, but a writer that does not possess the record-integrity key cannot produce a trusted replacement tag. Current-row loads, audit extension, reopen validation, and `integrity_check` authenticate retained records and fail closed on mismatches. Structural schema guards remain defense in depth for accidental or unsophisticated mutation; they are not represented as the cryptographic trust boundary.
+
+This keyed-record design does not solve coherent rollback of the entire database/filesystem/VM to an older previously valid snapshot. Detecting that class of rollback requires a future independently protected monotonic anchor or restore protocol and remains outside the supported v0.4 threat boundary.
 
 ### 8. Verified commit material is durable and restart-resumable
 
@@ -79,11 +85,17 @@ A subsequent `CommitRequest` must match the same verified snapshot and those exa
 
 After restart or a retryable persistence failure, Control may reconstruct a process-local `VerifiedDurableAuthority` only by loading `VerifiedCommitMaterial` from the current durable `Verified` generation and matching the current authenticated principal. This resumes the already-verified commit capability without reconstructing approval, policy, handoff, dispatch, or executor authority and without recomputing a different provenance chain.
 
-### 9. Persisted authority bindings are bounded before materialization
+### 9. Persisted authority data is bounded before materialization
 
-The canonical generation schema enforces the domain maximum for `binding_canonical`. Reopen-time integrity validation also queries `length(binding_canonical)` first and conditionally materializes the BLOB only when it is within `MAX_AUTHORITY_BINDING_BYTES`.
+The canonical generation schema enforces the domain maximum for `binding_canonical`. Reopen-time integrity validation queries `length(binding_canonical)` first and conditionally materializes the BLOB only when it is within `MAX_AUTHORITY_BINDING_BYTES`. Audit text and digest fields receive the same schema/query preflight treatment.
 
-A legacy, tampered, or otherwise malformed oversized binding therefore fails closed with a typed corruption/capacity error without first allocating the attacker-controlled BLOB into process memory.
+Live-schema validation additionally bounds both individual schema fields and the aggregate number/encoded byte size of schema objects before accumulating their canonical fingerprint input. A legacy, tampered, or otherwise malformed database therefore fails closed with a typed corruption/schema error rather than allocating attacker-controlled persistence input up to the database size.
+
+### 10. The authority-store schema is a repository-visible migration
+
+The durable SQLite format is not defined only by an embedded Rust string. Migration `0001-v04-hardened-authority-transactions` has a versioned descriptor under `migrations/system/`.
+
+Its explicit preconditions require a fresh SQLite identity (`application_id == 0`, `user_version == 0`), no non-SQLite application schema objects, and provisioned verifier/integrity identities. Application remains idempotent through the SQLite identity checks. Before the migration is considered installed, the adapter verifies the live canonical schema and the `schema_migrations` ledger entry whose checksum is domain-separated as `linura.sqlite.migration.v1`. A precondition or verification mismatch fails closed; released migration IDs are never reused.
 
 ## Security assessment
 
@@ -92,14 +104,16 @@ Required negative proofs for this boundary include:
 - a handoff request sealed by the wrong signer is rejected without changing the transaction snapshot or audit count;
 - a recovery request sealed by the wrong signer is rejected without changing the transaction snapshot or audit count;
 - a commit request must match signer-bound durable verified commit material;
-- an existing authority database rejects a different verifier on reopen;
+- an existing authority database rejects a different verifier or record-integrity key on reopen;
 - handoff rejects a current authenticated principal that does not equal the prepared candidate, canonical binding, and durable snapshot principal;
 - terminal recovery cannot consume an observation or approval that has expired by the final serialized mutation point;
-- reopening an existing database fails closed when aggregate transaction, generation, audit, or nonterminal audit-reserve limits are violated;
-- a raw SQLite connection with default PRAGMAs cannot use replacement inserts to rewrite retained authority/audit/migration/verifier history;
-- a raw SQLite connection cannot directly advance `generations.state` or transaction pointer/version state;
-- oversized persisted authority-binding BLOBs are rejected before Rust materializes them;
+- reopening an existing database fails closed when aggregate transaction, generation, audit, schema-fingerprint, or nonterminal reserve limits are violated;
+- a raw SQLite connection with default PRAGMAs cannot replace retained authority history without subsequent keyed validation detecting the mutation;
+- a writer without `SqliteIntegrityKey` cannot create a trusted current generation or audit tail merely by making rows self-consistent;
+- oversized persisted binding/audit/schema inputs are rejected before unbounded Rust materialization;
 - a durable `Verified` generation can be resumed after restart using exactly its persisted signer-bound commit material;
+- a real ext4 `ENOSPC` condition still permits the qualified terminal retirement path using physically reserved same-filesystem headroom;
+- migration discovery can identify the durable authority-store format and independently verify its ID/preconditions/ledger contract;
 - none of these mechanisms creates executor, Polkit, or external Linux mutation authority in v0.4.
 
 ## Consequences
@@ -108,7 +122,7 @@ Required negative proofs for this boundary include:
 - Control remains the policy/approval/observation authority owner while SQLite remains a mechanical durable verifier and state machine.
 - Restart requires explicit protected-key provisioning rather than silently changing the authority identity of an existing database.
 - Restart after durable verification does not lose the exact commit evidence chain or require recomputation.
-- Retained-history and state-transition defenses do not rely on external SQLite callers sharing adapter PRAGMA settings.
-- Capacity admission preserves a durable escape path for every live nonterminal authority transaction.
-- Review findings about direct handoff/recovery/commit bypasses, raw-SQL state advancement, replacement semantics, restart resumability, oversized persistence input, and audit-capacity stranding are closed by contract rather than convention or call-site discipline.
-- ADR 0019 remains the primary durable-transaction design; this ADR is the authoritative refinement for sealed mutations, current-principal binding, serialized freshness, verifier identity, immutable storage, durable verified resume, bounded persistence input, and recoverability capacity.
+- Raw database write permission is not confused with trusted authority-state authorship; keyed record authentication detects unauthorized durable-state fabrication.
+- Logical audit capacity, SQLite page capacity, and real filesystem/WAL headroom are distinct invariants and are qualified independently.
+- The authority schema is registered in the repository migration catalog instead of existing only inside adapter source.
+- ADR 0019 remains the primary durable-transaction design; this ADR is the authoritative refinement for sealed mutations, current-principal binding, serialized freshness, verifier/integrity identity, immutable authenticated storage, durable verified resume, bounded persistence input, migration registration, and recoverability capacity.

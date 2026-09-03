@@ -1,0 +1,232 @@
+name: v0.4 filesystem ENOSPC recovery qualification
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v04-enospc-recovery-vm.yml"
+      - "crates/linura-persistence-sqlite/**"
+      - "crates/linura-transaction/**"
+      - "tools/vm.py"
+      - "tools/codex/versions.env"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_IMAGE_URL: https://cloud-images.ubuntu.com/releases/noble/release-20260725/ubuntu-24.04-server-cloudimg-amd64.img
+  BASE_IMAGE_SHA256: d1940f7d69d343355e183dff1e08a59852d32e7309baa7a4bad8365b11b005ac
+  VM_ACCELERATION: tcg
+
+jobs:
+  enospc:
+    name: exact-source real ext4 ENOSPC recovery qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact source and load toolchain contract
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Build exact-source ENOSPC probe
+        run: cargo build --release --locked -p linura-persistence-sqlite --example v04_enospc_probe
+
+      - name: Install disposable VM harness dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cloud-image-utils openssh-client qemu-system-x86 qemu-utils
+
+      - name: Download and verify pinned Ubuntu cloud image
+        run: |
+          set -euo pipefail
+          case "$BASE_IMAGE_URL" in
+            https://cloud-images.ubuntu.com/*) ;;
+            *) echo "base image must come from the pinned Ubuntu cloud-image origin" >&2; exit 2 ;;
+          esac
+          base_image="$RUNNER_TEMP/ubuntu-noble-enospc-base.qcow2"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$base_image" "$BASE_IMAGE_URL"
+          printf '%s  %s\n' "$BASE_IMAGE_SHA256" "$base_image" | sha256sum --check --strict
+          printf 'BASE_IMAGE=%s\n' "$base_image" >> "$GITHUB_ENV"
+
+      - name: Create persistent disposable guest
+        run: |
+          set -euo pipefail
+          vm_image="$RUNNER_TEMP/linura-v04-enospc.qcow2"
+          seed_image="$RUNNER_TEMP/linura-v04-enospc-seed.img"
+          ssh_key="$RUNNER_TEMP/linura-v04-enospc-key"
+          artifact_dir="$RUNNER_TEMP/linura-v04-enospc-artifacts"
+          user_data="$RUNNER_TEMP/v04-enospc-user-data"
+          meta_data="$RUNNER_TEMP/v04-enospc-meta-data"
+          network_config="$RUNNER_TEMP/v04-enospc-network-config"
+
+          cp --reflink=auto "$BASE_IMAGE" "$vm_image"
+          ssh-keygen -q -t ed25519 -N '' -f "$ssh_key"
+          public_key="$(cat "$ssh_key.pub")"
+          cat > "$user_data" <<EOF
+          #cloud-config
+          users:
+            - default
+            - name: linura
+              groups: [adm, sudo]
+              shell: /bin/bash
+              sudo:
+                - ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $public_key
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          EOF
+          cat > "$meta_data" <<EOF
+          instance-id: linura-v04-enospc-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          local-hostname: linura-v04-enospc
+          EOF
+          cat > "$network_config" <<'EOF'
+          version: 2
+          ethernets:
+            primary:
+              match:
+                name: "en*"
+              dhcp4: true
+          EOF
+          cloud-localds --network-config="$network_config" "$seed_image" "$user_data" "$meta_data"
+          mkdir -p "$artifact_dir"
+          {
+            printf 'VM_IMAGE=%s\n' "$vm_image"
+            printf 'SEED_IMAGE=%s\n' "$seed_image"
+            printf 'SSH_KEY=%s\n' "$ssh_key"
+            printf 'ARTIFACT_DIR=%s\n' "$artifact_dir"
+          } >> "$GITHUB_ENV"
+
+      - name: Start guest and install probe
+        run: |
+          set -euo pipefail
+          python3 tools/vm.py start --persistent --image "$VM_IMAGE" --seed "$SEED_IMAGE" --ssh-port 2234 --accel "$VM_ACCELERATION" >"$ARTIFACT_DIR/qemu.log" 2>&1 &
+          printf 'VM_PID=%s\n' "$!" >> "$GITHUB_ENV"
+          ssh_common=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+          ready=0
+          for _ in $(seq 1 120); do
+            if ! kill -0 "$!" 2>/dev/null; then
+              cat "$ARTIFACT_DIR/qemu.log" >&2
+              exit 1
+            fi
+            if ssh "${ssh_common[@]}" -p 2234 linura@127.0.0.1 true >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          ssh "${ssh_common[@]}" -p 2234 linura@127.0.0.1 'cloud-init status --wait --long'
+          scp "${ssh_common[@]}" -P 2234 target/release/examples/v04_enospc_probe linura@127.0.0.1:/tmp/linura-v04-enospc-probe
+          ssh "${ssh_common[@]}" -p 2234 linura@127.0.0.1 'sudo -n install -o root -g root -m 0755 /tmp/linura-v04-enospc-probe /usr/local/bin/linura-v04-enospc-probe'
+
+      - name: Qualify Prepared retirement after real ext4 ENOSPC and reopen
+        run: |
+          set -euo pipefail
+          ssh_common=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+          ssh "${ssh_common[@]}" -p 2234 linura@127.0.0.1 'bash -se' <<'GUEST'
+          set -euo pipefail
+          image=/var/lib/linura-v04-enospc.ext4
+          mountpoint=/mnt/linura-v04-enospc
+          db="$mountpoint/authority.db"
+          reserve="$db.linura-recovery-reserve"
+          namespace=real-ext4-enospc
+
+          sudo -n rm -f "$image"
+          sudo -n truncate -s 128M "$image"
+          sudo -n mkfs.ext4 -q -F -m 0 -E lazy_itable_init=0,lazy_journal_init=0 "$image"
+          sudo -n mkdir -p "$mountpoint"
+          sudo -n mount -o loop "$image" "$mountpoint"
+          sudo -n chown linura:linura "$mountpoint"
+          trap 'sudo -n umount "$mountpoint" 2>/dev/null || true' EXIT
+
+          linura-v04-enospc-probe prepare "$db" "$namespace"
+          test -f "$reserve"
+          logical="$(stat -c %s "$reserve")"
+          allocated="$(( $(stat -c %b "$reserve") * 512 ))"
+          test "$logical" -ge 524288
+          test "$allocated" -ge "$logical"
+          test -e "$db-wal"
+          sync
+
+          set +e
+          dd if=/dev/zero of="$mountpoint/filler" bs=1M conv=fsync status=none
+          fill_rc=$?
+          set -e
+          test "$fill_rc" -ne 0
+          available="$(df --output=avail -B1 "$mountpoint" | tail -n 1 | tr -d ' ')"
+          test "$available" -lt 262144
+
+          # This is a new process/open while the backing ext4 filesystem is
+          # genuinely exhausted. The terminal transition must consume the
+          # externally preallocated emergency slot before SQLite appends WAL.
+          linura-v04-enospc-probe abort "$db" "$namespace"
+          linura-v04-enospc-probe inspect-aborted "$db" "$namespace"
+
+          # Prove the terminal record survives an actual filesystem detach and
+          # remount without deleting the filler or manufacturing new headroom.
+          sudo -n umount "$mountpoint"
+          sudo -n mount -o loop "$image" "$mountpoint"
+          sudo -n chown linura:linura "$mountpoint"
+          linura-v04-enospc-probe inspect-aborted "$db" "$namespace"
+          df -B1 "$mountpoint"
+          stat -c 'reserve logical=%s blocks=%b block_bytes=%B' "$reserve"
+          GUEST
+
+      - name: Record exact-source ENOSPC evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          cat > "$ARTIFACT_DIR/evidence.json" <<EOF
+          {
+            "schema_version": 1,
+            "repository": "$GITHUB_REPOSITORY",
+            "source_sha": "$SOURCE_SHA",
+            "qualification": "real ext4 ENOSPC Prepared-to-Aborted recovery",
+            "filesystem": "loop-mounted ext4 with zero reserved-block percentage",
+            "reserve": "same-filesystem physically allocated sidecar",
+            "restart": "new process open plus ext4 unmount/remount",
+            "result": "${{ job.status }}"
+          }
+          EOF
+          cat "$ARTIFACT_DIR/evidence.json"
+
+      - name: Stop disposable guest
+        if: always()
+        run: |
+          if [[ -n "${VM_PID:-}" ]]; then
+            kill "$VM_PID" 2>/dev/null || true
+            wait "$VM_PID" 2>/dev/null || true
+          fi
+
+      - name: Upload ENOSPC qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: v04-enospc-${{ env.SOURCE_SHA }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: error

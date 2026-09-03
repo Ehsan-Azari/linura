@@ -1,7 +1,11 @@
 use std::fmt::{Debug, Formatter};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use linura_transaction::{ContentDigest, TransactionStoreError, digest_bytes};
 use sha2::{Digest, Sha256};
+
+#[cfg(not(target_has_atomic = "8"))]
+compile_error!("linura-persistence-sqlite requires atomic 8-bit stores for non-elidable secret scrubbing");
 
 pub(crate) const INTEGRITY_KEY_BYTES: usize = 32;
 pub(crate) const INTEGRITY_TAG_BYTES: usize = 32;
@@ -27,16 +31,13 @@ impl Debug for SqliteIntegrityKey {
 
 impl Drop for SqliteIntegrityKey {
     fn drop(&mut self) {
-        self.bytes.fill(0);
+        scrub_secret(&mut self.bytes);
     }
 }
 
 impl SqliteIntegrityKey {
     pub fn new(mut bytes: Vec<u8>) -> Result<Self, TransactionStoreError> {
-        if bytes.len() != INTEGRITY_KEY_BYTES || bytes.iter().all(|byte| *byte == 0) {
-            bytes.fill(0);
-            return Err(TransactionStoreError::AuthorityRejected);
-        }
+        validate_integrity_key_bytes(&mut bytes)?;
         Ok(Self { bytes })
     }
 
@@ -68,10 +69,29 @@ impl SqliteIntegrityKey {
         if tag.len() != INTEGRITY_TAG_BYTES {
             return false;
         }
-        let Ok(expected) = self.tag(record_domain, canonical) else {
+        let Ok(mut expected) = self.tag(record_domain, canonical) else {
             return false;
         };
-        constant_time_eq(&expected, tag)
+        let matches = constant_time_eq(&expected, tag);
+        scrub_secret(&mut expected);
+        matches
+    }
+}
+
+fn validate_integrity_key_bytes(bytes: &mut [u8]) -> Result<(), TransactionStoreError> {
+    if bytes.len() != INTEGRITY_KEY_BYTES || bytes.iter().all(|byte| *byte == 0) {
+        scrub_secret(bytes);
+        return Err(TransactionStoreError::AuthorityRejected);
+    }
+    Ok(())
+}
+
+/// Overwrite secret-bearing storage through atomic stores so the writes remain
+/// observable to the compiler and cannot be removed as dead stores before the
+/// allocation is released.
+fn scrub_secret(bytes: &mut [u8]) {
+    for byte in bytes {
+        AtomicU8::from_mut(byte).store(0, Ordering::SeqCst);
     }
 }
 
@@ -109,9 +129,9 @@ fn hmac_sha256<'a>(
 
     let mut tag = [0_u8; INTEGRITY_TAG_BYTES];
     tag.copy_from_slice(&digest);
-    key_block.fill(0);
-    inner_pad.fill(0);
-    outer_pad.fill(0);
+    scrub_secret(&mut key_block);
+    scrub_secret(&mut inner_pad);
+    scrub_secret(&mut outer_pad);
     tag
 }
 
@@ -135,5 +155,20 @@ pub(crate) fn canonical_optional(buffer: &mut Vec<u8>, value: Option<&str>) {
             canonical_field(buffer, value.as_bytes());
         }
         None => canonical_field(buffer, &[0]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejected_integrity_key_material_is_scrubbed_before_error_returns() {
+        let mut rejected = vec![0x5a; INTEGRITY_KEY_BYTES - 1];
+        assert_eq!(
+            validate_integrity_key_bytes(&mut rejected),
+            Err(TransactionStoreError::AuthorityRejected)
+        );
+        assert!(rejected.iter().all(|byte| *byte == 0));
     }
 }

@@ -3,13 +3,14 @@
 //! Hardened SQLite/WAL persistence for Linura durable authority transactions.
 //!
 //! The database is treated as untrusted persistence input. Control-signed
-//! handoff/recovery/commit requests still authorize semantic transitions, while
-//! a separate record-integrity key authenticates the durable SQLite rows
-//! themselves. A process that can issue arbitrary SQL against the database
-//! therefore cannot forge a trusted transaction state, generation, or audit
-//! record merely by reproducing schema objects or application-defined SQLite
-//! functions.
+//! handoff/recovery/commit requests authorize semantic transitions, while a
+//! separate record-integrity key authenticates durable SQLite records. The
+//! filesystem recovery reserve is an independent availability invariant: it
+//! keeps physically allocated same-filesystem headroom for terminal recovery
+//! when SQLite/WAL reaches real ENOSPC.
 
+#[rustfmt::skip]
+mod filesystem_reserve;
 #[rustfmt::skip]
 mod integrity;
 #[rustfmt::skip]
@@ -19,6 +20,10 @@ mod schema;
 mod store;
 #[rustfmt::skip]
 mod validation;
+#[rustfmt::skip]
+#[allow(dead_code)]
+#[path = "validation_base.rs"]
+mod validation_base;
 
 pub use integrity::SqliteIntegrityKey;
 pub use store::{SqliteSettings, SqliteTransactionStore, StoreLimits};
