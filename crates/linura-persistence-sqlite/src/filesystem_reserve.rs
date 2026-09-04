@@ -6,7 +6,10 @@ use linura_transaction::TransactionStoreError;
 use rusqlite::functions::FunctionFlags;
 use rusqlite::Connection;
 
-const MIN_RECOVERY_RESERVE_SLOT_BYTES: u64 = 256 * 1024;
+// Keep one full MiB of physically allocated emergency headroom per slot even
+// on 4 KiB SQLite pages. Real ext4 ENOSPC qualification showed that 256 KiB
+// can be consumed by the terminal WAL plus filesystem-metadata durability path.
+const MIN_RECOVERY_RESERVE_SLOT_BYTES: u64 = 1024 * 1024;
 const RECOVERY_RESERVE_WAL_PAGES: u64 = 32;
 const RESERVE_WRITE_CHUNK_BYTES: usize = 64 * 1024;
 
