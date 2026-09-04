@@ -411,7 +411,7 @@ mod tests {
         );
 
         let undersized = 64 * 1024 + 32 * 1024;
-        fs::OpenOptions::new()
+        OpenOptions::new()
             .write(true)
             .open(&path)
             .and_then(|file| file.set_len(undersized))
