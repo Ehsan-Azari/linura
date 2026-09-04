@@ -143,21 +143,24 @@ impl RecoveryReserve {
         let current_slots = current / self.slot_bytes;
         drop(file);
 
-        if reservation_rows == 0 && current_slots == 0 {
-            return self.ensure_slots(1).map_err(io_store);
-        }
         if current_slots > expected_slots {
             return self.release_to_slots(expected_slots).map_err(io_store);
         }
-        if current_slots == expected_slots
-            || (reservation_rows > 0 && current_slots.checked_add(1) == Some(expected_slots))
-        {
+        if current_slots == expected_slots {
             let file = self.open_locked().map_err(io_store)?;
-            verify_physical_allocation(&file, current).map_err(io_store)?;
+            verify_physical_allocation(&file, expected_len).map_err(io_store)?;
             return Ok(());
         }
+        if current_slots.checked_add(1) == Some(expected_slots) {
+            // A terminal transition releases exactly one filesystem slot before
+            // its SQLite reservation delete and audit write are durably committed.
+            // If SQLite rolls back, that one durable reservation row is restored
+            // while the nontransactional sidecar truncation cannot be. Only this
+            // exact one-slot deficit is therefore provable rollback residue.
+            return self.ensure_slots(expected_slots).map_err(io_store);
+        }
         Err(TransactionStoreError::Corruption(
-            "filesystem recovery reserve disagrees with durable audit reservations".into(),
+            "filesystem recovery reserve deficit exceeds the single provable rollback slot".into(),
         ))
     }
 
@@ -526,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn one_slot_deficit_is_only_a_live_recovery_state() {
+    fn rolled_back_release_restores_the_emergency_slot_before_acceptance() {
         let database = temporary_database_path();
         let reserve = direct_reserve(&database);
         let path = reserve.path.clone();
@@ -537,9 +540,55 @@ mod tests {
         reserve
             .release_to_slots(1)
             .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            64 * 1024
+        );
         reserve
             .validate_and_reconcile(1)
             .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(
+            fs::metadata(&path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            2 * 64 * 1024
+        );
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(database);
+    }
+
+    #[test]
+    fn multi_slot_reserve_deficits_fail_closed() {
+        let database = temporary_database_path();
+        let reserve = direct_reserve(&database);
+        let path = reserve.path.clone();
+        let _ = fs::remove_file(&path);
+
+        reserve
+            .ensure_slots(3)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        reserve
+            .release_to_slots(1)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            reserve.validate_and_reconcile(2),
+            Err(TransactionStoreError::Corruption(reason))
+                if reason.contains("deficit exceeds the single provable rollback slot")
+        ));
+
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_len(0))
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert!(matches!(
+            reserve.validate_and_reconcile(1),
+            Err(TransactionStoreError::Corruption(reason))
+                if reason.contains("deficit exceeds the single provable rollback slot")
+        ));
+
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(database);
     }
