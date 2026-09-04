@@ -1,6 +1,7 @@
 name: v0.4 filesystem ENOSPC recovery qualification
 
 on:
+  workflow_call:
   pull_request:
     paths:
       - ".github/workflows/v04-enospc-recovery-vm.yml"
