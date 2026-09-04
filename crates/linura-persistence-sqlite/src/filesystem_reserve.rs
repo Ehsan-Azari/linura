@@ -1,4 +1,4 @@
-use std::fs::{File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -12,6 +12,7 @@ const RESERVE_WRITE_CHUNK_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug)]
 struct RecoveryReserve {
+    database_path: PathBuf,
     path: PathBuf,
     slot_bytes: u64,
 }
@@ -31,12 +32,14 @@ impl RecoveryReserve {
                 "durable authority storage cannot use a temporary or in-memory database".into(),
             ));
         }
+        let database_path = PathBuf::from(database);
         let slot_bytes = page_size
             .checked_mul(RECOVERY_RESERVE_WAL_PAGES)
             .ok_or(TransactionStoreError::CapacityExceeded)?
             .max(MIN_RECOVERY_RESERVE_SLOT_BYTES);
         Ok(Self {
-            path: reserve_path_for_database(Path::new(database)),
+            path: reserve_path_for_database(&database_path),
+            database_path,
             slot_bytes,
         })
     }
@@ -97,13 +100,23 @@ impl RecoveryReserve {
             .checked_add(1)
             .ok_or(TransactionStoreError::CapacityExceeded)?;
         let expected_len = self.target_len(expected_slots).map_err(io_store)?;
-        if !self.path.exists() {
-            if reservation_rows == 0 {
-                return self.ensure_slots(1).map_err(io_store);
+        match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => {
+                if !metadata.file_type().is_file() {
+                    return Err(TransactionStoreError::Corruption(
+                        "filesystem recovery reserve path is not a regular file".into(),
+                    ));
+                }
             }
-            return Err(TransactionStoreError::Corruption(
-                "filesystem recovery reserve is missing for nonterminal authority state".into(),
-            ));
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if reservation_rows == 0 {
+                    return self.ensure_slots(1).map_err(io_store);
+                }
+                return Err(TransactionStoreError::Corruption(
+                    "filesystem recovery reserve is missing for nonterminal authority state".into(),
+                ));
+            }
+            Err(error) => return Err(io_store(error)),
         }
 
         let file = self.open_locked().map_err(io_store)?;
@@ -149,18 +162,100 @@ impl RecoveryReserve {
     }
 
     fn open_locked(&self) -> io::Result<File> {
-        let existed = self.path.exists();
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&self.path)?;
+        let path_state = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        if let Some(metadata) = &path_state
+            && !metadata.file_type().is_file()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "filesystem recovery reserve path is not a regular file",
+            ));
+        }
+
+        let (file, created) = if path_state.is_some() {
+            (self.open_existing()?, false)
+        } else {
+            match OpenOptions::new()
+                .create_new(true)
+                .read(true)
+                .write(true)
+                .open(&self.path)
+            {
+                Ok(file) => (file, true),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    (self.open_existing()?, false)
+                }
+                Err(error) => return Err(error),
+            }
+        };
         file.lock()?;
-        if !existed {
+        self.verify_locked_file_identity(&file)?;
+        if created {
             sync_parent(&self.path)?;
         }
         Ok(file)
+    }
+
+    fn open_existing(&self) -> io::Result<File> {
+        let metadata = fs::symlink_metadata(&self.path)?;
+        if !metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "filesystem recovery reserve path is not a regular file",
+            ));
+        }
+        OpenOptions::new().read(true).write(true).open(&self.path)
+    }
+
+    fn verify_locked_file_identity(&self, file: &File) -> io::Result<()> {
+        let opened = file.metadata()?;
+        if !opened.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "filesystem recovery reserve descriptor is not a regular file",
+            ));
+        }
+        let path_metadata = fs::symlink_metadata(&self.path)?;
+        if !path_metadata.file_type().is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "filesystem recovery reserve path changed to a non-regular file",
+            ));
+        }
+        let database_metadata = fs::metadata(&self.database_path)?;
+        if !database_metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "authority database path is not a regular file",
+            ));
+        }
+        #[cfg(target_family = "unix")]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if path_metadata.dev() != opened.dev() || path_metadata.ino() != opened.ino() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "filesystem recovery reserve pathname does not identify the locked file",
+                ));
+            }
+            if opened.dev() != database_metadata.dev() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "filesystem recovery reserve is not on the authority database filesystem",
+                ));
+            }
+            if opened.nlink() != 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "filesystem recovery reserve must not have additional hard links",
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn target_len(&self, slots: u64) -> io::Result<u64> {
@@ -325,7 +420,6 @@ fn sqlite_store(error: rusqlite::Error) -> TransactionStoreError {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use super::*;
@@ -340,14 +434,22 @@ mod tests {
         ))
     }
 
+    fn direct_reserve(database: &Path) -> RecoveryReserve {
+        File::create(database)
+            .and_then(|file| file.sync_all())
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        RecoveryReserve {
+            database_path: database.to_path_buf(),
+            path: reserve_path_for_database(database),
+            slot_bytes: 64 * 1024,
+        }
+    }
+
     #[test]
     fn reserve_growth_is_physical_and_release_is_slot_aligned() {
         let database = temporary_database_path();
-        let path = reserve_path_for_database(&database);
-        let reserve = RecoveryReserve {
-            path: path.clone(),
-            slot_bytes: 64 * 1024,
-        };
+        let reserve = direct_reserve(&database);
+        let path = reserve.path.clone();
         let _ = fs::remove_file(&path);
 
         reserve
@@ -369,16 +471,14 @@ mod tests {
             2 * 64 * 1024
         );
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(database);
     }
 
     #[test]
     fn interrupted_unaligned_growth_is_trimmed_only_when_provably_excess() {
         let database = temporary_database_path();
-        let path = reserve_path_for_database(&database);
-        let reserve = RecoveryReserve {
-            path: path.clone(),
-            slot_bytes: 64 * 1024,
-        };
+        let reserve = direct_reserve(&database);
+        let path = reserve.path.clone();
         let _ = fs::remove_file(&path);
         reserve
             .ensure_slots(2)
@@ -422,16 +522,14 @@ mod tests {
                 if reason.contains("does not contain provably excess crash residue")
         ));
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(database);
     }
 
     #[test]
     fn one_slot_deficit_is_only_a_live_recovery_state() {
         let database = temporary_database_path();
-        let path = reserve_path_for_database(&database);
-        let reserve = RecoveryReserve {
-            path: path.clone(),
-            slot_bytes: 64 * 1024,
-        };
+        let reserve = direct_reserve(&database);
+        let path = reserve.path.clone();
         let _ = fs::remove_file(&path);
         reserve
             .ensure_slots(2)
@@ -443,6 +541,42 @@ mod tests {
             .validate_and_reconcile(1)
             .unwrap_or_else(|error| unreachable!("{error}"));
         let _ = fs::remove_file(path);
+        let _ = fs::remove_file(database);
+    }
+
+    #[cfg(target_family = "unix")]
+    #[test]
+    fn symlinked_reserve_is_rejected_without_mutating_target() {
+        use std::os::unix::fs::symlink;
+
+        let database = temporary_database_path();
+        let reserve = direct_reserve(&database);
+        let path = reserve.path.clone();
+        let target = PathBuf::from(format!("{}.reserve-target", database.display()));
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(&target);
+        let sentinel = b"unrelated-target-must-not-change";
+        let mut target_file = File::create(&target)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        target_file
+            .write_all(sentinel)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        target_file
+            .sync_all()
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        drop(target_file);
+        symlink(&target, &path)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        assert!(reserve.ensure_slots(2).is_err());
+        assert_eq!(
+            fs::read(&target).unwrap_or_else(|error| unreachable!("{error}")),
+            sentinel
+        );
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(target);
+        let _ = fs::remove_file(database);
     }
 
     #[test]
