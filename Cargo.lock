@@ -542,7 +542,10 @@ dependencies = [
 name = "linura-executor-systemd"
 version = "0.4.0"
 dependencies = [
+ "blocking",
  "linura-core",
+ "linura-provider-sdk",
+ "zbus",
 ]
 
 [[package]]
@@ -656,6 +659,7 @@ dependencies = [
  "linura-core",
  "linura-observation",
  "linura-protocol",
+ "sha2",
 ]
 
 [[package]]
@@ -701,6 +705,15 @@ name = "linura-update-guard"
 version = "0.4.0"
 dependencies = [
  "linura-update",
+]
+
+[[package]]
+name = "linura-verifier-systemd"
+version = "0.4.0"
+dependencies = [
+ "linura-core",
+ "linura-observation",
+ "linura-provider-sdk",
 ]
 
 [[package]]

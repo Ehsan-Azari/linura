@@ -23,6 +23,8 @@ const SYSTEMD_UNIT: &str = "org.freedesktop.systemd1.Unit";
 const SYSTEMD_PROVIDER: &str = "systemd";
 const SYSTEMD_CAPABILITY: &str = "systemd.unit.observe";
 const SYSTEMD_RESOURCE_PREFIX: &str = "systemd:unit:";
+pub const SYSTEMD_ACTIVE_ENTER_TIMESTAMP_MONOTONIC_ATTRIBUTE: &str =
+    "active_enter_timestamp_monotonic";
 
 const NM_SERVICE: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
@@ -147,11 +149,10 @@ impl Observer for SystemdObserver {
         require_available(&self.health())?;
         let unit_name = Self::unit_name(resource)?;
 
-        // `GetUnit` only resolves units currently resident in systemd's loaded-unit set. Inactive
-        // units can be garbage-collected immediately after they stop even while their unit file is
-        // still installed. `LoadUnit` is therefore the authoritative lookup for an explicitly named
-        // resource: it loads configuration into systemd without starting the unit, after which the
-        // native Unit properties describe the current inactive/failed/active state.
+        // `GetUnit` only resolves units resident in systemd's loaded-unit set. `LoadUnit` is the
+        // authoritative lookup for an explicitly named resource: it loads configuration without
+        // starting the unit and returns the native Unit object whose properties describe current
+        // state.
         let unit_path: OwnedObjectPath = self
             .manager()?
             .call("LoadUnit", &(unit_name,))
@@ -168,6 +169,8 @@ impl Observer for SystemdObserver {
         let active_state: String = snapshot_property(&properties, "ActiveState")?;
         let sub_state: String = snapshot_property(&properties, "SubState")?;
         let fragment_path: String = snapshot_property(&properties, "FragmentPath")?;
+        let active_enter_timestamp_monotonic: u64 =
+            snapshot_property(&properties, "ActiveEnterTimestampMonotonic")?;
 
         Ok(ObservationEnvelope {
             provider: provider_id(SYSTEMD_PROVIDER),
@@ -184,6 +187,10 @@ impl Observer for SystemdObserver {
                 ("active_state".into(), ObservedValue::Text(active_state)),
                 ("sub_state".into(), ObservedValue::Text(sub_state)),
                 ("fragment_path".into(), ObservedValue::Text(fragment_path)),
+                (
+                    SYSTEMD_ACTIVE_ENTER_TIMESTAMP_MONOTONIC_ATTRIBUTE.into(),
+                    ObservedValue::U64(active_enter_timestamp_monotonic),
+                ),
             ]),
         })
     }
@@ -568,6 +575,14 @@ mod tests {
             SystemdObserver::unit_name(&invalid),
             Err(ProviderError::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn systemd_restart_verification_attribute_is_canonical() {
+        assert_eq!(
+            SYSTEMD_ACTIVE_ENTER_TIMESTAMP_MONOTONIC_ATTRIBUTE,
+            "active_enter_timestamp_monotonic"
+        );
     }
 
     #[test]

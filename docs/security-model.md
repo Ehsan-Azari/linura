@@ -63,3 +63,9 @@ Intent, desired state, graph/provenance and audit persistence require migrations
 ## Remote/fleet security
 
 A future fleet gateway is a separate process/service with mutual authentication, explicit enrollment, revocation, replay resistance, scoped device identity, staged rollout and its own threat model. No remote listener is added to `linurad` as a shortcut.
+
+## v0.5 isolated executor and verifier boundary
+
+The v0.5 systemd executor is a qualification-only root service, not a second authority plane. It derives caller identity from the system-bus sender, checks one fixed Polkit action, revalidates the dedicated fixture namespace and exact effect binding, and invokes only systemd's native `RestartUnit` operation. Durable identifiers and digests are correlation/integrity material and never bearer authority.
+
+Executor acknowledgement proves dispatch only. The independent verifier has no D-Bus, native-systemd, executor, Control, policy, transaction, or persistence dependency; it consumes a fresh canonical `ObservationEnvelope` and requires native authority, current freshness, exact resource/capability identity, active state, and an advanced monotonic activation timestamp. Test-only qualification principals and Polkit grants remain under `tests/` and are not production policy. The full managed mutation lifecycle remains unavailable until v0.6 integration.

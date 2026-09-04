@@ -67,3 +67,7 @@ That sequencing preserves future scaffolding without precommitting current autho
 ## Gateway transport
 
 The first local transport uses D-Bus because Linux system/session integration and caller identity naturally fit it. The domain protocol remains transport-neutral. A remote gRPC/mTLS gateway may be added later as a separate process rather than exposing the session daemon directly to the network.
+
+## v0.5 executor isolation
+
+The v0.5 systemd executor is deliberately **not** wired into Linura Control. Control retains the v0.4 process-local, non-serializable one-shot dispatch-permit boundary; v0.5 only qualifies the isolated executor/verifier components on disposable fixtures. No durable row, digest, Polkit decision, executor receipt, or public Control1 call substitutes for the future authenticated one-shot handoff. That integration belongs to v0.6 and must preserve the canonical eleven-stage lifecycle.

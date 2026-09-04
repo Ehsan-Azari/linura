@@ -253,3 +253,23 @@ A local client tries to consume unbounded disk/memory with authority or audit re
 ## Deferred threats
 
 Fleet/remote orchestration and hosted/shared Library services receive dedicated threat-model extensions before any network control plane or trusted shared catalog is enabled.
+
+## v0.5 privileged component threats
+
+### Sender spoofing, Polkit bypass, or qualification-authority leakage
+- the executor derives the unique sender from the system D-Bus message rather than trusting a caller-supplied identity;
+- one fixed Polkit action gates the qualification method; production policy remains deny-by-default and the permissive qualification principal exists only in disposable test fixtures;
+- serialized transaction IDs, generations, digests, receipts, and an `Indeterminate` durable row cannot independently authorize execution;
+- no Control1, CLI, SDK, agent, or other public mutation surface exposes the qualification action.
+
+### Effect substitution or generic-root expansion
+- the privilege boundary accepts only a canonical `.service` name in the dedicated `linura-v05-qualification-*` namespace;
+- exact effect/binding correlation is re-derived and validated inside the executor;
+- no shell, arbitrary executable, file-write primitive, arbitrary systemd method, or generic D-Bus forwarding surface exists;
+- dispatch errors after the native ambiguity boundary are classified conservatively as indeterminate.
+
+### Executor self-attestation or stale verification
+- `Dispatched` is not state proof;
+- canonical systemd observation independently records `ActiveEnterTimestampMonotonic`;
+- the verifier consumes only fresh native canonical observation and is structurally forbidden from depending on the executor or native D-Bus transport;
+- stale, future, missing, wrong-resource, wrong-capability, non-native, inactive, or unchanged-timestamp evidence cannot verify success.

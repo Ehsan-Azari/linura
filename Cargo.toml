@@ -32,6 +32,7 @@ members = [
   "apps/linura-update-guard",
   "tools/xtask",
   "executors/linura-executor-systemd",
+  "verifiers/linura-verifier-systemd",
 ]
 
 [workspace.package]

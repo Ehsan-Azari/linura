@@ -1,0 +1,11 @@
+[Unit]
+Description=Linura v0.5 disposable restart qualification fixture
+After=basic.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sleep infinity
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

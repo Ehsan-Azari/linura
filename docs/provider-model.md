@@ -76,3 +76,7 @@ Expected first providers/adapters:
 | Packages | pacman on Arch profile |
 
 Providers must not leak raw command output into public API types. Provider-specific diagnostics may be attached in explicitly namespaced diagnostic fields. Observation and future verification evidence should be structured enough to support freshness, correlation and audit without making provider-specific text the source of truth.
+
+## v0.5 observation/verifier ownership
+
+For the v0.5 systemd restart qualification, `linura-linux-observation` owns native systemd observation and exposes the canonical monotonic activation timestamp in `ObservationEnvelope`. The verifier is intentionally transport-independent: it receives canonical observation as input and must not open D-Bus connections, call systemd, or consume executor self-report as truth. This keeps observation authority in the provider/observation boundary and verification logic independently testable.

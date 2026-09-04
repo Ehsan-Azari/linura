@@ -128,6 +128,12 @@ forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-c
 forbid_local_prefixes = []
 forbid_external = []
 
+[[rules]]
+package = "linura-verifier-systemd"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-planner", "linura-policy", "linura-control", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus", "dbus", "dbus-tokio", "dbus-crossroads"]
+
 [[markers]]
 path = "docs/terminology.md"
 contains = "**Principal:** authenticated authority identity used to namespace policy/review/approval state."

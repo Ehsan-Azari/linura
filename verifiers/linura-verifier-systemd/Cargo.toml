@@ -1,5 +1,5 @@
 [package]
-name = "linura-executor-systemd"
+name = "linura-verifier-systemd"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,10 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-blocking = "1.6"
 linura-core = { path = "../../crates/linura-core" }
+linura-observation = { path = "../../crates/linura-observation" }
 linura-provider-sdk = { path = "../../crates/linura-provider-sdk" }
-zbus = "5.19.0"
 
 [lints]
 workspace = true
