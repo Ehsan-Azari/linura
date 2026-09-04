@@ -842,9 +842,39 @@ pub(crate) fn validate_generation_history(
             "current generation exceeds domain bound".into(),
         ));
     }
+    let expected_rows = current_generation
+        .checked_add(1)
+        .ok_or(TransactionStoreError::CapacityExceeded)?;
+    if expected_rows > limits.max_generations {
+        return Err(TransactionStoreError::CapacityExceeded);
+    }
+    let persisted_rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM generations WHERE transaction_id = ?1",
+            params![transaction_id.as_str()],
+            |row| row.get(0),
+        )
+        .map_err(sqlite)?;
+    let persisted_rows = u64::try_from(persisted_rows).map_err(|_| {
+        TransactionStoreError::Corruption("negative retained generation row count".into())
+    })?;
+    if persisted_rows != expected_rows {
+        return Err(TransactionStoreError::Corruption(
+            "retained generation row count disagrees with authenticated current pointer".into(),
+        ));
+    }
+
     let mut expected = 0_u64;
     while expected <= current_generation {
-        let record = load_generation(connection, key, transaction_id, expected)?;
+        let record = match load_generation(connection, key, transaction_id, expected) {
+            Ok(record) => record,
+            Err(TransactionStoreError::NotFound) => {
+                return Err(TransactionStoreError::Corruption(
+                    "retained generation history is not contiguous".into(),
+                ));
+            }
+            Err(error) => return Err(error),
+        };
         let state = TransactionState::parse(&record.state)
             .map_err(|error| TransactionStoreError::Corruption(error.to_string()))?;
         let binding_digest = ContentDigest::new(record.binding_digest.clone())
@@ -892,9 +922,6 @@ pub(crate) fn validate_generation_history(
         expected = expected
             .checked_add(1)
             .ok_or(TransactionStoreError::CapacityExceeded)?;
-        if expected > limits.max_generations {
-            return Err(TransactionStoreError::CapacityExceeded);
-        }
     }
     Ok(())
 }
