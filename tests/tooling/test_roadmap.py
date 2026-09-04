@@ -40,9 +40,11 @@ class RoadmapContractTests(unittest.TestCase):
             "docs/releases/v0.1.0.md",
             "docs/releases/v0.2.0.md",
             "docs/releases/v0.3.0.md",
+            "docs/releases/v0.4.0.md",
             "docs/qualification/v0.1.0.md",
             "docs/qualification/v0.2.0.md",
             "docs/qualification/v0.3.0.md",
+            "docs/qualification/v0.4.0.md",
             "hardware/support-matrix.json",
         )
         for rel in paths:
@@ -65,8 +67,8 @@ class RoadmapContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8").replace(
+                'current_release = "v0.4.0"',
                 'current_release = "v0.3.0"',
-                'current_release = "v0.2.0"',
                 1,
             )
             contract.write_text(text, encoding="utf-8")

@@ -103,12 +103,12 @@ Models/agents remain unable to grant themselves authority.
 
 ## v0.4.0 — durable transaction and recovery foundation
 
-**Status:** implementation complete; publication pending
-**Target claim class:** Experimental
+**Status:** released
+**Claim class:** Experimental
 
-Establish durable state required before Linura is allowed to depend on real external effects.
+Released the durable state foundation required before Linura may depend on real external effects.
 
-Target capabilities:
+Released capabilities:
 
 - durable request/idempotency identity across restart;
 - durable binding between reviewed authorization, exact plan and evidence;
@@ -118,7 +118,7 @@ Target capabilities:
 - explicit indeterminate-operation representation and recovery rules;
 - durable audit foundation for later execution evidence.
 
-This milestone is not permission to introduce managed external mutation merely because durable state exists.
+This milestone does not introduce managed external mutation merely because durable state exists. v0.4.0 retains no executor and no supported external-mutation capability; its published claim is bounded by the frozen release contract and qualification evidence.
 
 ## v0.5.0 — first narrow privileged executor and independent verifier
 
