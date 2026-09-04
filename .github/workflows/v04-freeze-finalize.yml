@@ -62,7 +62,7 @@ jobs:
               raise SystemExit("docs/roadmap.md: v0.4 marker is not unique")
           before, after = text.split(marker, 1)
           old = "**Status:** planned  \n**Target claim class:** Experimental"
-          new = "**Status:** implementation complete; publication pending  \n**Target claim class:** Experimental"
+          new = "**Status:** implementation complete; publication pending\n**Target claim class:** Experimental"
           if after.count(old) < 1:
               raise SystemExit("docs/roadmap.md: expected v0.4 planned status not found")
           after = after.replace(old, new, 1)
