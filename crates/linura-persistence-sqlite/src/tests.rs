@@ -16,6 +16,7 @@ use rusqlite::functions::FunctionFlags;
 use rusqlite::{Connection, params};
 
 use super::*;
+use crate::schema::{APPLICATION_ID, MIGRATION_ID, MIGRATION_V1, MIGRATION_V2_ID, SCHEMA_VERSION};
 use crate::validation::{pragma_i64, reservation_bytes};
 
 static NEXT_DB: AtomicU64 = AtomicU64::new(0);
@@ -524,4 +525,266 @@ fn invalid_integrity_key_material_is_rejected() {
         SqliteIntegrityKey::new(vec![0x11; 31]),
         Err(TransactionStoreError::AuthorityRejected)
     ));
+}
+
+#[test]
+fn schema_v1_migrates_forward_without_rewriting_its_ledger_entry() {
+    let database = TestDatabase::new();
+    let (_, verifier) = authority();
+    let authority_fingerprint = verifier.fingerprint();
+    let key = integrity_key();
+    let integrity_fingerprint = key.fingerprint();
+    let connection = Connection::open(&database.path)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA recursive_triggers=ON; PRAGMA synchronous=FULL;",
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    connection
+        .pragma_update(None, "application_id", APPLICATION_ID)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    connection
+        .execute_batch(MIGRATION_V1)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    connection
+        .execute(
+            "INSERT INTO authority_store_identity (
+                singleton, verifier_fingerprint, integrity_fingerprint
+             ) VALUES (1, ?1, ?2)",
+            params![authority_fingerprint.as_str(), integrity_fingerprint.as_str()],
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    let v1_checksum = digest_bytes("linura.sqlite.migration.v1", MIGRATION_V1.as_bytes());
+    connection
+        .execute(
+            "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
+            params![MIGRATION_ID, v1_checksum.as_str()],
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    connection
+        .pragma_update(None, "user_version", 1_i64)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    drop(connection);
+
+    let store = SqliteTransactionStore::open(&database.path, verifier, key)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(
+        store
+            .settings()
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .user_version,
+        SCHEMA_VERSION,
+    );
+    let (count, preserved_v1, v2_count): (i64, String, i64) = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*),
+                    MAX(CASE WHEN migration_id=?1 THEN checksum ELSE '' END),
+                    SUM(CASE WHEN migration_id=?2 THEN 1 ELSE 0 END)
+             FROM schema_migrations",
+            params![MIGRATION_ID, MIGRATION_V2_ID],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(count, 2);
+    assert_eq!(preserved_v1, v1_checksum.as_str());
+    assert_eq!(v2_count, 1);
+    let trigger_sql: String = store
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='audit_reservations_filesystem_release'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert!(trigger_sql.contains("SELECT 1"));
+    assert!(!trigger_sql.contains("linura_fs_release_slots"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn terminal_recovery_with_limits_preserves_custom_capacity_contract() {
+    let database = TestDatabase::new();
+    let limits = StoreLimits {
+        max_pages: StoreLimits::default().max_pages / 2,
+        ..StoreLimits::default()
+    };
+    let prepared_binding =
+        binding_with_request("request:custom-limit-terminal", "observation:custom-limit");
+    let (_, verifier) = authority();
+    let mut store = SqliteTransactionStore::open_with_limits(
+        &database.path,
+        limits,
+        verifier,
+        integrity_key(),
+    )
+    .unwrap_or_else(|error| unreachable!("{error}"));
+    let prepared = prepared_snapshot(
+        store
+            .prepare(&prepared_binding)
+            .unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    assert_eq!(
+        store
+            .settings()
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .max_page_count,
+        i64::try_from(limits.max_pages).unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    drop(store);
+
+    let (_, verifier) = authority();
+    let mut recovery = SqliteTransactionStore::open_for_terminal_recovery_with_limits(
+        &database.path,
+        limits,
+        verifier,
+        integrity_key(),
+    )
+    .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(
+        recovery
+            .settings()
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .max_page_count,
+        i64::try_from(limits.max_pages).unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    let aborted = recovery
+        .abort_prepared(&linura_transaction::AbortRequest {
+            transaction_id: prepared.transaction_id,
+            expected_generation: prepared.current_generation,
+            expected_state_version: prepared.state_version,
+            reason_digest: digest("custom-limit-terminal-abort"),
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(aborted.state, TransactionState::Aborted);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn terminal_recovery_open_blocks_nonterminal_mutation_and_restores_normal_mode() {
+    let database = TestDatabase::new();
+    let prepared_binding = binding_with_request("request:preopen-terminal", "observation:preopen");
+    let (_, verifier) = authority();
+    let mut store = SqliteTransactionStore::open(&database.path, verifier, integrity_key())
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    let prepared = match store.prepare(&prepared_binding).unwrap_or_else(|error| unreachable!("{error}")) {
+        linura_transaction::PrepareOutcome::Created(snapshot)
+        | linura_transaction::PrepareOutcome::Existing(snapshot) => snapshot,
+    };
+    drop(store);
+    let (_, verifier) = authority();
+    let mut recovery = SqliteTransactionStore::open_for_terminal_recovery(
+        &database.path, verifier, integrity_key(),
+    ).unwrap_or_else(|error| unreachable!("{error}"));
+    let unrelated = binding_with_request("request:preopen-denied", "observation:preopen-denied");
+    assert!(matches!(recovery.prepare(&unrelated), Err(TransactionStoreError::StateConflict)));
+    let aborted = recovery.abort_prepared(&linura_transaction::AbortRequest {
+        transaction_id: prepared.transaction_id,
+        expected_generation: prepared.current_generation,
+        expected_state_version: prepared.state_version,
+        reason_digest: digest("preopen-terminal-abort"),
+    }).unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(aborted.state, TransactionState::Aborted);
+    recovery.integrity_check().unwrap_or_else(|error| unreachable!("{error}"));
+    let outcome = recovery.prepare(&unrelated).unwrap_or_else(|error| unreachable!("{error}"));
+    assert!(matches!(outcome, linura_transaction::PrepareOutcome::Created(_)));
+}
+
+
+#[cfg(target_os = "linux")]
+#[test]
+fn terminal_recovery_defers_final_reserve_shrink_until_sqlite_commit() {
+    let database = TestDatabase::new();
+    let binding = binding_with_request(
+        "request:terminal-reserve-rollback",
+        "observation:terminal-reserve-rollback",
+    );
+    let (_, verifier) = authority();
+    let mut store = SqliteTransactionStore::open(&database.path, verifier, integrity_key())
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    let prepared = prepared_snapshot(
+        store
+            .prepare(&binding)
+            .unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    drop(store);
+
+    let reserve_path = filesystem_reserve::reserve_path_for_database(&database.path);
+    let original_len = fs::metadata(&reserve_path)
+        .unwrap_or_else(|error| unreachable!("{error}"))
+        .len();
+    assert!(original_len >= 2 * 1024 * 1024);
+
+    let (_, verifier) = authority();
+    let mut recovery = SqliteTransactionStore::open_for_terminal_recovery(
+        &database.path,
+        verifier,
+        integrity_key(),
+    )
+    .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(
+        fs::metadata(&reserve_path)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len(),
+        original_len,
+    );
+
+    // Exercise the exact pre-commit failure window. The DELETE trigger must
+    // not shorten or reallocate the sidecar while SQLite can still roll the row
+    // back, including while the opener slot is deliberately sparse.
+    {
+        let transaction = recovery
+            .connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let deleted = transaction
+            .execute(
+                "DELETE FROM audit_reservations WHERE transaction_id=?1",
+                params![prepared.transaction_id.as_str()],
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(deleted, 1);
+        assert_eq!(
+            fs::metadata(&reserve_path)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len(),
+            original_len,
+        );
+        transaction
+            .rollback()
+            .unwrap_or_else(|error| unreachable!("{error}"));
+    }
+    assert_eq!(
+        fs::metadata(&reserve_path)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len(),
+        original_len,
+    );
+    drop(recovery);
+
+    // A process death at the rollback point leaves the same persistent shape.
+    // A fresh terminal opener must remain usable at true ENOSPC.
+    let (_, verifier) = authority();
+    let mut reopened = SqliteTransactionStore::open_for_terminal_recovery(
+        &database.path,
+        verifier,
+        integrity_key(),
+    )
+    .unwrap_or_else(|error| unreachable!("{error}"));
+    let aborted = reopened
+        .abort_prepared(&linura_transaction::AbortRequest {
+            transaction_id: prepared.transaction_id,
+            expected_generation: prepared.current_generation,
+            expected_state_version: prepared.state_version,
+            reason_digest: digest("terminal-reserve-rollback-abort"),
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(aborted.state, TransactionState::Aborted);
+    assert_eq!(
+        fs::metadata(&reserve_path)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len(),
+        0,
+    );
 }

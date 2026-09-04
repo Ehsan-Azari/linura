@@ -11,7 +11,7 @@ use linura_transaction::{
     AbortRequest, AuthorityBinding, AuthorizationBasis, PrepareOutcome, TransactionAuthorityKey,
     TransactionSnapshot, TransactionState, TransactionStore, digest_bytes,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 
 static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
@@ -55,14 +55,14 @@ fn verifier() -> linura_transaction::TransactionAuthorityVerifier {
         .1
 }
 
-fn binding() -> AuthorityBinding {
+fn binding_named(request_id: &str, plan_id: &str) -> AuthorityBinding {
     AuthorityBinding::try_new(
         PrincipalId::new("uid:1000").unwrap_or_else(|error| unreachable!("{error}")),
-        RequestId::new("request:release-blockers").unwrap_or_else(|error| unreachable!("{error}")),
-        PlanId::new("plan:release-blockers").unwrap_or_else(|error| unreachable!("{error}")),
-        digest_bytes("test", b"request"),
-        digest_bytes("test", b"precondition"),
-        digest_bytes("test", b"observation"),
+        RequestId::new(request_id).unwrap_or_else(|error| unreachable!("{error}")),
+        PlanId::new(plan_id).unwrap_or_else(|error| unreachable!("{error}")),
+        digest_bytes("test", request_id.as_bytes()),
+        digest_bytes("test", plan_id.as_bytes()),
+        digest_bytes("test", format!("observation:{request_id}").as_bytes()),
         ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}")),
         ResourceId::new("systemd:unit:test.service")
             .unwrap_or_else(|error| unreachable!("{error}")),
@@ -72,10 +72,14 @@ fn binding() -> AuthorityBinding {
         RiskClass::SecuritySensitive,
         "risk-policy:v0.4:1",
         vec!["release-blocker-regression".into()],
-        digest_bytes("test", b"review"),
+        digest_bytes("test", format!("review:{request_id}").as_bytes()),
         AuthorizationBasis::PolicyAllow,
     )
     .unwrap_or_else(|error| unreachable!("{error}"))
+}
+
+fn binding() -> AuthorityBinding {
+    binding_named("request:release-blockers", "plan:release-blockers")
 }
 
 fn prepared(outcome: PrepareOutcome) -> TransactionSnapshot {
@@ -91,10 +95,14 @@ fn filesystem_recovery_reserve_tracks_nonterminal_and_terminal_state() {
     let mut store = SqliteTransactionStore::open(&db.path, verifier(), integrity_key())
         .unwrap_or_else(|error| unreachable!("{error}"));
 
-    let baseline = fs::metadata(&reserve)
-        .unwrap_or_else(|error| unreachable!("{error}"))
-        .len();
-    assert!(baseline >= 256 * 1024);
+    // With no durable nonterminal authority, no reserve allocation is needed.
+    assert!(
+        !reserve.exists()
+            || fs::metadata(&reserve)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len()
+                == 0
+    );
     let snapshot = prepared(
         store
             .prepare(&binding())
@@ -103,7 +111,9 @@ fn filesystem_recovery_reserve_tracks_nonterminal_and_terminal_state() {
     let prepared_reserve = fs::metadata(&reserve)
         .unwrap_or_else(|error| unreachable!("{error}"))
         .len();
-    assert_eq!(prepared_reserve, baseline * 2);
+    // Prepare admits one durable reservation only after the sidecar contains
+    // that reservation plus a dedicated 1 MiB pre-open recovery slot.
+    assert!(prepared_reserve >= 2 * 1024 * 1024);
 
     let aborted = store
         .abort_prepared(&AbortRequest {
@@ -114,15 +124,125 @@ fn filesystem_recovery_reserve_tracks_nonterminal_and_terminal_state() {
         })
         .unwrap_or_else(|error| unreachable!("{error}"));
     assert_eq!(aborted.state, TransactionState::Aborted);
-    assert_eq!(
-        fs::metadata(&reserve)
-            .unwrap_or_else(|error| unreachable!("{error}"))
-            .len(),
-        baseline
+    // Once no durable nonterminal authority remains, no emergency sidecar
+    // allocation is required. The next prepare must re-establish both its
+    // transaction reservation and dedicated opener headroom before admission.
+    assert!(
+        !reserve.exists()
+            || fs::metadata(&reserve)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len()
+                == 0
     );
     store
         .integrity_check()
         .unwrap_or_else(|error| unreachable!("{error}"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn multi_reservation_terminal_recovery_never_shrinks_before_sqlite_commit() {
+    let db = TestDatabase::new();
+    let reserve = PathBuf::from(format!("{}.linura-recovery-reserve", db.path.display()));
+    let first_binding = binding_named("request:multi-first", "plan:multi-first");
+    let second_binding = binding_named("request:multi-second", "plan:multi-second");
+
+    let mut store = SqliteTransactionStore::open(&db.path, verifier(), integrity_key())
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    let first = prepared(
+        store
+            .prepare(&first_binding)
+            .unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    let second = prepared(
+        store
+            .prepare(&second_binding)
+            .unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    drop(store);
+
+    let three_slot_len = fs::metadata(&reserve)
+        .unwrap_or_else(|error| unreachable!("{error}"))
+        .len();
+    assert!(three_slot_len >= 3 * 1024 * 1024);
+
+    // Punch only the dedicated opener slot, then emulate a process death before
+    // terminal mutation. The subsequent raw SQLite DELETE/ROLLBACK exercises
+    // the exact multi-reservation failure window from the review: V2 must not
+    // truncate the sidecar while SQLite can still restore the deleted row.
+    let recovery =
+        SqliteTransactionStore::open_for_terminal_recovery(&db.path, verifier(), integrity_key())
+            .unwrap_or_else(|error| unreachable!("{error}"));
+    drop(recovery);
+
+    let mut raw = Connection::open(&db.path).unwrap_or_else(|error| unreachable!("{error}"));
+    let transaction = raw
+        .transaction()
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    let deleted = transaction
+        .execute(
+            "DELETE FROM audit_reservations WHERE transaction_id = ?1",
+            params![first.transaction_id.as_str()],
+        )
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        fs::metadata(&reserve)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len(),
+        three_slot_len,
+    );
+    transaction
+        .rollback()
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    drop(raw);
+    assert_eq!(
+        fs::metadata(&reserve)
+            .unwrap_or_else(|error| unreachable!("{error}"))
+            .len(),
+        three_slot_len,
+    );
+
+    // Both Prepared transactions remain recoverable. Each successful terminal
+    // SQLite commit is followed by authenticated reserve reconciliation, so the
+    // physical shrink occurs only after the corresponding durable row removal.
+    let mut first_recovery =
+        SqliteTransactionStore::open_for_terminal_recovery(&db.path, verifier(), integrity_key())
+            .unwrap_or_else(|error| unreachable!("{error}"));
+    let first_aborted = first_recovery
+        .abort_prepared(&AbortRequest {
+            transaction_id: first.transaction_id,
+            expected_generation: first.current_generation,
+            expected_state_version: first.state_version,
+            reason_digest: digest_bytes("test", b"multi-first-abort"),
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(first_aborted.state, TransactionState::Aborted);
+    let two_slot_len = fs::metadata(&reserve)
+        .unwrap_or_else(|error| unreachable!("{error}"))
+        .len();
+    assert_eq!(two_slot_len, 2 * 1024 * 1024);
+    drop(first_recovery);
+
+    let mut second_recovery =
+        SqliteTransactionStore::open_for_terminal_recovery(&db.path, verifier(), integrity_key())
+            .unwrap_or_else(|error| unreachable!("{error}"));
+    let second_aborted = second_recovery
+        .abort_prepared(&AbortRequest {
+            transaction_id: second.transaction_id,
+            expected_generation: second.current_generation,
+            expected_state_version: second.state_version,
+            reason_digest: digest_bytes("test", b"multi-second-abort"),
+        })
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    assert_eq!(second_aborted.state, TransactionState::Aborted);
+    assert!(
+        !reserve.exists()
+            || fs::metadata(&reserve)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+                .len()
+                == 0
+    );
 }
 
 #[test]

@@ -10,6 +10,7 @@ use linura_transaction::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
+use crate::filesystem_reserve::release_preopen_recovery_headroom;
 use crate::integrity::SqliteIntegrityKey;
 use crate::schema::{APPLICATION_ID, MAX_AUDIT_EVENT_KIND_BYTES, SCHEMA_VERSION};
 use crate::validation::{
@@ -70,6 +71,7 @@ pub struct SqliteTransactionStore {
     limits: StoreLimits,
     authority_verifier: TransactionAuthorityVerifier,
     integrity_key: SqliteIntegrityKey,
+    opener_released_for_terminal_recovery: bool,
 }
 
 impl Debug for SqliteTransactionStore {
@@ -94,11 +96,43 @@ impl SqliteTransactionStore {
         authority_verifier: TransactionAuthorityVerifier,
         integrity_key: SqliteIntegrityKey,
     ) -> Result<Self, TransactionStoreError> {
-        Self::open_with_limits(
+        Self::open_with_limits_mode(
+            path.as_ref(),
+            StoreLimits::default(),
+            authority_verifier,
+            integrity_key,
+            false,
+        )
+    }
+
+    /// Open an existing authority database specifically to retire a Prepared
+    /// transaction while the backing filesystem may already be at ENOSPC.
+    pub fn open_for_terminal_recovery(
+        path: impl AsRef<Path>,
+        authority_verifier: TransactionAuthorityVerifier,
+        integrity_key: SqliteIntegrityKey,
+    ) -> Result<Self, TransactionStoreError> {
+        Self::open_for_terminal_recovery_with_limits(
             path,
             StoreLimits::default(),
             authority_verifier,
             integrity_key,
+        )
+    }
+
+    /// Terminal-recovery open preserving the caller's capacity contract.
+    pub fn open_for_terminal_recovery_with_limits(
+        path: impl AsRef<Path>,
+        limits: StoreLimits,
+        authority_verifier: TransactionAuthorityVerifier,
+        integrity_key: SqliteIntegrityKey,
+    ) -> Result<Self, TransactionStoreError> {
+        Self::open_with_limits_mode(
+            path.as_ref(),
+            limits,
+            authority_verifier,
+            integrity_key,
+            true,
         )
     }
 
@@ -108,21 +142,36 @@ impl SqliteTransactionStore {
         authority_verifier: TransactionAuthorityVerifier,
         integrity_key: SqliteIntegrityKey,
     ) -> Result<Self, TransactionStoreError> {
+        Self::open_with_limits_mode(path.as_ref(), limits, authority_verifier, integrity_key, false)
+    }
+
+    fn open_with_limits_mode(
+        path: &Path,
+        limits: StoreLimits,
+        authority_verifier: TransactionAuthorityVerifier,
+        integrity_key: SqliteIntegrityKey,
+        terminal_recovery: bool,
+    ) -> Result<Self, TransactionStoreError> {
         let limits = limits.validate()?;
+        let opener_released_for_terminal_recovery = if terminal_recovery {
+            if !release_preopen_recovery_headroom(path)? {
+                return Err(TransactionStoreError::StateConflict);
+            }
+            true
+        } else {
+            false
+        };
         let mut connection = Connection::open(path).map_err(sqlite)?;
         configure_connection(&connection, limits)?;
         let authority_fingerprint = authority_verifier.fingerprint();
         let integrity_fingerprint = integrity_key.fingerprint();
-        initialize_or_validate_schema(
-            &mut connection,
-            &authority_fingerprint,
-            &integrity_fingerprint,
-        )?;
+        initialize_or_validate_schema(&mut connection, &authority_fingerprint, &integrity_fingerprint)?;
         let store = Self {
             connection,
             limits,
             authority_verifier,
             integrity_key,
+            opener_released_for_terminal_recovery,
         };
         store.integrity_check()?;
         Ok(store)
@@ -137,6 +186,30 @@ impl SqliteTransactionStore {
             application_id: pragma_i64(&self.connection, "application_id")?,
             user_version: pragma_i64(&self.connection, "user_version")?,
             max_page_count: pragma_i64(&self.connection, "max_page_count")?,
+        })
+    }
+
+    fn require_normal_open(&self) -> Result<(), TransactionStoreError> {
+        if self.opener_released_for_terminal_recovery {
+            return Err(TransactionStoreError::StateConflict);
+        }
+        Ok(())
+    }
+
+    fn reconcile_filesystem_reserve_after_commit(&self) -> Result<(), TransactionStoreError> {
+        // Filesystem reserve shrink is intentionally outside the SQLite
+        // transaction. The final reservation's full reserve is kept until
+        // SQLite commit succeeds, then reconciled against authenticated durable
+        // reservation rows under the same write-serialization boundary used by
+        // open-time integrity validation. A crash after commit but before this
+        // cleanup is safe: the next open only needs to shrink provably excess
+        // sidecar allocation and never needs new disk blocks.
+        with_immediate_validation(&self.connection, || {
+            validate_physical_reservations_locked(
+                &self.connection,
+                &self.integrity_key,
+                false,
+            )
         })
     }
 
@@ -489,6 +562,7 @@ impl TransactionStore for SqliteTransactionStore {
         &mut self,
         binding: &AuthorityBinding,
     ) -> Result<PrepareOutcome, TransactionStoreError> {
+        self.require_normal_open()?;
         let transaction_id = binding.transaction_id();
         let limits = self.limits;
         let integrity_key = &self.integrity_key;
@@ -566,6 +640,7 @@ impl TransactionStore for SqliteTransactionStore {
         &mut self,
         request: &HandoffRequest,
     ) -> Result<HandoffCommit, TransactionStoreError> {
+        self.require_normal_open()?;
         if !self.authority_verifier.verify_handoff(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
@@ -623,6 +698,7 @@ impl TransactionStore for SqliteTransactionStore {
             true,
         )?;
         transaction.commit().map_err(sqlite)?;
+        self.reconcile_filesystem_reserve_after_commit()?;
         Ok(HandoffCommit {
             transaction_id: request.transaction_id().clone(),
             generation: snapshot.current_generation,
@@ -636,6 +712,7 @@ impl TransactionStore for SqliteTransactionStore {
         &mut self,
         request: &RecoveryRequest,
     ) -> Result<RecoveryOutcome, TransactionStoreError> {
+        self.require_normal_open()?;
         if !self.authority_verifier.verify_recovery(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
@@ -830,6 +907,7 @@ impl TransactionStore for SqliteTransactionStore {
             }
         };
         transaction.commit().map_err(sqlite)?;
+        self.reconcile_filesystem_reserve_after_commit()?;
         Ok(outcome)
     }
 
@@ -837,6 +915,7 @@ impl TransactionStore for SqliteTransactionStore {
         &mut self,
         request: &CommitRequest,
     ) -> Result<TransactionSnapshot, TransactionStoreError> {
+        self.require_normal_open()?;
         if !self.authority_verifier.verify_commit(request) {
             return Err(TransactionStoreError::AuthorityRejected);
         }
@@ -903,6 +982,7 @@ impl TransactionStore for SqliteTransactionStore {
             true,
         )?;
         transaction.commit().map_err(sqlite)?;
+        self.reconcile_filesystem_reserve_after_commit()?;
         Ok(TransactionSnapshot {
             state: TransactionState::Committed,
             state_version: next_version,
@@ -960,6 +1040,8 @@ impl TransactionStore for SqliteTransactionStore {
             true,
         )?;
         transaction.commit().map_err(sqlite)?;
+        self.reconcile_filesystem_reserve_after_commit()?;
+        self.opener_released_for_terminal_recovery = false;
         Ok(TransactionSnapshot {
             state: TransactionState::Aborted,
             state_version: next_version,
@@ -1109,7 +1191,11 @@ impl TransactionStore for SqliteTransactionStore {
                     self.limits,
                 )?;
             }
-            validate_physical_reservations_locked(&self.connection, &self.integrity_key)
+            validate_physical_reservations_locked(
+                &self.connection,
+                &self.integrity_key,
+                self.opener_released_for_terminal_recovery,
+            )
         })
     }
 }

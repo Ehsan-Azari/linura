@@ -1,6 +1,7 @@
 pub(crate) const APPLICATION_ID: i64 = 0x4c4e5254; // "LNRT"
-pub(crate) const SCHEMA_VERSION: i64 = 1;
+pub(crate) const SCHEMA_VERSION: i64 = 2;
 pub(crate) const MIGRATION_ID: &str = "0001-v04-hardened-authority-transactions";
+pub(crate) const MIGRATION_V2_ID: &str = "0002-v04-terminal-recovery-opener-headroom";
 pub(crate) const BUSY_TIMEOUT_MS: u64 = 5_000;
 pub(crate) const CONTENT_DIGEST_TEXT_BYTES: usize = 71; // "sha256:" + 64 hex
 pub(crate) const MAX_AUDIT_EVENT_KIND_BYTES: usize = 64;
@@ -232,5 +233,15 @@ CREATE TRIGGER schema_migrations_no_delete
 BEFORE DELETE ON schema_migrations
 BEGIN
     SELECT RAISE(ABORT, 'immutable migration ledger');
+END;
+"#;
+
+pub(crate) const MIGRATION_V2: &str = r#"
+DROP TRIGGER IF EXISTS audit_reservations_filesystem_release;
+
+CREATE TRIGGER audit_reservations_filesystem_release
+BEFORE DELETE ON audit_reservations
+BEGIN
+    SELECT 1;
 END;
 "#;

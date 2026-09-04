@@ -10,7 +10,7 @@ use crate::filesystem_reserve::{
 use crate::integrity::SqliteIntegrityKey;
 use crate::schema::{
     APPLICATION_ID, BUSY_TIMEOUT_MS, CONTENT_DIGEST_TEXT_BYTES, MAX_SQLITE_PAGE_SIZE, MIGRATION_ID,
-    MIGRATION_V1, MIN_SQLITE_PAGE_SIZE, SCHEMA_VERSION,
+    MIGRATION_V1, MIGRATION_V2, MIGRATION_V2_ID, MIN_SQLITE_PAGE_SIZE, SCHEMA_VERSION,
 };
 use crate::store::{StoreLimits, SqliteSettings};
 
@@ -109,9 +109,9 @@ fn validate_pre_configuration_identity(
             "application_id {application_id} is not Linura authority storage"
         )));
     }
-    if user_version != SCHEMA_VERSION {
+    if user_version != 1 && user_version != SCHEMA_VERSION {
         return Err(TransactionStoreError::UnsupportedSchema(format!(
-            "database schema {user_version} is not supported schema {SCHEMA_VERSION}"
+            "database schema {user_version} is not supported schema 1 or {SCHEMA_VERSION}"
         )));
     }
     Ok(false)
@@ -152,11 +152,17 @@ pub(crate) fn initialize_or_validate_schema(
                 params![authority_fingerprint.as_str(), integrity_fingerprint.as_str()],
             )
             .map_err(sqlite)?;
-        let checksum = migration_checksum();
         migration
             .execute(
                 "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
-                params![MIGRATION_ID, checksum.as_str()],
+                params![MIGRATION_ID, migration_v1_checksum().as_str()],
+            )
+            .map_err(sqlite)?;
+        migration.execute_batch(MIGRATION_V2).map_err(sqlite)?;
+        migration
+            .execute(
+                "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
+                params![MIGRATION_V2_ID, migration_v2_checksum().as_str()],
             )
             .map_err(sqlite)?;
         migration
@@ -169,10 +175,34 @@ pub(crate) fn initialize_or_validate_schema(
                 "application_id {application_id} is not Linura authority storage"
             )));
         }
-        if user_version != SCHEMA_VERSION {
-            return Err(TransactionStoreError::UnsupportedSchema(format!(
-                "database schema {user_version} is not supported schema {SCHEMA_VERSION}"
-            )));
+        match user_version {
+            1 => {
+                validate_v1_schema_identity(
+                    connection,
+                    authority_fingerprint,
+                    integrity_fingerprint,
+                )?;
+                let migration = connection
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(sqlite)?;
+                migration.execute_batch(MIGRATION_V2).map_err(sqlite)?;
+                migration
+                    .execute(
+                        "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
+                        params![MIGRATION_V2_ID, migration_v2_checksum().as_str()],
+                    )
+                    .map_err(sqlite)?;
+                migration
+                    .pragma_update(None, "user_version", SCHEMA_VERSION)
+                    .map_err(sqlite)?;
+                migration.commit().map_err(sqlite)?;
+            }
+            version if version == SCHEMA_VERSION => {}
+            _ => {
+                return Err(TransactionStoreError::UnsupportedSchema(format!(
+                    "database schema {user_version} is not supported schema 1 or {SCHEMA_VERSION}"
+                )));
+            }
         }
     }
     validate_schema_identity(connection, authority_fingerprint, integrity_fingerprint)
@@ -249,7 +279,71 @@ pub(crate) fn validate_schema_identity(
             "authority database user_version mismatch".into(),
         ));
     }
+    validate_store_identity(connection, authority_fingerprint, integrity_fingerprint)?;
+    let (ledger_count, unexpected_entries): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN migration_id NOT IN (?1, ?2) THEN 1 ELSE 0 END), 0)
+             FROM schema_migrations",
+            params![MIGRATION_ID, MIGRATION_V2_ID],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(sqlite)?;
+    if ledger_count != 2 || unexpected_entries != 0 {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "migration ledger contains entries not represented by the supported schema generation"
+                .into(),
+        ));
+    }
+    validate_migration_entry(connection, MIGRATION_ID, &migration_v1_checksum())?;
+    validate_migration_entry(connection, MIGRATION_V2_ID, &migration_v2_checksum())?;
+    if schema_fingerprint(connection)? != expected_schema_fingerprint()? {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "installed authority schema objects differ from the canonical migration".into(),
+        ));
+    }
+    Ok(())
+}
 
+fn validate_v1_schema_identity(
+    connection: &Connection,
+    authority_fingerprint: &ContentDigest,
+    integrity_fingerprint: &ContentDigest,
+) -> Result<(), TransactionStoreError> {
+    if pragma_i64(connection, "application_id")? != APPLICATION_ID
+        || pragma_i64(connection, "user_version")? != 1
+    {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "authority database is not a supported schema-v1 migration source".into(),
+        ));
+    }
+    validate_store_identity(connection, authority_fingerprint, integrity_fingerprint)?;
+    let (ledger_count, unexpected_entries): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN migration_id <> ?1 THEN 1 ELSE 0 END), 0)
+             FROM schema_migrations",
+            params![MIGRATION_ID],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(sqlite)?;
+    if ledger_count != 1 || unexpected_entries != 0 {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "schema-v1 migration ledger is not canonical".into(),
+        ));
+    }
+    validate_migration_entry(connection, MIGRATION_ID, &migration_v1_checksum())?;
+    if schema_fingerprint(connection)? != expected_v1_schema_fingerprint()? {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "schema-v1 objects differ from the immutable canonical migration".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_store_identity(
+    connection: &Connection,
+    authority_fingerprint: &ContentDigest,
+    integrity_fingerprint: &ContentDigest,
+) -> Result<(), TransactionStoreError> {
     let identity = connection
         .query_row(
             "SELECT
@@ -279,56 +373,49 @@ pub(crate) fn validate_schema_identity(
         ));
     }
     let stored_authority = ContentDigest::new(identity.1.ok_or_else(|| {
-        TransactionStoreError::Corruption("authority fingerprint withheld by length preflight".into())
+        TransactionStoreError::Corruption(
+            "authority fingerprint withheld by length preflight".into(),
+        )
     })?)
     .map_err(|_| TransactionStoreError::AuthorityRejected)?;
     let stored_integrity = ContentDigest::new(identity.3.ok_or_else(|| {
-        TransactionStoreError::Corruption("integrity fingerprint withheld by length preflight".into())
+        TransactionStoreError::Corruption(
+            "integrity fingerprint withheld by length preflight".into(),
+        )
     })?)
     .map_err(|_| TransactionStoreError::AuthorityRejected)?;
     if stored_authority != *authority_fingerprint || stored_integrity != *integrity_fingerprint {
         return Err(TransactionStoreError::AuthorityRejected);
     }
+    Ok(())
+}
 
-    let (ledger_count, unexpected_entries): (i64, i64) = connection
-        .query_row(
-            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN migration_id <> ?1 THEN 1 ELSE 0 END), 0)
-             FROM schema_migrations",
-            params![MIGRATION_ID],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(sqlite)?;
-    if ledger_count != 1 || unexpected_entries != 0 {
-        return Err(TransactionStoreError::UnsupportedSchema(
-            "migration ledger contains entries not represented by the supported schema generation"
-                .into(),
-        ));
-    }
-
+fn validate_migration_entry(
+    connection: &Connection,
+    migration_id: &str,
+    expected_checksum: &ContentDigest,
+) -> Result<(), TransactionStoreError> {
     let checksum = connection
         .query_row(
             "SELECT length(CAST(checksum AS BLOB)),
                     CASE WHEN length(CAST(checksum AS BLOB)) = ?2 THEN checksum ELSE NULL END
              FROM schema_migrations WHERE migration_id = ?1",
-            params![MIGRATION_ID, as_i64(CONTENT_DIGEST_TEXT_BYTES as u64)?],
+            params![migration_id, as_i64(CONTENT_DIGEST_TEXT_BYTES as u64)?],
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
         )
         .optional()
         .map_err(sqlite)?
         .ok_or_else(|| {
-            TransactionStoreError::UnsupportedSchema("migration ledger entry missing".into())
+            TransactionStoreError::UnsupportedSchema(format!(
+                "migration ledger entry {migration_id} missing"
+            ))
         })?;
     if checksum.0 != CONTENT_DIGEST_TEXT_BYTES as i64
-        || checksum.1.as_deref() != Some(migration_checksum().as_str())
+        || checksum.1.as_deref() != Some(expected_checksum.as_str())
     {
-        return Err(TransactionStoreError::UnsupportedSchema(
-            "migration checksum mismatch".into(),
-        ));
-    }
-    if schema_fingerprint(connection)? != expected_schema_fingerprint()? {
-        return Err(TransactionStoreError::UnsupportedSchema(
-            "installed authority schema objects differ from the canonical migration".into(),
-        ));
+        return Err(TransactionStoreError::UnsupportedSchema(format!(
+            "migration checksum mismatch for {migration_id}"
+        )));
     }
     Ok(())
 }
@@ -444,9 +531,16 @@ fn schema_fingerprint(connection: &Connection) -> Result<ContentDigest, Transact
     Ok(digest_bytes("linura.sqlite.schema-objects.v1", &encoded))
 }
 
+fn expected_v1_schema_fingerprint() -> Result<ContentDigest, TransactionStoreError> {
+    let reference = Connection::open_in_memory().map_err(sqlite)?;
+    reference.execute_batch(MIGRATION_V1).map_err(sqlite)?;
+    schema_fingerprint(&reference)
+}
+
 fn expected_schema_fingerprint() -> Result<ContentDigest, TransactionStoreError> {
     let reference = Connection::open_in_memory().map_err(sqlite)?;
     reference.execute_batch(MIGRATION_V1).map_err(sqlite)?;
+    reference.execute_batch(MIGRATION_V2).map_err(sqlite)?;
     schema_fingerprint(&reference)
 }
 
@@ -474,6 +568,7 @@ pub(crate) fn with_immediate_validation<T>(
 pub(crate) fn validate_physical_reservations_locked(
     connection: &Connection,
     key: &SqliteIntegrityKey,
+    opener_released: bool,
 ) -> Result<(), TransactionStoreError> {
     if connection.is_autocommit() {
         return Err(TransactionStoreError::StateConflict);
@@ -534,7 +629,12 @@ pub(crate) fn validate_physical_reservations_locked(
             "aggregate physical audit reservation count mismatch".into(),
         ));
     }
-    validate_filesystem_reserve(connection, page_size(connection)?, actual_total)
+    validate_filesystem_reserve(
+        connection,
+        page_size(connection)?,
+        actual_total,
+        opener_released,
+    )
 }
 
 fn page_size(connection: &Connection) -> Result<u64, TransactionStoreError> {
@@ -543,8 +643,12 @@ fn page_size(connection: &Connection) -> Result<u64, TransactionStoreError> {
         .map_err(|_| TransactionStoreError::UnsupportedSchema("negative page_size".into()))
 }
 
-fn migration_checksum() -> ContentDigest {
+fn migration_v1_checksum() -> ContentDigest {
     digest_bytes("linura.sqlite.migration.v1", MIGRATION_V1.as_bytes())
+}
+
+fn migration_v2_checksum() -> ContentDigest {
+    digest_bytes("linura.sqlite.migration.v2", MIGRATION_V2.as_bytes())
 }
 
 fn append_canonical_field(
@@ -620,7 +724,7 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
-                params!["9999-unsupported", migration_checksum().as_str()],
+                params!["9999-unsupported", migration_v1_checksum().as_str()],
             )
             .unwrap_or_else(|error| unreachable!("{error}"));
 
