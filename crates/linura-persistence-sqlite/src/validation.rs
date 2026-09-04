@@ -379,7 +379,7 @@ fn expected_schema_fingerprint() -> Result<ContentDigest, TransactionStoreError>
     schema_fingerprint(&reference)
 }
 
-fn with_immediate_validation<T>(
+pub(crate) fn with_immediate_validation<T>(
     connection: &Connection,
     validate: impl FnOnce() -> Result<T, TransactionStoreError>,
 ) -> Result<T, TransactionStoreError> {
@@ -409,10 +409,13 @@ pub(crate) fn validate_physical_reservations(
     })
 }
 
-fn validate_physical_reservations_locked(
+pub(crate) fn validate_physical_reservations_locked(
     connection: &Connection,
     key: &SqliteIntegrityKey,
 ) -> Result<(), TransactionStoreError> {
+    if connection.is_autocommit() {
+        return Err(TransactionStoreError::StateConflict);
+    }
     let expected_bytes = reservation_bytes(connection)?;
     let ids = list_transaction_ids(connection)?;
     let mut expected_total = 0_u64;
