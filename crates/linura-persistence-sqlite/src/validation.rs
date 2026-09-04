@@ -400,15 +400,6 @@ pub(crate) fn with_immediate_validation<T>(
     }
 }
 
-pub(crate) fn validate_physical_reservations(
-    connection: &Connection,
-    key: &SqliteIntegrityKey,
-) -> Result<(), TransactionStoreError> {
-    with_immediate_validation(connection, || {
-        validate_physical_reservations_locked(connection, key)
-    })
-}
-
 pub(crate) fn validate_physical_reservations_locked(
     connection: &Connection,
     key: &SqliteIntegrityKey,
