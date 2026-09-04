@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use linura_core::{
     CapabilityId, PlanId, PolicyId, PolicyRevisionId, PrincipalId, ProviderId, RequestId,
@@ -33,6 +34,10 @@ impl TestDatabase {
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(PathBuf::from(format!("{}-wal", path.display())));
         let _ = fs::remove_file(PathBuf::from(format!("{}-shm", path.display())));
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}.linura-recovery-reserve",
+            path.display()
+        )));
         Self { path }
     }
 }
@@ -42,6 +47,10 @@ impl Drop for TestDatabase {
         let _ = fs::remove_file(&self.path);
         let _ = fs::remove_file(PathBuf::from(format!("{}-wal", self.path.display())));
         let _ = fs::remove_file(PathBuf::from(format!("{}-shm", self.path.display())));
+        let _ = fs::remove_file(PathBuf::from(format!(
+            "{}.linura-recovery-reserve",
+            self.path.display()
+        )));
     }
 }
 
@@ -300,6 +309,73 @@ fn a_forged_audit_tail_cannot_be_legitimized_by_the_next_store_write() {
         Err(TransactionStoreError::Corruption(reason))
             if reason.contains("audit record integrity tag mismatch")
     ));
+}
+
+#[test]
+fn generation_rows_beyond_authenticated_current_pointer_fail_closed() {
+    let db = TestDatabase::new();
+    let (_, mut store) = open_store(&db.path);
+    let prepared = prepared_snapshot(
+        store
+            .prepare(&binding_with_observation("forged-future-generation"))
+            .unwrap_or_else(|error| unreachable!("{error}")),
+    );
+    let raw = Connection::open(&db.path).unwrap_or_else(|error| unreachable!("{error}"));
+    raw.execute(
+        "INSERT INTO generations (
+            transaction_id,generation,state,binding_digest,binding_canonical,
+            request_digest,precondition_digest,observation_digest,
+            desired_state_digest,graph_digest,provenance_digest,integrity_tag
+         ) SELECT transaction_id,1,state,binding_digest,binding_canonical,
+                  request_digest,precondition_digest,observation_digest,
+                  desired_state_digest,graph_digest,provenance_digest,zeroblob(32)
+           FROM generations WHERE transaction_id=?1 AND generation=0",
+        params![prepared.transaction_id.as_str()],
+    )
+    .unwrap_or_else(|error| unreachable!("{error}"));
+    drop(raw);
+
+    assert!(matches!(
+        store.integrity_check(),
+        Err(TransactionStoreError::Corruption(reason))
+            if reason.contains("retained generation row count disagrees")
+    ));
+    drop(store);
+    assert!(matches!(
+        SqliteTransactionStore::open(&db.path, authority().1, integrity_key()),
+        Err(TransactionStoreError::Corruption(reason))
+            if reason.contains("retained generation row count disagrees")
+    ));
+}
+
+#[test]
+fn complete_integrity_validation_acquires_write_serialization_before_scanning() {
+    let db = TestDatabase::new();
+    let (_, store) = open_store(&db.path);
+    let writer = Connection::open(&db.path).unwrap_or_else(|error| unreachable!("{error}"));
+    writer
+        .execute_batch("BEGIN IMMEDIATE")
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    store
+        .connection
+        .busy_timeout(Duration::ZERO)
+        .unwrap_or_else(|error| unreachable!("{error}"));
+
+    assert!(matches!(
+        store.integrity_check(),
+        Err(TransactionStoreError::Storage(reason)) if reason.contains("locked")
+    ));
+
+    writer
+        .execute_batch("ROLLBACK")
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    store
+        .connection
+        .busy_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|error| unreachable!("{error}"));
+    store
+        .integrity_check()
+        .unwrap_or_else(|error| unreachable!("{error}"));
 }
 
 #[test]
