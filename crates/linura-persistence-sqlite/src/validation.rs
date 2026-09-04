@@ -290,6 +290,21 @@ pub(crate) fn validate_schema_identity(
         return Err(TransactionStoreError::AuthorityRejected);
     }
 
+    let (ledger_count, unexpected_entries): (i64, i64) = connection
+        .query_row(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN migration_id <> ?1 THEN 1 ELSE 0 END), 0)
+             FROM schema_migrations",
+            params![MIGRATION_ID],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(sqlite)?;
+    if ledger_count != 1 || unexpected_entries != 0 {
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "migration ledger contains entries not represented by the supported schema generation"
+                .into(),
+        ));
+    }
+
     let checksum = connection
         .query_row(
             "SELECT length(CAST(checksum AS BLOB)),
@@ -592,6 +607,28 @@ mod tests {
         let _ = fs::remove_file(&database);
         let _ = fs::remove_file(format!("{}-wal", database.display()));
         let _ = fs::remove_file(format!("{}-shm", database.display()));
+    }
+
+    #[test]
+    fn unexpected_migration_ledger_entries_fail_closed() {
+        let authority = digest_bytes("linura.test.authority-fingerprint.v1", b"authority");
+        let integrity = digest_bytes("linura.test.integrity-fingerprint.v1", b"integrity");
+        let mut connection = Connection::open_in_memory()
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        initialize_or_validate_schema(&mut connection, &authority, &integrity)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (migration_id, checksum) VALUES (?1, ?2)",
+                params!["9999-unsupported", migration_checksum().as_str()],
+            )
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        assert!(matches!(
+            validate_schema_identity(&connection, &authority, &integrity),
+            Err(TransactionStoreError::UnsupportedSchema(reason))
+                if reason.contains("migration ledger contains entries")
+        ));
     }
 
     #[test]
