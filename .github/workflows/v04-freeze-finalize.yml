@@ -1,0 +1,92 @@
+name: Temporary v0.4 freeze finalizer
+
+on:
+  push:
+    branches:
+      - chore/v0.4.0-release-prep
+    paths:
+      - .github/workflows/v04-freeze-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+          ref: chore/v0.4.0-release-prep
+
+      - name: Apply exact release-freeze edits
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}: {old!r}")
+              p.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              "README.md",
+              "Status: `v0.3.0` released — Experimental policy-evaluated, provenance-preserving plan review and bounded approval semantics on top of authoritative observation and deterministic non-executable planning. Linura is not yet production-ready and v0.3.0 declares no supported distribution, machine class, hardware profile, or managed-mutation capability; policy allow, approval evidence, and reviewed-plan state do not authorize execution.",
+              "Status: `v0.4.0` release candidate — Experimental durable reviewed-authority transaction and recovery foundation on top of authoritative observation, deterministic non-executable planning, policy review, and bounded approval semantics. Publication is still pending the protected proof-first/tag-last release lifecycle. Linura is not yet production-ready and v0.4.0 declares no supported distribution, machine class, hardware profile, executor, or managed-mutation capability; durable transaction state, policy allow, approval evidence, and reviewed-plan state do not authorize execution.",
+          )
+
+          changelog_entry = """## [Unreleased]\n\n## [0.4.0] - 2026-09-04\n\nExperimental durable reviewed-authority transaction and recovery foundation. Full release contract: [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).\n\n### Added\n- Persistence-neutral durable transaction/generation state with immutable exact authority bindings, stable idempotency, typed recovery outcomes, restart-safe verified material, and Control-owned signer/verifier separation.\n- SQLite/WAL authority persistence with application/schema identity, versioned migration ledger, keyed retained-record integrity, bounded persisted-input validation, logical/physical recovery reservations, and a same-filesystem emergency reserve.\n- Real ext4 ENOSPC and SQLite/WAL crash/power-loss qualification for the v0.4 recovery guarantees.\n\n### Changed\n- Persistence validation now serializes cross-statement integrity checks, authenticates complete retained generation history, validates the complete bounded migration ledger, and repairs only the exact one-slot filesystem-reserve deficit attributable to a rolled-back terminal transition.\n- Trusted Release Proof now reruns both v0.4 durability-fault and real-ENOSPC qualification before release build or promotion.\n\n### Boundaries\n- v0.4 remains Experimental and adds no supported executor, Polkit grant, apply/execute/mutate surface, generic command authority, or supported Linura-managed external effect.\n- Raw storage writers may alter bytes but cannot mint valid keyed integrity tags without the integrity key; coherent whole-database/filesystem/VM-snapshot rollback remains unsupported without a future protected monotonic anchor/restore protocol.\n- No supported distribution, machine class, hardware profile, or production-readiness claim is introduced.\n\n"""
+          replace_once("CHANGELOG.md", "## [Unreleased]\n\n", changelog_entry)
+
+          replace_once(
+              "docs/milestones/v0.4.0.md",
+              "**Status:** planned\n**Target claim class:** Experimental",
+              "**Status:** implementation complete; publication pending\n**Target claim class:** Experimental",
+          )
+          replace_once(
+              "docs/milestones/v0.4.0.md",
+              "- Fresh exact-head Codex authority/security review returns with all valid findings resolved against the validated final head.",
+              "- Fresh documented exact-head adversarial authority/security/durability review completes with all valid findings resolved against the validated final head; this requirement is reviewer/tool independent.",
+          )
+
+          roadmap = Path("docs/roadmap.md")
+          text = roadmap.read_text(encoding="utf-8")
+          marker = "## v0.4.0 — durable transaction and recovery foundation"
+          if text.count(marker) != 1:
+              raise SystemExit("docs/roadmap.md: v0.4 marker is not unique")
+          before, after = text.split(marker, 1)
+          old = "**Status:** planned  \n**Target claim class:** Experimental"
+          new = "**Status:** implementation complete; publication pending  \n**Target claim class:** Experimental"
+          if after.count(old) < 1:
+              raise SystemExit("docs/roadmap.md: expected v0.4 planned status not found")
+          after = after.replace(old, new, 1)
+          roadmap.write_text(before + marker + after, encoding="utf-8")
+
+          release = Path("docs/releases/v0.4.0.md")
+          release_text = release.read_text(encoding="utf-8")
+          trace = "- Durable authority transaction/recovery implementation and exact-head hardening: [PR #54](https://github.com/linura-org/linura/pull/54), final implementation head [`e92786f2c4e545bd289692f6199060da9e3a0248`](https://github.com/linura-org/linura/commit/e92786f2c4e545bd289692f6199060da9e3a0248), merged to protected main as [`5e9e9bff03dcd24bca0f3bb3c735e37b49aacdd7`](https://github.com/linura-org/linura/commit/5e9e9bff03dcd24bca0f3bb3c735e37b49aacdd7).\n"
+          repair = "- Post-merge durability and migration-ledger hardening: [PR #58](https://github.com/linura-org/linura/pull/58), final exact head [`1a3a9b343d3830f384128fe6e42a2a0c2a394898`](https://github.com/linura-org/linura/commit/1a3a9b343d3830f384128fe6e42a2a0c2a394898), guarded squash-merged to protected main as [`4f6ad21aa45cbce783bdd6c6ef7e3cc347dca18b`](https://github.com/linura-org/linura/commit/4f6ad21aa45cbce783bdd6c6ef7e3cc347dca18b).\n"
+          if release_text.count(trace) != 1:
+              raise SystemExit("docs/releases/v0.4.0.md: PR #54 traceability anchor mismatch")
+          release.write_text(release_text.replace(trace, trace + repair, 1), encoding="utf-8")
+          PY
+          git diff --check
+
+      - name: Commit freeze and remove temporary workflow
+        env:
+          BRANCH: chore/v0.4.0-release-prep
+        run: |
+          set -euo pipefail
+          rm .github/workflows/v04-freeze-finalize.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md CHANGELOG.md docs/milestones/v0.4.0.md docs/roadmap.md docs/releases/v0.4.0.md .github/workflows/v04-freeze-finalize.yml
+          git diff --cached --check
+          git commit -m "chore(release): finalize v0.4.0 freeze metadata"
+          git push origin "HEAD:$BRANCH"
