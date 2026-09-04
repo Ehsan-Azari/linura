@@ -75,8 +75,9 @@ fn prepare(path: &Path, namespace: &str) -> Result<(), String> {
 
 fn abort(path: &Path, namespace: &str) -> Result<(), String> {
     let binding = binding(namespace)?;
-    let mut store = SqliteTransactionStore::open(path, authority()?, integrity_key()?)
-        .map_err(|error| error.to_string())?;
+    let mut store =
+        SqliteTransactionStore::open_for_terminal_recovery(path, authority()?, integrity_key()?)
+            .map_err(|error| error.to_string())?;
     let snapshot = store
         .snapshot(&binding.transaction_id())
         .map_err(|error| error.to_string())?;

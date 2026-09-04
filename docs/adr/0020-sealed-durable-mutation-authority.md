@@ -51,13 +51,15 @@ The no-effect/reprepare path continues to perform complete current authority re-
 
 ### 5. Capacity is a recoverability invariant, including real filesystem capacity
 
-Store limits are recovery invariants. `integrity_check` validates aggregate row counts for transactions, generations, and audit events against configured `StoreLimits` whenever the authority database is opened.
+Store limits are recovery invariants. `integrity_check` validates aggregate row counts for transactions, generations, and audit events against configured `StoreLimits` whenever the authority database is opened. A terminal-recovery open that was admitted under custom limits must receive the same limits contract; it cannot silently substitute defaults or replace the configured page-capacity boundary.
 
 The store also reserves at least one future logical audit slot and one preallocated SQLite page-reservation record for every current nonterminal transaction (`Prepared`, `Indeterminate`, or `Verified`). Admission accounts for events consumed by the transition and the resulting set of nonterminal transactions.
 
-SQLite page availability is not treated as equivalent to backing-filesystem availability. A separate same-directory recovery-reserve sidecar is physically written and `fsync`ed on the same filesystem as the authority database. The sidecar retains emergency WAL/filesystem headroom in addition to the in-database `audit_reservations`. Store-owned reservation changes reconcile that sidecar conservatively: failed database writes may leave excess reserved bytes, but must not leave less than the recoverability invariant. Terminal retirement consumes already reserved headroom before the corresponding SQLite/WAL write can require new filesystem blocks; nonterminal advancement must first retain the required future reserve.
+SQLite page availability is not treated as equivalent to backing-filesystem availability. A separate same-directory recovery-reserve sidecar is physically written and `fsync`ed on the same filesystem as the authority database. For any nonterminal durable authority state, the sidecar contains transaction recovery reservations plus one dedicated opener slot. A terminal-recovery open validates the authority database and reserve pathname enough to locate that sidecar, then deallocates only the physical blocks of the dedicated opener slot with a logical-length-preserving Linux hole punch before SQLite opens. This makes filesystem headroom available for SQLite/WAL reopen itself rather than waiting for a trigger that cannot run until after the database has opened.
 
-A permanent disposable-VM qualification mounts the authority database on a dedicated ext4 filesystem, drives that filesystem to genuine `ENOSPC`, starts a new process, retires a durable `Prepared` transaction to `Aborted`, then unmounts/remounts the same filesystem and verifies the terminal record. `PRAGMA max_page_count` tests remain useful but are not represented as evidence for real filesystem exhaustion.
+The released-opener state is deliberately narrow and fail-closed. Its logical sidecar length remains unchanged; validation accepts only the bounded one-slot sparse state. While that state is active, `prepare`, handoff, recovery advancement, and commit are denied. Only exact terminal retirement of a prepared transaction is permitted. If the process exits after opener release but before the terminal transition, a later normal open recognizes only that bounded sparse state and restores the opener reservation before admitting normal mutation. When the last nonterminal reservation becomes terminal, zero nonterminal durable authority requires zero sidecar reservation; the next admission must establish both its transaction reservation and the dedicated opener slot before committing the new nonterminal state.
+
+Store-owned reservation changes reconcile the sidecar conservatively: failed database writes may leave provably excess reserved bytes, but must not hide missing required capacity. A permanent disposable-VM qualification mounts the authority database on a dedicated ext4 filesystem, drives that filesystem to genuine `ENOSPC`, starts a new process, releases only the qualified opener headroom, retires a durable `Prepared` transaction to `Aborted`, then unmounts/remounts the same filesystem and verifies the terminal record. `PRAGMA max_page_count` tests remain useful but are not represented as evidence for real filesystem exhaustion.
 
 ### 6. Retained history is immutable independently of caller PRAGMAs
 
@@ -91,11 +93,15 @@ The canonical generation schema enforces the domain maximum for `binding_canonic
 
 Live-schema validation additionally bounds both individual schema fields and the aggregate number/encoded byte size of schema objects before accumulating their canonical fingerprint input. A legacy, tampered, or otherwise malformed database therefore fails closed with a typed corruption/schema error rather than allocating attacker-controlled persistence input up to the database size.
 
-### 10. The authority-store schema is a repository-visible migration
+### 10. The authority-store schema is a repository-visible migration chain
 
-The durable SQLite format is not defined only by an embedded Rust string. Migration `0001-v04-hardened-authority-transactions` has a versioned descriptor under `migrations/system/`.
+The durable SQLite format is not defined only by embedded Rust strings. Released migration IDs are repository-visible, immutable entries under `migrations/system/`, and their ledger checksums are independently domain-separated.
 
-Its explicit preconditions require a fresh SQLite identity (`application_id == 0`, `user_version == 0`), no non-SQLite application schema objects, and provisioned verifier/integrity identities. Application remains idempotent through the SQLite identity checks. Before the migration is considered installed, the adapter verifies the live canonical schema and the `schema_migrations` ledger entry whose checksum is domain-separated as `linura.sqlite.migration.v1`. A precondition or verification mismatch fails closed; released migration IDs are never reused.
+Migration `0001-v04-hardened-authority-transactions` remains the immutable schema-v1 foundation. Its descriptor requires a fresh SQLite identity (`application_id == 0`, `user_version == 0`), no non-SQLite application schema objects, and provisioned verifier/integrity identities. Its exact embedded SQL and `schema_migrations` checksum remain unchanged and are authenticated with the `linura.sqlite.migration.v1` checksum domain.
+
+Migration `0002-v04-terminal-recovery-opener-headroom` is the only migration that replaces the filesystem-reservation release trigger needed by the pre-open ENOSPC recovery invariant. It is authenticated with the `linura.sqlite.migration.v2` checksum domain. Before a schema-v1 authority database may advance, the adapter verifies the application identity, exact durable verifier/integrity identity, an exact one-entry V1 migration ledger, the immutable V1 checksum, and the complete V1 live-schema fingerprint. Only then does one immediate transaction apply V2, append the V2 ledger entry, and advance `user_version` to 2.
+
+Fresh databases apply V1 and then V2 in order and record both checksums. Reopened schema-v2 databases must contain exactly the supported V1 and V2 ledger entries, both exact checksums, and the final canonical schema fingerprint. A precondition, identity, checksum, ledger-cardinality, or schema-fingerprint mismatch fails closed. Released migration IDs and released migration bodies are never rewritten or reused.
 
 ## Security assessment
 
@@ -112,8 +118,10 @@ Required negative proofs for this boundary include:
 - a writer without `SqliteIntegrityKey` cannot create a trusted current generation or audit tail merely by making rows self-consistent;
 - oversized persisted binding/audit/schema inputs are rejected before unbounded Rust materialization;
 - a durable `Verified` generation can be resumed after restart using exactly its persisted signer-bound commit material;
-- a real ext4 `ENOSPC` condition still permits the qualified terminal retirement path using physically reserved same-filesystem headroom;
-- migration discovery can identify the durable authority-store format and independently verify its ID/preconditions/ledger contract;
+- a real ext4 `ENOSPC` condition still permits the qualified terminal retirement path using physically reserved same-filesystem pre-open headroom;
+- a schema-v1 authority store migrates forward without rewriting its V1 migration body or ledger checksum;
+- terminal recovery under non-default `StoreLimits` preserves the same capacity contract used to admit the store;
+- migration discovery can identify the durable authority-store migration chain and independently verify its ordered IDs, preconditions, ledger entries, checksum domains, and live schema;
 - none of these mechanisms creates executor, Polkit, or external Linux mutation authority in v0.4.
 
 ## Consequences
@@ -124,5 +132,5 @@ Required negative proofs for this boundary include:
 - Restart after durable verification does not lose the exact commit evidence chain or require recomputation.
 - Raw database write permission is not confused with trusted authority-state authorship; keyed record authentication detects unauthorized durable-state fabrication.
 - Logical audit capacity, SQLite page capacity, and real filesystem/WAL headroom are distinct invariants and are qualified independently.
-- The authority schema is registered in the repository migration catalog instead of existing only inside adapter source.
-- ADR 0019 remains the primary durable-transaction design; this ADR is the authoritative refinement for sealed mutations, current-principal binding, serialized freshness, verifier/integrity identity, immutable authenticated storage, durable verified resume, bounded persistence input, migration registration, and recoverability capacity.
+- The authority schema migration chain is registered in the repository migration catalog, and released migration bodies/checksums remain immutable rather than being rewritten in place.
+- ADR 0019 remains the primary durable-transaction design; this ADR is the authoritative refinement for sealed mutations, current-principal binding, serialized freshness, verifier/integrity identity, immutable authenticated storage, durable verified resume, bounded persistence input, migration-chain registration, and recoverability capacity.

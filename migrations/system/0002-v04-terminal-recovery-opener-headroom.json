@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "0002-v04-terminal-recovery-opener-headroom",
+  "introduced_in": "0.4.0",
+  "scope": "system",
+  "reversible": false,
+  "requires_snapshot": false,
+  "preconditions": [
+    "sqlite.application_id == 0x4c4e5254",
+    "sqlite.user_version == 1",
+    "schema_migrations contains exactly the canonical 0001-v04-hardened-authority-transactions checksum",
+    "installed SQLite schema fingerprint matches immutable MIGRATION_V1",
+    "transaction authority verifier fingerprint and SQLite record-integrity fingerprint match the durable authority-store identity"
+  ],
+  "verification": {
+    "ledger": "schema_migrations",
+    "ledger_id": "0002-v04-terminal-recovery-opener-headroom",
+    "checksum_domain": "linura.sqlite.migration.v2"
+  }
+}
