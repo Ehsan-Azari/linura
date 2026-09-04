@@ -18,8 +18,8 @@ use crate::validation::{
     initialize_or_validate_schema, list_transaction_ids, load_current, load_last_audit_event,
     pragma_i64, pragma_string, reservation_bytes, sqlite, transaction_tag,
     validate_aggregate_capacity, validate_audit_chain, validate_generation_history,
-    validate_logical_audit_reserve, validate_physical_reservations, validate_runtime_settings,
-    validate_schema_identity,
+    validate_logical_audit_reserve, validate_physical_reservations_locked, validate_runtime_settings,
+    validate_schema_identity, with_immediate_validation,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -549,9 +549,6 @@ impl TransactionStore for SqliteTransactionStore {
             binding.digest(),
             false,
         )?;
-        // The reserve is allocated last but remains inside the same SQLite
-        // transaction. If physical page capacity cannot hold a guaranteed exit
-        // audit, the entire prepare rolls back before Prepared becomes durable.
         Self::ensure_audit_reservations(&transaction, &transaction_id, 1)?;
         transaction.commit().map_err(sqlite)?;
         Ok(PrepareOutcome::Created(TransactionSnapshot {
@@ -1038,72 +1035,82 @@ impl TransactionStore for SqliteTransactionStore {
     }
 
     fn integrity_check(&self) -> Result<(), TransactionStoreError> {
-        validate_runtime_settings(&self.connection, self.limits)?;
-        validate_schema_identity(
-            &self.connection,
-            &self.authority_verifier.fingerprint(),
-            &self.integrity_key.fingerprint(),
-        )?;
-        validate_aggregate_capacity(
-            &self.connection,
-            "transactions",
-            self.limits.max_transactions,
-        )?;
-        validate_aggregate_capacity(&self.connection, "generations", self.limits.max_generations)?;
-        validate_aggregate_capacity(
-            &self.connection,
-            "audit_events",
-            self.limits.max_audit_events,
-        )?;
-        validate_logical_audit_reserve(&self.connection, self.limits)?;
-
-        let integrity: String = self
-            .connection
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-            .map_err(sqlite)?;
-        if integrity != "ok" {
-            return Err(TransactionStoreError::Corruption(format!(
-                "SQLite integrity_check returned {integrity:?}"
-            )));
-        }
-        let mut foreign = self
-            .connection
-            .prepare("PRAGMA foreign_key_check")
-            .map_err(sqlite)?;
-        if foreign
-            .query([])
-            .map_err(sqlite)?
-            .next()
-            .map_err(sqlite)?
-            .is_some()
-        {
-            return Err(TransactionStoreError::Corruption(
-                "SQLite foreign_key_check reported violations".into(),
-            ));
-        }
-        drop(foreign);
-
-        for transaction_id in list_transaction_ids(&self.connection)? {
-            let (transaction, _, _) =
-                load_current(&self.connection, &self.integrity_key, &transaction_id)?;
-            validate_generation_history(
+        // Every cross-statement validation below must observe one durable
+        // database state. BEGIN IMMEDIATE serializes this complete pass with
+        // all authority writers before the first runtime/schema/capacity read;
+        // filesystem-sidecar reconciliation therefore consumes exactly the
+        // same authenticated state as transaction/generation/audit validation.
+        with_immediate_validation(&self.connection, || {
+            validate_runtime_settings(&self.connection, self.limits)?;
+            validate_schema_identity(
                 &self.connection,
-                &self.integrity_key,
-                &transaction_id,
-                transaction.current_generation,
-                self.limits,
+                &self.authority_verifier.fingerprint(),
+                &self.integrity_key.fingerprint(),
             )?;
-            validate_audit_chain(
+            validate_aggregate_capacity(
                 &self.connection,
-                &self.integrity_key,
-                &transaction_id,
-                transaction.current_generation,
-                transaction.state_version,
-                self.limits,
+                "transactions",
+                self.limits.max_transactions,
             )?;
-        }
-        validate_physical_reservations(&self.connection, &self.integrity_key)?;
-        Ok(())
+            validate_aggregate_capacity(
+                &self.connection,
+                "generations",
+                self.limits.max_generations,
+            )?;
+            validate_aggregate_capacity(
+                &self.connection,
+                "audit_events",
+                self.limits.max_audit_events,
+            )?;
+            validate_logical_audit_reserve(&self.connection, self.limits)?;
+
+            let integrity: String = self
+                .connection
+                .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+                .map_err(sqlite)?;
+            if integrity != "ok" {
+                return Err(TransactionStoreError::Corruption(format!(
+                    "SQLite integrity_check returned {integrity:?}"
+                )));
+            }
+            let mut foreign = self
+                .connection
+                .prepare("PRAGMA foreign_key_check")
+                .map_err(sqlite)?;
+            if foreign
+                .query([])
+                .map_err(sqlite)?
+                .next()
+                .map_err(sqlite)?
+                .is_some()
+            {
+                return Err(TransactionStoreError::Corruption(
+                    "SQLite foreign_key_check reported violations".into(),
+                ));
+            }
+            drop(foreign);
+
+            for transaction_id in list_transaction_ids(&self.connection)? {
+                let (transaction, _, _) =
+                    load_current(&self.connection, &self.integrity_key, &transaction_id)?;
+                validate_generation_history(
+                    &self.connection,
+                    &self.integrity_key,
+                    &transaction_id,
+                    transaction.current_generation,
+                    self.limits,
+                )?;
+                validate_audit_chain(
+                    &self.connection,
+                    &self.integrity_key,
+                    &transaction_id,
+                    transaction.current_generation,
+                    transaction.state_version,
+                    self.limits,
+                )?;
+            }
+            validate_physical_reservations_locked(&self.connection, &self.integrity_key)
+        })
     }
 }
 
