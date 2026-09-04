@@ -13,7 +13,6 @@ permissions:
 jobs:
   refresh:
     name: refresh workspace package versions only
-    if: ${{ !contains(github.event.head_commit.message, 'chore(release): refresh v0.4 lockfile') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -40,16 +39,12 @@ jobs:
           import tomllib
 
           before_path, after_path = sys.argv[1:]
-          before_text = open(before_path, encoding="utf-8").read()
-          after_text = open(after_path, encoding="utf-8").read()
-          before = tomllib.loads(before_text)
-          after = tomllib.loads(after_text)
-
+          before = tomllib.loads(open(before_path, encoding="utf-8").read())
+          after = tomllib.loads(open(after_path, encoding="utf-8").read())
           before_packages = {p["name"]: p for p in before["package"]}
           after_packages = {p["name"]: p for p in after["package"]}
           expected = {
-              name
-              for name, package in before_packages.items()
+              name for name, package in before_packages.items()
               if "source" not in package and package.get("version") == "0.3.0"
           }
           changed = set()
@@ -65,10 +60,8 @@ jobs:
                   if old_copy != new_copy or old_version != "0.3.0" or new_version != "0.4.0" or "source" in old:
                       raise SystemExit(f"unexpected lockfile mutation for {name}: {old_version!r} -> {new_version!r}")
                   changed.add(name)
-          if changed != expected:
-              raise SystemExit(f"workspace lockfile version set mismatch: expected={sorted(expected)} changed={sorted(changed)}")
-          if not changed:
-              raise SystemExit("no workspace package versions changed")
+          if changed != expected or not changed:
+              raise SystemExit(f"workspace version-set mismatch: expected={sorted(expected)} changed={sorted(changed)}")
           print(f"verified {len(changed)} workspace package version updates")
           PY
 
