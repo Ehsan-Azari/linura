@@ -30,6 +30,8 @@ EXPECTED_RULE_PACKAGES = {
     "linura-lifecycle",
     "linura-agent-runtime",
     "linura-provenance",
+    "linura-transaction",
+    "linura-persistence-sqlite",
     "linura-control",
     "linura-sdk",
     "linura-linux-observation",
@@ -38,6 +40,12 @@ EXPECTED_RULE_PACKAGES = {
 }
 POLICY_ORCHESTRATOR = "linura-control"
 POLICY_PACKAGE = "linura-policy"
+TRANSACTION_PACKAGE = "linura-transaction"
+TRANSACTION_CONSUMERS = {"linura-control", "linura-persistence-sqlite"}
+PERSISTENCE_PACKAGE = "linura-persistence-sqlite"
+PERSISTENCE_CONSUMERS: set[str] = set()
+TRANSACTION_PACKAGE = "linura-transaction"
+TRANSACTION_ALLOWED_CONSUMERS = {"linura-control", "linura-persistence-sqlite"}
 
 
 def resolved_dependency_name(
@@ -155,19 +163,53 @@ def validate(root: Path) -> list[str]:
         failures.append(f"cannot load workspace for layering validation: {error}")
         return failures
 
-    # Policy is an internal authority domain consumed by Linura Control only.
-    # Keeping this as a global dependency invariant is stronger than relying on
-    # per-package deny lists and prevents a new workspace member from silently
-    # becoming a second policy orchestration path.
-    policy_consumers: set[str] = set()
+    all_dependencies: dict[str, set[str]] = {}
     for package, manifest_path in manifests.items():
         manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-        if POLICY_PACKAGE in dependency_names(manifest, workspace_dependencies):
-            policy_consumers.add(package)
+        all_dependencies[package] = dependency_names(manifest, workspace_dependencies)
+
+    policy_consumers = {
+        package for package, dependencies in all_dependencies.items() if POLICY_PACKAGE in dependencies
+    }
     if policy_consumers != {POLICY_ORCHESTRATOR}:
         failures.append(
             "linura-policy must be consumed only by linura-control; found policy consumers: "
             f"{sorted(policy_consumers)}"
+        )
+
+    transaction_consumers: set[str] = set()
+    persistence_consumers: set[str] = set()
+    for package, manifest_path in manifests.items():
+        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+        dependencies = dependency_names(manifest, workspace_dependencies)
+        if TRANSACTION_PACKAGE in dependencies:
+            transaction_consumers.add(package)
+        if PERSISTENCE_PACKAGE in dependencies:
+            persistence_consumers.add(package)
+    if transaction_consumers != TRANSACTION_CONSUMERS:
+        failures.append(
+            "linura-transaction may be consumed only by Control and the SQLite adapter; found: "
+            f"{sorted(transaction_consumers)}"
+        )
+    if persistence_consumers != PERSISTENCE_CONSUMERS:
+        failures.append(
+            "linura-persistence-sqlite has no direct production consumer in v0.4; found: "
+            f"{sorted(persistence_consumers)}"
+        )
+
+    transaction_consumers = {
+        package
+        for package, dependencies in all_dependencies.items()
+        if TRANSACTION_PACKAGE in dependencies
+    }
+    unexpected_transaction_consumers = sorted(
+        transaction_consumers - TRANSACTION_ALLOWED_CONSUMERS
+    )
+    if unexpected_transaction_consumers:
+        failures.append(
+            "linura-transaction may be consumed only by linura-control and "
+            "linura-persistence-sqlite; found unexpected consumers: "
+            f"{unexpected_transaction_consumers}"
         )
 
     rules = contract.get("rules", [])
@@ -193,10 +235,9 @@ def validate(root: Path) -> list[str]:
             failures.append(f"layering rule references unknown workspace package {package}")
             continue
 
-        manifest = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
-        all_dependencies = dependency_names(manifest, workspace_dependencies)
-        local_dependencies = all_dependencies & workspace_names
-        external_dependencies = all_dependencies - workspace_names
+        dependencies = all_dependencies[package]
+        local_dependencies = dependencies & workspace_names
+        external_dependencies = dependencies - workspace_names
 
         def string_list(field: str) -> list[str]:
             value = rule.get(field, [])

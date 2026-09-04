@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use linura_core::{Actor, PlanId};
 use linura_graph::SystemGraph;
-use linura_observation::FreshnessState;
+use linura_observation::{FreshnessState, ObservationEnvelope};
 use linura_observation_control::{ObservationControlError, ObservationCoordinator};
 use linura_planner::{
     DesiredResource, DesiredState, DeterministicPlanner, PlanFindingLevel, PlanStatus,
@@ -341,6 +341,36 @@ impl PlanPreviewControl {
             coordinator,
             previews: PreviewStore::default(),
         }
+    }
+
+    /// Build a fresh canonical authority candidate without retaining or exposing
+    /// executable authority. The public desired request is normalized here, but
+    /// observation and planning remain Control-owned trusted derivations.
+    pub(crate) fn authority_candidate(
+        &mut self,
+        principal: AuthenticatedPrincipal,
+        actor: Actor,
+        request: PlanDesiredStateRequest,
+    ) -> Result<(ReconciliationPlan, ObservationEnvelope), PlanPreviewControlError> {
+        let input = NormalizedPlanInput::new(principal, request)?;
+        let observation_request = ObservationRequest {
+            provider: input.request.provider.clone(),
+            resource: input.request.resource.clone(),
+            capability: input.request.observation_capability.clone(),
+        };
+        let response = self.coordinator.observe(&observation_request)?;
+        let observation = planning_observation(&response);
+        let plan = DeterministicPlanner
+            .plan_resource(
+                input.request.request_id.clone(),
+                actor,
+                input.desired_resource(),
+                &observation,
+            )
+            .map_err(|error| PlanPreviewControlError::Planning {
+                reason: error.to_string(),
+            })?;
+        Ok((plan, response.observation))
     }
 
     pub fn provider_snapshot(&self) -> Result<ProviderSnapshot, ObservationControlError> {
@@ -722,7 +752,7 @@ mod tests {
 
     fn plan(input: &NormalizedPlanInput, actor: Actor, evidence: &str) -> ReconciliationPlan {
         let response = ObservationResponse {
-            observation: linura_observation::ObservationEnvelope {
+            observation: ObservationEnvelope {
                 provider: input.request.provider.clone(),
                 resource: input.request.resource.clone(),
                 capability: input.request.observation_capability.clone(),

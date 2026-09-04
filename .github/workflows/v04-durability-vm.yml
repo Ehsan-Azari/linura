@@ -1,0 +1,374 @@
+name: v0.4 durability fault qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/v04-durability-vm.yml"
+      - "crates/linura-transaction/**"
+      - "crates/linura-persistence-sqlite/**"
+      - "crates/linura-control/**"
+      - "tools/vm.py"
+      - "tools/codex/versions.env"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/milestones/v0.4.0.md"
+      - "docs/releases/v0.4.0.md"
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_IMAGE_URL: https://cloud-images.ubuntu.com/releases/noble/release-20260725/ubuntu-24.04-server-cloudimg-amd64.img
+  BASE_IMAGE_SHA256: d1940f7d69d343355e183dff1e08a59852d32e7309baa7a4bad8365b11b005ac
+  VM_ACCELERATION: tcg
+
+jobs:
+  durability:
+    name: exact-source SQLite/WAL crash and power-loss qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact source and load toolchain contract
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Qualify deterministic write-denial behavior
+        run: cargo test --locked -p linura-persistence-sqlite --test write_failure
+
+      - name: Build exact-source fault probe
+        run: cargo build --release --locked -p linura-persistence-sqlite --example v04_fault_probe
+
+      - name: Install disposable VM harness dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cloud-image-utils \
+            openssh-client \
+            qemu-system-x86 \
+            qemu-utils
+
+      - name: Download and verify pinned Ubuntu cloud image
+        run: |
+          set -euo pipefail
+          case "$BASE_IMAGE_URL" in
+            https://cloud-images.ubuntu.com/*) ;;
+            *) echo "base image must come from the pinned Ubuntu cloud-image origin" >&2; exit 2 ;;
+          esac
+          [[ "$BASE_IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          base_image="$RUNNER_TEMP/ubuntu-noble-base.qcow2"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$base_image" "$BASE_IMAGE_URL"
+          printf '%s  %s\n' "$BASE_IMAGE_SHA256" "$base_image" | sha256sum --check --strict
+          qemu-img info "$base_image"
+          printf 'BASE_IMAGE=%s\n' "$base_image" >> "$GITHUB_ENV"
+
+      - name: Create persistent disposable guest and cloud-init identity
+        run: |
+          set -euo pipefail
+          vm_image="$RUNNER_TEMP/linura-v04-durability.qcow2"
+          seed_image="$RUNNER_TEMP/linura-v04-durability-seed.img"
+          ssh_key="$RUNNER_TEMP/linura-v04-durability-key"
+          artifact_dir="$RUNNER_TEMP/linura-v04-durability-artifacts"
+          user_data="$RUNNER_TEMP/v04-user-data"
+          meta_data="$RUNNER_TEMP/v04-meta-data"
+          network_config="$RUNNER_TEMP/v04-network-config"
+
+          cp --reflink=auto "$BASE_IMAGE" "$vm_image"
+          ssh-keygen -q -t ed25519 -N '' -f "$ssh_key"
+          public_key="$(cat "$ssh_key.pub")"
+
+          cat > "$user_data" <<EOF
+          #cloud-config
+          users:
+            - default
+            - name: linura
+              groups: [adm, sudo]
+              shell: /bin/bash
+              sudo:
+                - ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $public_key
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          EOF
+
+          cat > "$meta_data" <<EOF
+          instance-id: linura-v04-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          local-hostname: linura-v04-durability
+          EOF
+
+          cat > "$network_config" <<'EOF'
+          version: 2
+          ethernets:
+            primary:
+              match:
+                name: "en*"
+              dhcp4: true
+          EOF
+
+          cloud-localds --network-config="$network_config" \
+            "$seed_image" "$user_data" "$meta_data"
+          mkdir -p "$artifact_dir"
+          {
+            printf 'VM_IMAGE=%s\n' "$vm_image"
+            printf 'SEED_IMAGE=%s\n' "$seed_image"
+            printf 'SSH_KEY=%s\n' "$ssh_key"
+            printf 'ARTIFACT_DIR=%s\n' "$artifact_dir"
+          } >> "$GITHUB_ENV"
+
+      - name: Start persistent disposable guest
+        run: |
+          set -euo pipefail
+          vm_log="$ARTIFACT_DIR/qemu-first-boot.log"
+          python3 tools/vm.py start \
+            --persistent \
+            --image "$VM_IMAGE" \
+            --seed "$SEED_IMAGE" \
+            --ssh-port 2222 \
+            --accel "$VM_ACCELERATION" \
+            >"$vm_log" 2>&1 &
+          printf 'VM_PID=%s\n' "$!" >> "$GITHUB_ENV"
+
+      - name: Wait for first boot and install exact-source probe
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          ready=0
+          for _ in $(seq 1 120); do
+            if ! kill -0 "$VM_PID" 2>/dev/null; then
+              echo "VM exited before SSH became ready" >&2
+              cat "$ARTIFACT_DIR/qemu-first-boot.log" >&2
+              exit 1
+            fi
+            if ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 true >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'cloud-init status --wait --long'
+          scp "${ssh_common[@]}" -P 2222 \
+            target/release/examples/v04_fault_probe \
+            linura@127.0.0.1:/tmp/linura-v04-fault-probe
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'sudo -n install -o root -g root -m 0755 /tmp/linura-v04-fault-probe /usr/local/bin/linura-v04-fault-probe && sudo -n install -d -o linura -g linura -m 0700 /var/lib/linura-v04 && rm -f /tmp/linura-v04-fault-probe'
+
+      - name: Qualify process SIGKILL after acknowledged durable handoff
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'linura-v04-fault-probe prepare /var/lib/linura-v04/process.db process-kill'
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'rm -f /tmp/v04-process.ready /tmp/v04-process.pid /tmp/v04-process.log; nohup linura-v04-fault-probe handoff-wait /var/lib/linura-v04/process.db process-kill /tmp/v04-process.ready >/tmp/v04-process.log 2>&1 </dev/null & echo $! >/tmp/v04-process.pid'
+          ready=0
+          for _ in $(seq 1 60); do
+            if ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'test -s /tmp/v04-process.ready' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'kill -9 "$(cat /tmp/v04-process.pid)"; sleep 1; linura-v04-fault-probe inspect-indeterminate /var/lib/linura-v04/process.db process-kill; cat /tmp/v04-process.ready; cat /tmp/v04-process.log'
+
+      - name: Create acknowledged handoff for abrupt guest power interruption
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'linura-v04-fault-probe prepare /var/lib/linura-v04/power.db guest-power-kill'
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'rm -f /tmp/v04-power.ready /tmp/v04-power.pid /tmp/v04-power.log; nohup linura-v04-fault-probe handoff-wait /var/lib/linura-v04/power.db guest-power-kill /tmp/v04-power.ready >/tmp/v04-power.log 2>&1 </dev/null & echo $! >/tmp/v04-power.pid'
+          ready=0
+          for _ in $(seq 1 60); do
+            if ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'test -s /tmp/v04-power.ready' >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'cat /tmp/v04-power.ready'
+
+      - name: Abruptly power off QEMU after acknowledgement
+        run: |
+          set -euo pipefail
+          kill -9 "$VM_PID"
+          wait "$VM_PID" 2>/dev/null || true
+          sleep 2
+
+      - name: Restart the same persistent disposable image
+        run: |
+          set -euo pipefail
+          vm_log="$ARTIFACT_DIR/qemu-restart.log"
+          python3 tools/vm.py start \
+            --persistent \
+            --image "$VM_IMAGE" \
+            --seed "$SEED_IMAGE" \
+            --ssh-port 2222 \
+            --accel "$VM_ACCELERATION" \
+            >"$vm_log" 2>&1 &
+          printf 'VM_PID=%s\n' "$!" >> "$GITHUB_ENV"
+
+      - name: Verify sticky indeterminate state after guest power loss and WAL checkpoint
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          ready=0
+          for _ in $(seq 1 120); do
+            if ! kill -0 "$VM_PID" 2>/dev/null; then
+              echo "restarted VM exited before SSH became ready" >&2
+              cat "$ARTIFACT_DIR/qemu-restart.log" >&2
+              exit 1
+            fi
+            if ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 true >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+          ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 \
+            'linura-v04-fault-probe inspect-indeterminate /var/lib/linura-v04/power.db guest-power-kill && linura-v04-fault-probe checkpoint-inspect /var/lib/linura-v04/power.db guest-power-kill && findmnt -no FSTYPE,OPTIONS / && uname -a'
+
+      - name: Record exact-source durability evidence
+        run: |
+          set -euo pipefail
+          ssh_common=(
+            -i "$SSH_KEY"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ConnectTimeout=3
+          )
+          filesystem="$(ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'findmnt -no FSTYPE /')"
+          kernel="$(ssh "${ssh_common[@]}" -p 2222 linura@127.0.0.1 'uname -r')"
+          export QUALIFIED_FILESYSTEM="$filesystem"
+          export GUEST_KERNEL="$kernel"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path.cwd()
+          artifact_dir = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          probe = root / "target/release/examples/v04_fault_probe"
+          evidence = {
+              "schema_version": 1,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "result": "passed",
+              "qualified_boundary": {
+                  "database": "SQLite WAL",
+                  "synchronous": "FULL",
+                  "guest_filesystem": os.environ["QUALIFIED_FILESYSTEM"].strip(),
+                  "guest_kernel": os.environ["GUEST_KERNEL"].strip(),
+                  "hypervisor": "QEMU TCG",
+                  "image_mode": "persistent disposable copied qcow2",
+              },
+              "faults": [
+                  "transaction process SIGKILL after acknowledged Prepared->Indeterminate commit",
+                  "QEMU SIGKILL after acknowledged Prepared->Indeterminate commit followed by same-image restart",
+                  "deterministic SQLite write-denial test",
+                  "WAL FULL checkpoint after restart",
+              ],
+              "unsupported": [
+                  "coherent host/VM snapshot rollback detection",
+                  "arbitrary storage hardware durability beyond the qualified stack",
+                  "any Linura-managed external machine mutation",
+              ],
+              "probe": {
+                  "path": "crates/linura-persistence-sqlite/examples/v04_fault_probe.rs",
+                  "sha256": hashlib.sha256(probe.read_bytes()).hexdigest(),
+                  "size": probe.stat().st_size,
+              },
+              "base_image": {
+                  "url": os.environ["BASE_IMAGE_URL"],
+                  "sha256": os.environ["BASE_IMAGE_SHA256"],
+              },
+              "toolchain": {
+                  "rustc": subprocess.check_output(["rustc", "-Vv"], text=True).strip(),
+                  "qemu": subprocess.check_output(["qemu-system-x86_64", "--version"], text=True).splitlines()[0],
+              },
+              "workflow": {
+                  "path": ".github/workflows/v04-durability-vm.yml",
+                  "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+              },
+          }
+          output = artifact_dir / "V04-DURABILITY-EVIDENCE.json"
+          output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"wrote {output}")
+          PY
+
+      - name: Stop disposable guest
+        if: always()
+        run: |
+          set +e
+          if [[ -n "${VM_PID:-}" ]]; then
+            kill "$VM_PID" 2>/dev/null || true
+            wait "$VM_PID" 2>/dev/null || true
+          fi
+
+      - name: Upload v0.4 durability evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linura-v04-durability-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/linura-v04-durability-artifacts/
+          if-no-files-found: error
+          retention-days: 30

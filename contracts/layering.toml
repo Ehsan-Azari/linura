@@ -10,109 +10,121 @@ transport_role = "adapter-only"
 
 [[rules]]
 package = "linura-core"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-intent"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-capability-sdk"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-planner"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-observation"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-provider-sdk"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-graph"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-observation-control"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-protocol"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-policy"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-lifecycle"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-agent-runtime"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-provenance"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus"]
+
+[[rules]]
+package = "linura-transaction"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk", "linura-planner", "linura-protocol", "linura-persistence-sqlite"]
+forbid_local_prefixes = ["linura-executor-"]
+forbid_external = ["zbus", "rusqlite"]
+
+[[rules]]
+package = "linura-persistence-sqlite"
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk", "linura-planner", "linura-protocol"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-control"
-forbid_local = ["linura-dbus", "linura-linux-observation"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-sdk"
-forbid_local = ["linura-control", "linura-provider-sdk", "linura-policy", "linura-agent-runtime", "linura-linux-observation", "linura-observation-control"]
+forbid_local = ["linura-control", "linura-provider-sdk", "linura-policy", "linura-agent-runtime", "linura-linux-observation", "linura-observation-control", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = ["zbus"]
 
 [[rules]]
 package = "linura-linux-observation"
-forbid_local = ["linura-dbus", "linura-planner", "linura-policy", "linura-control", "linura-observation-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-planner", "linura-policy", "linura-control", "linura-observation-control", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = []
 
 [[rules]]
 package = "linura-dbus"
-forbid_local = ["linura-planner", "linura-policy", "linura-provider-sdk", "linura-linux-observation"]
+forbid_local = ["linura-planner", "linura-policy", "linura-provider-sdk", "linura-linux-observation", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = ["linura-executor-"]
 forbid_external = []
 
 [[rules]]
 package = "linura-executor-systemd"
-forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-planner", "linura-policy", "linura-control", "linura-agent-runtime", "linura-sdk"]
+forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-planner", "linura-policy", "linura-control", "linura-agent-runtime", "linura-sdk", "linura-transaction", "linura-persistence-sqlite"]
 forbid_local_prefixes = []
 forbid_external = []
 

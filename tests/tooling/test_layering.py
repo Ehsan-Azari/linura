@@ -170,15 +170,14 @@ class LayeringContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/layering.toml"
             text = contract.read_text(encoding="utf-8")
-            block = (
-                '[[rules]]\n'
-                'package = "linura-provenance"\n'
-                'forbid_local = ["linura-dbus", "linura-linux-observation", "linura-observation-control", "linura-provider-sdk", "linura-control", "linura-policy", "linura-agent-runtime", "linura-sdk"]\n'
-                'forbid_local_prefixes = ["linura-executor-"]\n'
-                'forbid_external = ["zbus"]\n\n'
-            )
-            self.assertIn(block, text)
-            contract.write_text(text.replace(block, "", 1), encoding="utf-8")
+            marker = '[[rules]]\npackage = "linura-provenance"\n'
+            start = text.find(marker)
+            self.assertNotEqual(start, -1)
+            end = text.find("[[rules]]", start + len(marker))
+            if end == -1:
+                end = text.find("[[markers]]", start + len(marker))
+            self.assertNotEqual(end, -1)
+            contract.write_text(text[:start] + text[end:], encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
