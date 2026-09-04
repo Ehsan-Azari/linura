@@ -4,6 +4,24 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-04
+
+Experimental durable reviewed-authority transaction and recovery foundation. Full release contract: [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).
+
+### Added
+- Persistence-neutral durable transaction/generation state with immutable exact authority bindings, stable idempotency, typed recovery outcomes, restart-safe verified material, and Control-owned signer/verifier separation.
+- SQLite/WAL authority persistence with application/schema identity, versioned migration ledger, keyed retained-record integrity, bounded persisted-input validation, logical/physical recovery reservations, and a same-filesystem emergency reserve.
+- Real ext4 ENOSPC and SQLite/WAL crash/power-loss qualification for the v0.4 recovery guarantees.
+
+### Changed
+- Persistence validation now serializes cross-statement integrity checks, authenticates complete retained generation history, validates the complete bounded migration ledger, and repairs only the exact one-slot filesystem-reserve deficit attributable to a rolled-back terminal transition.
+- Trusted Release Proof now reruns both v0.4 durability-fault and real-ENOSPC qualification before release build or promotion.
+
+### Boundaries
+- v0.4 remains Experimental and adds no supported executor, Polkit grant, apply/execute/mutate surface, generic command authority, or supported Linura-managed external effect.
+- Raw storage writers may alter bytes but cannot mint valid keyed integrity tags without the integrity key; coherent whole-database/filesystem/VM-snapshot rollback remains unsupported without a future protected monotonic anchor/restore protocol.
+- No supported distribution, machine class, hardware profile, or production-readiness claim is introduced.
+
 ## [0.3.0] - 2026-09-02
 
 Experimental policy, authorization, approval, and plan-review milestone. Full release contract: [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md).
