@@ -103,7 +103,7 @@ Models/agents remain unable to grant themselves authority.
 
 ## v0.4.0 — durable transaction and recovery foundation
 
-**Status:** planned  
+**Status:** implementation complete; publication pending
 **Target claim class:** Experimental
 
 Establish durable state required before Linura is allowed to depend on real external effects.
