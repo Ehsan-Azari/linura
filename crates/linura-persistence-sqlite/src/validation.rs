@@ -34,6 +34,7 @@ pub(crate) fn configure_connection(
     connection: &Connection,
     limits: StoreLimits,
 ) -> Result<(), TransactionStoreError> {
+    validate_pre_configuration_identity(connection)?;
     connection
         .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))
         .map_err(sqlite)?;
@@ -59,6 +60,39 @@ pub(crate) fn configure_connection(
         .pragma_update(None, "max_page_count", limits.max_pages)
         .map_err(sqlite)?;
     validate_runtime_settings(connection, limits)
+}
+
+fn validate_pre_configuration_identity(
+    connection: &Connection,
+) -> Result<(), TransactionStoreError> {
+    let application_id = pragma_i64(connection, "application_id")?;
+    let user_version = pragma_i64(connection, "user_version")?;
+    if application_id == 0 && user_version == 0 {
+        let object_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(sqlite)?;
+        if object_count == 0 {
+            return Ok(());
+        }
+        return Err(TransactionStoreError::UnsupportedSchema(
+            "unidentified authority database contains application schema objects".into(),
+        ));
+    }
+    if application_id != APPLICATION_ID {
+        return Err(TransactionStoreError::UnsupportedSchema(format!(
+            "application_id {application_id} is not Linura authority storage"
+        )));
+    }
+    if user_version != SCHEMA_VERSION {
+        return Err(TransactionStoreError::UnsupportedSchema(format!(
+            "database schema {user_version} is not supported schema {SCHEMA_VERSION}"
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn initialize_or_validate_schema(
@@ -505,6 +539,38 @@ mod tests {
     use std::fs;
 
     use super::*;
+
+    #[test]
+    fn configuration_rejects_unidentified_database_before_persistent_pragmas() {
+        let database = std::env::temp_dir().join(format!(
+            "linura-v04-preconfiguration-identity-{}.db",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&database);
+        let _ = fs::remove_file(format!("{}-wal", database.display()));
+        let _ = fs::remove_file(format!("{}-shm", database.display()));
+
+        let connection = Connection::open(&database)
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        connection
+            .execute_batch("CREATE TABLE foreign_application_state (id INTEGER PRIMARY KEY);")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        let before = pragma_string(&connection, "journal_mode")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+
+        assert!(matches!(
+            configure_connection(&connection, StoreLimits::default()),
+            Err(TransactionStoreError::UnsupportedSchema(_))
+        ));
+        let after = pragma_string(&connection, "journal_mode")
+            .unwrap_or_else(|error| unreachable!("{error}"));
+        assert_eq!(after, before);
+
+        drop(connection);
+        let _ = fs::remove_file(&database);
+        let _ = fs::remove_file(format!("{}-wal", database.display()));
+        let _ = fs::remove_file(format!("{}-shm", database.display()));
+    }
 
     #[test]
     fn immediate_validation_acquires_write_lock_before_scanning() {
