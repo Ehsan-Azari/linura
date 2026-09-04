@@ -34,7 +34,12 @@ pub(crate) fn configure_connection(
     connection: &Connection,
     limits: StoreLimits,
 ) -> Result<(), TransactionStoreError> {
-    validate_pre_configuration_identity(connection)?;
+    // Observe the current mode without requesting a persistent transition. For
+    // an existing authority database this matters under real ENOSPC: reopening
+    // must not need to rewrite journal configuration before the preallocated
+    // recovery reserve can be consumed by a terminal transition.
+    let observed_mode = pragma_string(connection, "journal_mode")?;
+    let uninitialized = validate_pre_configuration_identity(connection)?;
     connection
         .busy_timeout(Duration::from_millis(BUSY_TIMEOUT_MS))
         .map_err(sqlite)?;
@@ -46,9 +51,23 @@ pub(crate) fn configure_connection(
             "PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA recursive_triggers=ON; PRAGMA synchronous=FULL;",
         )
         .map_err(sqlite)?;
-    let mode: String = connection
-        .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
-        .map_err(sqlite)?;
+
+    let mode = if uninitialized {
+        if observed_mode.eq_ignore_ascii_case("wal") {
+            observed_mode
+        } else {
+            connection
+                .query_row("PRAGMA journal_mode=WAL", [], |row| row.get(0))
+                .map_err(sqlite)?
+        }
+    } else {
+        if !observed_mode.eq_ignore_ascii_case("wal") {
+            return Err(TransactionStoreError::UnsupportedSchema(format!(
+                "existing authority database journal mode must already be WAL, found {observed_mode}"
+            )));
+        }
+        observed_mode
+    };
     if !mode.eq_ignore_ascii_case("wal") {
         return Err(TransactionStoreError::UnsupportedSchema(format!(
             "SQLite WAL mode unavailable: {mode}"
@@ -62,9 +81,12 @@ pub(crate) fn configure_connection(
     validate_runtime_settings(connection, limits)
 }
 
+/// Validate enough durable identity to decide whether persistent SQLite
+/// configuration may be changed. Returns `true` only for a genuinely empty,
+/// unidentified database that is safe to initialize as Linura authority state.
 fn validate_pre_configuration_identity(
     connection: &Connection,
-) -> Result<(), TransactionStoreError> {
+) -> Result<bool, TransactionStoreError> {
     let application_id = pragma_i64(connection, "application_id")?;
     let user_version = pragma_i64(connection, "user_version")?;
     if application_id == 0 && user_version == 0 {
@@ -76,7 +98,7 @@ fn validate_pre_configuration_identity(
             )
             .map_err(sqlite)?;
         if object_count == 0 {
-            return Ok(());
+            return Ok(true);
         }
         return Err(TransactionStoreError::UnsupportedSchema(
             "unidentified authority database contains application schema objects".into(),
@@ -92,7 +114,7 @@ fn validate_pre_configuration_identity(
             "database schema {user_version} is not supported schema {SCHEMA_VERSION}"
         )));
     }
-    Ok(())
+    Ok(false)
 }
 
 pub(crate) fn initialize_or_validate_schema(
