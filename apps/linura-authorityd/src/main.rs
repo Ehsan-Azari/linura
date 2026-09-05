@@ -21,9 +21,8 @@ use linura_core::{
     Actor, ActorId, ActorKind, CapabilityId, PrincipalId, ProviderId, RequestId, SemanticReason,
 };
 use linura_executor_systemd::{
-    INTERFACE_NAME as EXECUTOR_INTERFACE, MANAGED_OPERATION as _, ManagedActiveState,
-    ManagedUnitName, OBJECT_PATH as EXECUTOR_OBJECT, SERVICE_NAME as EXECUTOR_SERVICE,
-    managed_active_state_effect,
+    INTERFACE_NAME as EXECUTOR_INTERFACE, ManagedActiveState, ManagedUnitName,
+    OBJECT_PATH as EXECUTOR_OBJECT, SERVICE_NAME as EXECUTOR_SERVICE, managed_active_state_effect,
 };
 use linura_linux_observation::SystemdObserver;
 use linura_observation_control::ObservationCoordinator;
@@ -36,11 +35,9 @@ use linura_provider_sdk::{
 use linura_transaction::TransactionAuthorityKey;
 use linura_verifier_systemd::{SystemdActiveStateExpectation, SystemdActiveStateVerifier};
 use zbus::message::Header;
-use zbus::zvariant::OwnedObjectPath;
 
 const SERVICE_NAME: &str = "org.linura.Authority1";
 const OBJECT_PATH: &str = "/org/linura/Authority1";
-const INTERFACE_NAME: &str = "org.linura.Authority1";
 const HUMAN_ACTION_ID: &str = "org.linura.authority.manage-systemd-active-state";
 const DEFAULT_STATE_DIR: &str = "/var/lib/linura-authority";
 const STATE_DIR_ENV: &str = "LINURA_AUTHORITY_STATE_DIR";
@@ -98,9 +95,11 @@ impl ManagedRuntime {
         )
         .map_err(|error| format!("cannot open durable authority store: {error}"))?;
 
+        let control_observer = SystemdObserver::connect()
+            .map_err(|error| format!("cannot connect authoritative systemd observer: {error}"))?;
         let mut coordinator = ObservationCoordinator::new();
         coordinator
-            .register_observer(Box::new(SystemdObserver::connect()?))
+            .register_observer(Box::new(control_observer))
             .map_err(|error| format!("cannot register authoritative systemd observer: {error}"))?;
         let previews = PlanPreviewControl::new(coordinator);
         let control = ManagedLifecycleControl::new(previews, store, authority_signer)
@@ -557,7 +556,10 @@ mod tests {
             request.resource.as_str(),
             "systemd:unit:linura-managed-example.service"
         );
-        assert_eq!(request.desired_state.get("active_state").map(String::as_str), Some("active"));
+        assert_eq!(
+            request.desired_state.get("active_state").map(String::as_str),
+            Some("active")
+        );
         assert!(managed_request("bad", "sshd.service", "active", "test").is_err());
         assert!(managed_request("bad", "linura-managed-example.service", "failed", "test").is_err());
     }
