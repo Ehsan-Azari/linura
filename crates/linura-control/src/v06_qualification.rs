@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use linura_core::{
-    Actor, ActorId, ActorKind, Capability, CapabilityId, PrincipalId, ProviderId, RequestId,
-    ResourceId, SemanticReason, SupportLevel,
+    Actor, ActorId, ActorKind, Capability, CapabilityId, IntentId, PrincipalId, ProviderId,
+    RequestId, ResourceId, SemanticReason, SupportLevel,
 };
 use linura_observation::{
     ObservationAuthority, ObservationEnvelope, ObservedValue, ProviderAvailability, ProviderHealth,
@@ -23,8 +23,8 @@ use linura_transaction::TransactionAuthorityKey;
 
 use crate::{
     AuthenticatedPrincipal, AuthorizedEffect, AuthorizedEffectExecutor, IndependentManagedVerifier,
-    ManagedLifecycleControl, ManagedLifecycleError, ManagedMutationReceipt, PlanPreviewControl,
-    TrustedHumanApproval, managed_request_id,
+    MANAGED_SYSTEMD_INTENT_ORIGIN, ManagedLifecycleControl, ManagedLifecycleError,
+    ManagedMutationReceipt, PlanPreviewControl, TrustedHumanApproval, managed_request_id,
 };
 
 const RESOURCE: &str = "systemd:unit:linura-managed-qualification.service";
@@ -32,6 +32,19 @@ static NEXT_DB: AtomicU64 = AtomicU64::new(1);
 
 fn value<T, E: Debug>(result: Result<T, E>) -> T {
     result.unwrap_or_else(|error| unreachable!("{error:?}"))
+}
+
+trait ResultErrorExt<T, E> {
+    fn error_or_unreachable(self) -> E;
+}
+
+impl<T, E> ResultErrorExt<T, E> for Result<T, E> {
+    fn error_or_unreachable(self) -> E {
+        match self {
+            Ok(_) => unreachable!("expected operation to fail"),
+            Err(error) => error,
+        }
+    }
 }
 
 fn now_unix_ms() -> u64 {
@@ -161,10 +174,7 @@ fn observation(state: &str, sequence: u64) -> ObservationEnvelope {
         observed_at_unix_ms: now_unix_ms(),
         valid_for_ms: 60_000,
         sequence,
-        attributes: BTreeMap::from([(
-            "active_state".into(),
-            ObservedValue::Text(state.into()),
-        )]),
+        attributes: BTreeMap::from([("active_state".into(), ObservedValue::Text(state.into()))]),
     }
 }
 
@@ -220,7 +230,7 @@ fn request_for(operation: &str, target_resource: &str, desired: &str) -> PlanDes
         observation_capability: capability_id(),
         reason: SemanticReason {
             summary: "v0.6 qualification".into(),
-            intent_ids: vec![],
+            intent_ids: vec![value(IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN))],
             requirement_ids: vec![],
             capability_ids: vec![],
         },
@@ -272,8 +282,12 @@ impl AuthorizedEffectExecutor for ScriptedExecutor {
         let disposition = self
             .disposition
             .unwrap_or(ExecutionDisposition::RejectedBeforeDispatch);
-        ExecutionOutcome::new(disposition, binding.dispatch_digest, "qualification executor")
-            .map_err(|error| error.to_string())
+        ExecutionOutcome::new(
+            disposition,
+            binding.dispatch_digest,
+            "qualification executor",
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -396,14 +410,11 @@ fn success_exact_retry_and_request_substitution_are_durable() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     let substituted = request("activate-once", "inactive");
-    let error = converge(
-        &mut control,
-        substituted,
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
-    assert!(matches!(error, ManagedLifecycleError::Authority(detail) if detail.contains("recovery request does not match")));
+    let error =
+        converge(&mut control, substituted, &mut executor, &mut verifier).error_or_unreachable();
+    assert!(
+        matches!(error, ManagedLifecycleError::Authority(detail) if detail.contains("recovery request does not match"))
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -451,7 +462,7 @@ fn denial_and_out_of_scope_requests_stop_before_dispatch() {
             &mut executor,
             &mut verifier,
         )
-        .unwrap_err();
+        .error_or_unreachable();
     assert!(matches!(denied, ManagedLifecycleError::ApprovalBoundary(_)));
 
     let bad_namespace = converge(
@@ -460,8 +471,11 @@ fn denial_and_out_of_scope_requests_stop_before_dispatch() {
         &mut executor,
         &mut verifier,
     )
-    .unwrap_err();
-    assert!(matches!(bad_namespace, ManagedLifecycleError::UnsupportedEffect(_)));
+    .error_or_unreachable();
+    assert!(matches!(
+        bad_namespace,
+        ManagedLifecycleError::UnsupportedEffect(_)
+    ));
 
     let bad_state = converge(
         &mut control,
@@ -469,8 +483,11 @@ fn denial_and_out_of_scope_requests_stop_before_dispatch() {
         &mut executor,
         &mut verifier,
     )
-    .unwrap_err();
-    assert!(matches!(bad_state, ManagedLifecycleError::UnsupportedEffect(_)));
+    .error_or_unreachable();
+    assert!(matches!(
+        bad_state,
+        ManagedLifecycleError::UnsupportedEffect(_)
+    ));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
@@ -487,7 +504,7 @@ fn stale_authoritative_evidence_fails_before_dispatch() {
         &mut executor,
         &mut verifier,
     )
-    .unwrap_err();
+    .error_or_unreachable();
     assert!(error.to_string().contains("stale"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
@@ -501,26 +518,15 @@ fn executor_failure_becomes_indeterminate_and_never_redispatches() {
     let mut verifier = ScriptedVerifier::new([]);
     let desired = request("executor-failure", "active");
 
-    let first = converge(
-        &mut control,
-        desired.clone(),
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+        .error_or_unreachable();
     assert!(matches!(first, ManagedLifecycleError::Executor(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    let mut retry_verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
-    let retry = converge(
-        &mut control,
-        desired,
-        &mut executor,
-        &mut retry_verifier,
-    )
-    .unwrap_err();
+    let mut retry_verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
+    let retry =
+        converge(&mut control, desired, &mut executor, &mut retry_verifier).error_or_unreachable();
     assert!(matches!(retry, ManagedLifecycleError::Indeterminate(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -534,26 +540,15 @@ fn verifier_transport_failure_never_commits_or_replays() {
     let desired = request("verifier-failure", "active");
     let mut verifier = ScriptedVerifier::new([VerifierStep::Failure]);
 
-    let first = converge(
-        &mut control,
-        desired.clone(),
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+        .error_or_unreachable();
     assert!(matches!(first, ManagedLifecycleError::Verification(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    let mut retry_verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
-    let retry = converge(
-        &mut control,
-        desired,
-        &mut executor,
-        &mut retry_verifier,
-    )
-    .unwrap_err();
+    let mut retry_verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
+    let retry =
+        converge(&mut control, desired, &mut executor, &mut retry_verifier).error_or_unreachable();
     assert!(matches!(retry, ManagedLifecycleError::Indeterminate(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -566,30 +561,18 @@ fn indeterminate_execution_never_blindly_replays() {
     let mut executor =
         ScriptedExecutor::outcome(ExecutionDisposition::Indeterminate, calls.clone());
     let desired = request("indeterminate-dispatch", "active");
-    let mut verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
+    let mut verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
 
-    let first = converge(
-        &mut control,
-        desired.clone(),
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+        .error_or_unreachable();
     assert!(matches!(first, ManagedLifecycleError::Indeterminate(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    let mut retry_verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
-    let retry = converge(
-        &mut control,
-        desired,
-        &mut executor,
-        &mut retry_verifier,
-    )
-    .unwrap_err();
+    let mut retry_verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
+    let retry =
+        converge(&mut control, desired, &mut executor, &mut retry_verifier).error_or_unreachable();
     assert!(matches!(retry, ManagedLifecycleError::Indeterminate(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -604,28 +587,17 @@ fn crash_restart_after_handoff_preserves_indeterminate_without_dispatch_reconstr
         let mut control = open_control(database.path(), vec![observation("inactive", 1)]);
         let mut executor = ScriptedExecutor::failure(calls.clone());
         let mut verifier = ScriptedVerifier::new([]);
-        let error = converge(
-            &mut control,
-            desired.clone(),
-            &mut executor,
-            &mut verifier,
-        )
-        .unwrap_err();
+        let error = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+            .error_or_unreachable();
         assert!(matches!(error, ManagedLifecycleError::Executor(_)));
     }
 
     let mut restarted = open_control(database.path(), vec![]);
     let mut executor = ScriptedExecutor::outcome(ExecutionDisposition::Dispatched, calls.clone());
-    let mut verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
-    let error = converge(
-        &mut restarted,
-        desired,
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let mut verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
+    let error =
+        converge(&mut restarted, desired, &mut executor, &mut verifier).error_or_unreachable();
     assert!(matches!(error, ManagedLifecycleError::Indeterminate(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -647,28 +619,24 @@ fn not_satisfied_reprepare_requires_new_invocation_and_restart_retires_prepared(
         );
         let mut executor =
             ScriptedExecutor::outcome(ExecutionDisposition::Dispatched, calls.clone());
-        let mut verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-            VerificationDisposition::NotSatisfied,
-        )]);
-        let first = converge(
-            &mut control,
-            desired.clone(),
-            &mut executor,
-            &mut verifier,
-        )
-        .unwrap_err();
-        assert!(matches!(first, ManagedLifecycleError::VerificationNotSatisfied(_)));
+        let mut verifier =
+            ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::NotSatisfied)]);
+        let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+            .error_or_unreachable();
+        assert!(matches!(
+            first,
+            ManagedLifecycleError::VerificationNotSatisfied(_)
+        ));
 
-        let mut retry_verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-            VerificationDisposition::NotSatisfied,
-        )]);
+        let mut retry_verifier =
+            ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::NotSatisfied)]);
         let retry = converge(
             &mut control,
             desired.clone(),
             &mut executor,
             &mut retry_verifier,
         )
-        .unwrap_err();
+        .error_or_unreachable();
         assert!(matches!(retry, ManagedLifecycleError::Indeterminate(_)));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -676,13 +644,8 @@ fn not_satisfied_reprepare_requires_new_invocation_and_restart_retires_prepared(
     let mut restarted = open_control(database.path(), vec![]);
     let mut executor = ScriptedExecutor::outcome(ExecutionDisposition::Dispatched, calls.clone());
     let mut verifier = ScriptedVerifier::new([]);
-    let terminal = converge(
-        &mut restarted,
-        desired,
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let terminal =
+        converge(&mut restarted, desired, &mut executor, &mut verifier).error_or_unreachable();
     assert!(matches!(terminal, ManagedLifecycleError::TerminalState(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -702,28 +665,16 @@ fn conflicting_recovery_blocks_instead_of_reusing_authority() {
     let mut executor =
         ScriptedExecutor::outcome(ExecutionDisposition::Indeterminate, calls.clone());
     let desired = request("conflicting-recovery", "active");
-    let mut verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::Inconclusive,
-    )]);
-    let first = converge(
-        &mut control,
-        desired.clone(),
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let mut verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::Inconclusive)]);
+    let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+        .error_or_unreachable();
     assert!(matches!(first, ManagedLifecycleError::Indeterminate(_)));
 
-    let mut retry_verifier = ScriptedVerifier::new([VerifierStep::Outcome(
-        VerificationDisposition::NotSatisfied,
-    )]);
-    let blocked = converge(
-        &mut control,
-        desired,
-        &mut executor,
-        &mut retry_verifier,
-    )
-    .unwrap_err();
+    let mut retry_verifier =
+        ScriptedVerifier::new([VerifierStep::Outcome(VerificationDisposition::NotSatisfied)]);
+    let blocked =
+        converge(&mut control, desired, &mut executor, &mut retry_verifier).error_or_unreachable();
     assert!(matches!(blocked, ManagedLifecycleError::TerminalState(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -746,13 +697,8 @@ fn reconciliation_failure_does_not_undo_commit_or_replay_execution() {
         VerifierStep::Outcome(VerificationDisposition::Satisfied),
         VerifierStep::Outcome(VerificationDisposition::NotSatisfied),
     ]);
-    let first = converge(
-        &mut control,
-        desired.clone(),
-        &mut executor,
-        &mut verifier,
-    )
-    .unwrap_err();
+    let first = converge(&mut control, desired.clone(), &mut executor, &mut verifier)
+        .error_or_unreachable();
     assert!(matches!(first, ManagedLifecycleError::Reconciliation(_)));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 

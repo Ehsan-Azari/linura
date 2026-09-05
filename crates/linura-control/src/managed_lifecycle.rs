@@ -17,13 +17,14 @@ use linura_transaction::{TransactionId, TransactionState, TransactionStore};
 use crate::approval_review::PolicyAuthenticatedApprover;
 use crate::{
     AuthenticatedPrincipal, DispatchPermit, DurableAuthorityCandidate, DurableAuthorityControl,
-    DurableAuthorityError, DurableRecoveryOutcome, PlanPreviewControl,
+    DurableAuthorityError, DurableRecoveryOutcome, FreshRecoveryApproval, PlanPreviewControl,
 };
 
 pub const MANAGED_SYSTEMD_UNIT_PREFIX: &str = "linura-managed-";
 pub const MANAGED_SYSTEMD_OPERATION: &str = "set-active-state";
 pub const MANAGED_SYSTEMD_PROVIDER: &str = "systemd";
 pub const MANAGED_SYSTEMD_CAPABILITY: &str = "systemd.unit.observe";
+pub const MANAGED_SYSTEMD_INTENT_ORIGIN: &str = "intent:v06:managed-systemd-active-state";
 const MANAGED_APPROVAL_TTL_SECONDS: u64 = 300;
 const MANAGED_REQUEST_PREFIX: &str = "request:v06:";
 const MAX_OPERATION_ID_BYTES: usize = 64;
@@ -481,32 +482,36 @@ where
             return Err(ManagedLifecycleError::Indeterminate(verification.detail));
         }
 
-        let approval_evidence_id =
-            if verification.disposition == VerificationDisposition::NotSatisfied {
-                let candidate = self.authority.candidate(
-                    &mut self.previews,
-                    principal.clone(),
-                    actor.clone(),
-                    request.clone(),
-                )?;
-                let canonical_effect = effect_from_candidate(&candidate)?;
-                if canonical_effect != effect {
-                    return Err(ManagedLifecycleError::Contract(
-                        "recovery candidate substituted the originally bound effect".into(),
-                    ));
-                }
-                self.authorize_candidate(&candidate, approval)?
-            } else {
-                None
-            };
-
-        let recovery = self.authority.recover_indeterminate(
-            &mut self.previews,
-            principal.clone(),
-            actor.clone(),
-            request.clone(),
-            approval_evidence_id,
-        )?;
+        let recovery = if verification.disposition == VerificationDisposition::NotSatisfied {
+            let approver = PolicyAuthenticatedApprover::new(
+                approval.principal().clone(),
+                ActorKind::Human,
+                BTreeSet::from([ApprovalClass::Administrator]),
+            );
+            let approval_request = ApprovalRequestId::new(format!(
+                "approval:v06:recovery:{}",
+                request.request_id.as_str()
+            ))
+            .map_err(|error| ManagedLifecycleError::Contract(error.to_string()))?;
+            let expires_at = now_unix_seconds()?
+                .checked_add(MANAGED_APPROVAL_TTL_SECONDS)
+                .ok_or_else(|| ManagedLifecycleError::Contract("approval clock overflow".into()))?;
+            self.authority.recover_indeterminate_with_approver(
+                &mut self.previews,
+                principal.clone(),
+                actor.clone(),
+                request.clone(),
+                FreshRecoveryApproval::new(approval_request, approver, expires_at),
+            )?
+        } else {
+            self.authority.recover_indeterminate(
+                &mut self.previews,
+                principal.clone(),
+                actor.clone(),
+                request.clone(),
+                None,
+            )?
+        };
 
         match recovery {
             DurableRecoveryOutcome::Verified(verified) => {

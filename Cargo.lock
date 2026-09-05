@@ -492,18 +492,18 @@ dependencies = [
 name = "linura-authorityd"
 version = "0.5.0"
 dependencies = [
-"blocking",
-"linura-control",
-"linura-core",
-"linura-executor-systemd",
-"linura-linux-observation",
-"linura-observation-control",
-"linura-persistence-sqlite",
-"linura-protocol",
-"linura-provider-sdk",
-"linura-transaction",
-"linura-verifier-systemd",
-"zbus",
+ "blocking",
+ "linura-control",
+ "linura-core",
+ "linura-executor-systemd",
+ "linura-linux-observation",
+ "linura-observation-control",
+ "linura-persistence-sqlite",
+ "linura-protocol",
+ "linura-provider-sdk",
+ "linura-transaction",
+ "linura-verifier-systemd",
+ "zbus",
 ]
 
 [[package]]
@@ -531,6 +531,7 @@ dependencies = [
  "linura-lifecycle",
  "linura-observation",
  "linura-observation-control",
+ "linura-persistence-sqlite",
  "linura-planner",
  "linura-policy",
  "linura-protocol",
