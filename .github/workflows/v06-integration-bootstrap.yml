@@ -53,16 +53,14 @@ jobs:
 
           managed = Path('crates/linura-control/src/managed_lifecycle.rs')
           text = managed.read_text(encoding='utf-8')
-          old = '''    let unit = managed_unit_from_resource(resource.as_str())?;
-          if desired_state.len() != 1 {'''
-          old = '\n'.join(line.lstrip() for line in old.splitlines())
-          new = '''    let unit = managed_unit_from_resource(resource.as_str())?.to_owned();
-          if desired_state.len() != 1 {'''
-          new = '\n'.join(line.lstrip() for line in new.splitlines())
+          old = 'let unit = managed_unit_from_resource(resource.as_str())?;'
+          new = 'let unit = managed_unit_from_resource(resource.as_str())?.to_owned();'
           if old not in text:
-              raise SystemExit('managed effect ownership patch marker missing')
-          text = text.replace(old, new, 1)
-          managed.write_text(text, encoding='utf-8')
+              if new not in text:
+                  raise SystemExit('managed effect ownership patch marker missing')
+          else:
+              text = text.replace(old, new, 1)
+              managed.write_text(text, encoding='utf-8')
 
           layering = Path('tools/check_layering.py')
           text = layering.read_text(encoding='utf-8')
