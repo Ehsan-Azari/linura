@@ -26,22 +26,96 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
           rustup default "$RUST_VERSION"
 
+      - name: Repair explicit v0.6 semantic origin
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          managed = Path('crates/linura-control/src/managed_lifecycle.rs')
+          text = managed.read_text(encoding='utf-8')
+          marker = 'pub const MANAGED_SYSTEMD_CAPABILITY: &str = "systemd.unit.observe";\n'
+          addition = marker + 'pub const MANAGED_SYSTEMD_INTENT_ORIGIN: &str = "intent:v06:managed-systemd-active-state";\n'
+          if text.count(marker) != 1:
+              raise SystemExit(f'managed intent marker count={text.count(marker)}')
+          text = text.replace(marker, addition, 1)
+          managed.write_text(text, encoding='utf-8')
+
+          lib = Path('crates/linura-control/src/lib.rs')
+          text = lib.read_text(encoding='utf-8')
+          old = '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_OPERATION, MANAGED_SYSTEMD_PROVIDER,\n'
+          new = '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_INTENT_ORIGIN, MANAGED_SYSTEMD_OPERATION,\n    MANAGED_SYSTEMD_PROVIDER,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'lib export marker count={text.count(old)}')
+          lib.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          authority = Path('apps/linura-authorityd/src/main.rs')
+          text = authority.read_text(encoding='utf-8')
+          old = '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_OPERATION, MANAGED_SYSTEMD_PROVIDER,\n'
+          new = '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_INTENT_ORIGIN, MANAGED_SYSTEMD_OPERATION,\n    MANAGED_SYSTEMD_PROVIDER,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'authority control import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '    Actor, ActorId, ActorKind, CapabilityId, PrincipalId, ProviderId, RequestId, SemanticReason,\n'
+          new = '    Actor, ActorId, ActorKind, CapabilityId, IntentId, PrincipalId, ProviderId, RequestId,\n    SemanticReason,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'authority core import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '''            intent_ids: vec![],
+            requirement_ids: vec![],
+            capability_ids: vec![],
+'''
+          new = '''            intent_ids: vec![IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN)
+                .map_err(|error| error.to_string())?],
+            requirement_ids: vec![],
+            capability_ids: vec![],
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'authority semantic origin marker count={text.count(old)}')
+          authority.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          qualification = Path('crates/linura-control/src/v06_qualification.rs')
+          text = qualification.read_text(encoding='utf-8')
+          old = '    Actor, ActorId, ActorKind, Capability, CapabilityId, PrincipalId, ProviderId, RequestId,\n'
+          new = '    Actor, ActorId, ActorKind, Capability, CapabilityId, IntentId, PrincipalId, ProviderId,\n    RequestId,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'qualification core import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '    ManagedLifecycleControl, ManagedLifecycleError, ManagedMutationReceipt, PlanPreviewControl,\n'
+          new = '    MANAGED_SYSTEMD_INTENT_ORIGIN, ManagedLifecycleControl, ManagedLifecycleError,\n    ManagedMutationReceipt, PlanPreviewControl,\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'qualification control import marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old = '''            intent_ids: vec![],
+            requirement_ids: vec![],
+            capability_ids: vec![],
+'''
+          new = '''            intent_ids: vec![value(IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN))],
+            requirement_ids: vec![],
+            capability_ids: vec![],
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'qualification semantic origin marker count={text.count(old)}')
+          qualification.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Refresh lock and validate v0.6 qualification
         run: |
           set -euo pipefail
           cargo check -p linura-control --tests
           cargo fmt --all
           cargo test --locked -p linura-control v06_qualification::
-          cargo clippy --locked -p linura-control --tests -- -D warnings
+          cargo test --locked -p linura-authorityd
+          cargo clippy --locked -p linura-control -p linura-authorityd --tests -- -D warnings
           git diff --check
 
-      - name: Commit validated lock and formatting and retire bootstrap
+      - name: Commit validated source, lock and formatting and retire bootstrap
         run: |
           set -euo pipefail
           git rm .github/workflows/v06-lock-bootstrap.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock crates/linura-control/Cargo.toml crates/linura-control/src/lib.rs crates/linura-control/src/v06_qualification.rs
+          git add Cargo.lock apps/linura-authorityd/src/main.rs crates/linura-control/Cargo.toml crates/linura-control/src/lib.rs crates/linura-control/src/managed_lifecycle.rs crates/linura-control/src/v06_qualification.rs
           git diff --cached --check
           git commit -m "test(v0.6): qualify durable managed lifecycle failures"
           git push origin HEAD:tmp/v06-managed-lifecycle
