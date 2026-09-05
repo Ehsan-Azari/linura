@@ -51,6 +51,19 @@ jobs:
               text = text.replace(marker, entry + marker, 1)
               lock.write_text(text, encoding='utf-8')
 
+          managed = Path('crates/linura-control/src/managed_lifecycle.rs')
+          text = managed.read_text(encoding='utf-8')
+          old = '''    let unit = managed_unit_from_resource(resource.as_str())?;
+          if desired_state.len() != 1 {'''
+          old = '\n'.join(line.lstrip() for line in old.splitlines())
+          new = '''    let unit = managed_unit_from_resource(resource.as_str())?.to_owned();
+          if desired_state.len() != 1 {'''
+          new = '\n'.join(line.lstrip() for line in new.splitlines())
+          if old not in text:
+              raise SystemExit('managed effect ownership patch marker missing')
+          text = text.replace(old, new, 1)
+          managed.write_text(text, encoding='utf-8')
+
           layering = Path('tools/check_layering.py')
           text = layering.read_text(encoding='utf-8')
           replacements = {
@@ -61,9 +74,9 @@ jobs:
               '"linura-persistence-sqlite has no direct production consumer in v0.4; found: "': '"linura-persistence-sqlite may be consumed directly only by the trusted v0.6 authority runtime; found: "',
               '"linura-transaction may be consumed only by linura-control and "\n            "linura-persistence-sqlite; found unexpected consumers: "': '"linura-transaction may be consumed only by linura-control, "\n            "linura-persistence-sqlite and linura-authorityd; found unexpected consumers: "',
           }
-          for old, new in replacements.items():
-              if old in text:
-                  text = text.replace(old, new, 1)
+          for old_text, new_text in replacements.items():
+              if old_text in text:
+                  text = text.replace(old_text, new_text, 1)
           layering.write_text(text, encoding='utf-8')
 
           image = Path('tools/image.py')
