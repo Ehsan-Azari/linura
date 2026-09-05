@@ -2,6 +2,7 @@
 
 use std::fmt::{Display, Formatter};
 use std::process::Command;
+use std::time::Duration;
 
 use linura_core::{ProviderId, ResourceId};
 use linura_provider_sdk::{
@@ -17,6 +18,7 @@ pub const QUALIFICATION_ACTION_ID: &str = "org.linura.executor.systemd.qualify-r
 pub const QUALIFICATION_UNIT_PREFIX: &str = "linura-v05-qualification-";
 const QUALIFICATION_OPERATION: &str = "restart-unit";
 const MAX_WIRE_DETAIL_BYTES: usize = 192;
+const SYSTEMD_METHOD_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub type QualificationOutcomeWire = (String, String, String);
 
@@ -237,13 +239,9 @@ impl SystemdExecutorService {
                 binding.dispatch_digest,
                 "systemd RestartUnit accepted; authoritative verification required",
             )?)),
-            Err(error) => Ok(outcome_wire(bounded_outcome(
-                ExecutionDisposition::Indeterminate,
+            Err(error) => Ok(outcome_wire(indeterminate_dispatch_outcome(
                 binding.dispatch_digest,
-                &format!(
-                    "systemd dispatch outcome is indeterminate: {}",
-                    bounded_text(&error.to_string())
-                ),
+                &error,
             )?)),
         }
     }
@@ -252,6 +250,7 @@ impl SystemdExecutorService {
 pub fn serve() -> Result<(), ExecutorError> {
     let _connection = zbus::blocking::connection::Builder::system()
         .map_err(|error| ExecutorError::Transport(error.to_string()))?
+        .method_timeout(SYSTEMD_METHOD_TIMEOUT)
         .name(SERVICE_NAME)
         .map_err(|error| ExecutorError::Transport(error.to_string()))?
         .serve_at(OBJECT_PATH, SystemdExecutorService)
@@ -345,6 +344,20 @@ fn rejected_wire(detail: String) -> QualificationOutcomeWire {
         "rejected-before-dispatch".into(),
         String::new(),
         bounded_text(&detail),
+    )
+}
+
+fn indeterminate_dispatch_outcome(
+    dispatch_digest: ComponentDigest,
+    error: &zbus::Error,
+) -> zbus::fdo::Result<ExecutionOutcome> {
+    bounded_outcome(
+        ExecutionDisposition::Indeterminate,
+        dispatch_digest,
+        &format!(
+            "systemd dispatch outcome is indeterminate: {}",
+            bounded_text(&error.to_string())
+        ),
     )
 }
 
@@ -483,6 +496,21 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn dispatch_timeout_is_indeterminate_and_bounded() {
+        let timeout: zbus::Error = std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "synthetic systemd method timeout",
+        )
+        .into();
+        let outcome = id(indeterminate_dispatch_outcome(digest(9), &timeout));
+        assert_eq!(outcome.disposition, ExecutionDisposition::Indeterminate);
+        assert_eq!(outcome.dispatch_digest, digest(9));
+        assert!(outcome.detail.contains("indeterminate"));
+        assert!(outcome.detail.contains("synthetic systemd method timeout"));
+        assert!(outcome.detail.len() <= MAX_WIRE_DETAIL_BYTES);
     }
 
     #[test]
