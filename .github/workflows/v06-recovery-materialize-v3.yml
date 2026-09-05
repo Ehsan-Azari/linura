@@ -1,0 +1,233 @@
+name: v0.6 recovery materialization v3
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v06-recovery-materialize-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'tmp/v06-managed-lifecycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: tmp/v06-managed-lifecycle
+          fetch-depth: 0
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          source tools/codex/versions.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+          rustup default "$RUST_VERSION"
+      - name: Materialize recovery correction by semantic anchors
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          managed = Path('crates/linura-control/src/managed_lifecycle.rs')
+          text = managed.read_text(encoding='utf-8')
+          cap = 'pub const MANAGED_SYSTEMD_CAPABILITY: &str = "systemd.unit.observe";\n'
+          if 'MANAGED_SYSTEMD_INTENT_ORIGIN' not in text:
+              if cap not in text: raise SystemExit('managed capability marker missing')
+              text = text.replace(cap, cap + 'pub const MANAGED_SYSTEMD_INTENT_ORIGIN: &str = "intent:v06:managed-systemd-active-state";\n', 1)
+          use_start = text.index('use crate::{')
+          use_end = text.index('};', use_start)
+          if 'FreshRecoveryApproval' not in text[use_start:use_end]:
+              marker = '    DurableAuthorityError, DurableRecoveryOutcome, PlanPreviewControl,\n'
+              if marker not in text: raise SystemExit('managed import marker missing')
+              text = text.replace(marker, '    DurableAuthorityError, DurableRecoveryOutcome, FreshRecoveryApproval, PlanPreviewControl,\n', 1)
+          function = text.index('fn finish_indeterminate')
+          start = text.index('        let approval_evidence_id =\n', function)
+          end = text.index('\n\n        match recovery {', start)
+          text = text[:start] + '''        let recovery = if verification.disposition == VerificationDisposition::NotSatisfied {
+              let approver = PolicyAuthenticatedApprover::new(
+                  approval.principal().clone(),
+                  ActorKind::Human,
+                  BTreeSet::from([ApprovalClass::Administrator]),
+              );
+              let approval_request = ApprovalRequestId::new(format!(
+                  "approval:v06:recovery:{}",
+                  request.request_id.as_str()
+              ))
+              .map_err(|error| ManagedLifecycleError::Contract(error.to_string()))?;
+              let expires_at = now_unix_seconds()?
+                  .checked_add(MANAGED_APPROVAL_TTL_SECONDS)
+                  .ok_or_else(|| ManagedLifecycleError::Contract("approval clock overflow".into()))?;
+              self.authority.recover_indeterminate_with_approver(
+                  &mut self.previews,
+                  principal.clone(),
+                  actor.clone(),
+                  request.clone(),
+                  FreshRecoveryApproval::new(approval_request, approver, expires_at),
+              )?
+          } else {
+              self.authority.recover_indeterminate(
+                  &mut self.previews,
+                  principal.clone(),
+                  actor.clone(),
+                  request.clone(),
+                  None,
+              )?
+          };''' + text[end:]
+          managed.write_text(text, encoding='utf-8')
+
+          durable = Path('crates/linura-control/src/durable_authority.rs')
+          text = durable.read_text(encoding='utf-8')
+          if 'pub struct FreshRecoveryApproval' not in text:
+              outcome = text.index('#[derive(Debug)]\npub enum DurableRecoveryOutcome {')
+              outcome_end = text.index('\n}\n', outcome) + 3
+              addition = '''
+          pub struct FreshRecoveryApproval {
+              request_id: ApprovalRequestId,
+              approver: PolicyAuthenticatedApprover,
+              expires_at_unix_seconds: u64,
+          }
+
+          impl FreshRecoveryApproval {
+              #[must_use]
+              pub fn new(
+                  request_id: ApprovalRequestId,
+                  approver: PolicyAuthenticatedApprover,
+                  expires_at_unix_seconds: u64,
+              ) -> Self {
+                  Self { request_id, approver, expires_at_unix_seconds }
+              }
+          }
+
+          enum RecoveryApproval {
+              Existing(Option<ApprovalEvidenceId>),
+              OnDemand(FreshRecoveryApproval),
+          }
+          '''
+              text = text[:outcome_end] + addition + text[outcome_end:]
+          function_start = text.index('    pub fn recover_indeterminate(\n')
+          body_start = text.index('        let principal_id = PrincipalId::new', function_start)
+          header = '''    pub fn recover_indeterminate(
+              &mut self,
+              previews: &mut PlanPreviewControl,
+              principal: AuthenticatedPrincipal,
+              actor: Actor,
+              request: PlanDesiredStateRequest,
+              approval_evidence_id: Option<ApprovalEvidenceId>,
+          ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {
+              self.recover_indeterminate_inner(
+                  previews,
+                  principal,
+                  actor,
+                  request,
+                  RecoveryApproval::Existing(approval_evidence_id),
+              )
+          }
+
+          /// Recover using approval authority bound to the exact fresh recovery candidate.
+          pub fn recover_indeterminate_with_approver(
+              &mut self,
+              previews: &mut PlanPreviewControl,
+              principal: AuthenticatedPrincipal,
+              actor: Actor,
+              request: PlanDesiredStateRequest,
+              approval: FreshRecoveryApproval,
+          ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {
+              self.recover_indeterminate_inner(
+                  previews,
+                  principal,
+                  actor,
+                  request,
+                  RecoveryApproval::OnDemand(approval),
+              )
+          }
+
+          fn recover_indeterminate_inner(
+              &mut self,
+              previews: &mut PlanPreviewControl,
+              principal: AuthenticatedPrincipal,
+              actor: Actor,
+              request: PlanDesiredStateRequest,
+              approval: RecoveryApproval,
+          ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {
+          '''
+          text = text[:function_start] + header + text[body_start:]
+          candidate = text.index('                let candidate = DurableAuthorityCandidate {', function_start)
+          binding_start = text.index('                let now_unix_ms = self.authority_now_unix_ms()?;', candidate)
+          binding_end = text.index('                let authorized_at_unix_ms = self.authority_now_unix_ms()?;', binding_start)
+          binding = '''                let approval_evidence_id = match &approval {
+                  RecoveryApproval::Existing(existing) => existing.clone(),
+                  RecoveryApproval::OnDemand(approval) => match candidate.review.decision() {
+                      PolicyDecision::Allow => None,
+                      PolicyDecision::RequireApproval { .. } => Some(
+                          self.issue_approval(
+                              approval.request_id.clone(),
+                              &candidate,
+                              &approval.approver,
+                              approval.expires_at_unix_seconds,
+                          )?
+                          .id()
+                          .clone(),
+                      ),
+                      PolicyDecision::Deny { .. } | PolicyDecision::Blocked { .. } => {
+                          return Err(DurableAuthorityError::CandidateBlocked);
+                      }
+                  },
+              };
+              let now_unix_ms = self.authority_now_unix_ms()?;
+              let next_binding = self.revalidate_and_bind(
+                  &candidate,
+                  approval_evidence_id.as_ref(),
+                  now_unix_ms,
+              )?;
+          '''
+          text = text[:binding_start] + binding + text[binding_end:]
+          durable.write_text(text, encoding='utf-8')
+
+          lib = Path('crates/linura-control/src/lib.rs')
+          text = lib.read_text(encoding='utf-8')
+          marker = '    DurableRecoveryOutcome, PreparedDurableAuthority,\n'
+          if 'FreshRecoveryApproval' not in text:
+              if marker not in text: raise SystemExit('control durable export marker missing')
+              text = text.replace(marker, '    DurableRecoveryOutcome, FreshRecoveryApproval, PreparedDurableAuthority,\n', 1)
+          if 'MANAGED_SYSTEMD_INTENT_ORIGIN' not in text:
+              marker = '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_OPERATION, MANAGED_SYSTEMD_PROVIDER,\n'
+              if marker not in text: raise SystemExit('control managed export marker missing')
+              text = text.replace(marker, '    MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_INTENT_ORIGIN, MANAGED_SYSTEMD_OPERATION,\n    MANAGED_SYSTEMD_PROVIDER,\n', 1)
+          lib.write_text(text, encoding='utf-8')
+
+          qualification = Path('crates/linura-control/src/v06_qualification.rs')
+          text = qualification.read_text(encoding='utf-8')
+          core_use = text.split('use linura_core::{', 1)[1].split('};', 1)[0]
+          if 'IntentId' not in core_use:
+              marker = '    Actor, ActorId, ActorKind, Capability, CapabilityId, PrincipalId, ProviderId, RequestId,\n'
+              if marker not in text: raise SystemExit('qualification core marker missing')
+              text = text.replace(marker, '    Actor, ActorId, ActorKind, Capability, CapabilityId, IntentId, PrincipalId, ProviderId,\n    RequestId,\n', 1)
+          if 'MANAGED_SYSTEMD_INTENT_ORIGIN' not in text:
+              marker = '    ManagedLifecycleControl, ManagedLifecycleError, ManagedMutationReceipt, PlanPreviewControl,\n'
+              if marker not in text: raise SystemExit('qualification control marker missing')
+              text = text.replace(marker, '    MANAGED_SYSTEMD_INTENT_ORIGIN, ManagedLifecycleControl, ManagedLifecycleError,\n    ManagedMutationReceipt, PlanPreviewControl,\n', 1)
+          origin = '            intent_ids: vec![],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n'
+          if origin not in text: raise SystemExit('qualification semantic origin marker missing')
+          text = text.replace(origin, '            intent_ids: vec![value(IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN))],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n', 1)
+          qualification.write_text(text, encoding='utf-8')
+          PY
+      - name: Validate exact recovery semantics
+        run: |
+          set -euo pipefail
+          cargo check -p linura-control --tests
+          cargo fmt --all
+          cargo test --locked -p linura-control v06_qualification::
+          cargo clippy --locked -p linura-control --tests -- -D warnings
+          git diff --check
+      - name: Commit proven source and remove materializers
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/v06-recovery-materialize.yml .github/workflows/v06-recovery-materialize-v3.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/linura-control/src/durable_authority.rs crates/linura-control/src/lib.rs crates/linura-control/src/managed_lifecycle.rs crates/linura-control/src/v06_qualification.rs
+          git diff --cached --check
+          git commit -m "fix(v0.6): bind recovery approval to fresh evidence"
+          git push origin HEAD:tmp/v06-managed-lifecycle
