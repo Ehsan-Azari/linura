@@ -190,30 +190,31 @@ jobs:
           durable = Path('crates/linura-control/src/durable_authority.rs')
           text = durable.read_text(encoding='utf-8')
           needle = '\n    pub fn integrity_check(&self) -> Result<(), DurableAuthorityError> {'
-          method = '''
-    /// Prove that a stable request namespace still carries the exact
-    /// canonical request material sealed into durable authority.
-    pub fn assert_request_matches(
-        &self,
-        principal: &AuthenticatedPrincipal,
-        request: &PlanDesiredStateRequest,
-    ) -> Result<(), DurableAuthorityError> {
-        let principal_id = PrincipalId::new(principal.as_str().to_owned())
-            .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
-        let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
-        let anchor = self.transactions.recovery_anchor(&transaction_id)?;
-        if anchor.snapshot.principal != principal_id
-            || anchor.snapshot.request_id != request.request_id
-            || anchor.request_digest != digest_request(request)?
-        {
-            return Err(DurableAuthorityError::RecoveryRequestMismatch);
-        }
-        Ok(())
-    }
-'''
+          method = textwrap.indent(textwrap.dedent('''\
+          /// Prove that a stable request namespace still carries the exact
+          /// canonical request material sealed into durable authority.
+          pub fn assert_request_matches(
+              &self,
+              principal: &AuthenticatedPrincipal,
+              request: &PlanDesiredStateRequest,
+          ) -> Result<(), DurableAuthorityError> {
+              let principal_id = PrincipalId::new(principal.as_str().to_owned())
+                  .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+              let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
+              let anchor = self.transactions.recovery_anchor(&transaction_id)?;
+              if anchor.snapshot.principal != principal_id
+                  || anchor.snapshot.request_id != request.request_id
+                  || anchor.request_digest != digest_request(request)?
+              {
+                  return Err(DurableAuthorityError::RecoveryRequestMismatch);
+              }
+              Ok(())
+          }
+
+          '''), '    ')
           if text.count(needle) != 1:
               raise SystemExit(f'durable integrity marker count={text.count(needle)}')
-          text = text.replace(needle, method + needle, 1)
+          text = text.replace(needle, '\n' + method.rstrip('\n') + needle, 1)
           durable.write_text(text, encoding='utf-8')
           PY
 
