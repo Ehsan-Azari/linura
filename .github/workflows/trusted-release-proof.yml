@@ -112,9 +112,16 @@ jobs:
     permissions:
       contents: read
 
+  executor-verifier-qualification:
+    name: exact-source v0.5 isolated executor/verifier qualification
+    needs: validate
+    uses: ./.github/workflows/v05-executor-verifier-vm.yml
+    permissions:
+      contents: read
+
   build:
     name: isolated build and reproducibility proof
-    needs: [validate, observation-acceptance, plan-preview-acceptance, durability-qualification, enospc-qualification]
+    needs: [validate, observation-acceptance, plan-preview-acceptance, durability-qualification, enospc-qualification, executor-verifier-qualification]
     uses: ./.github/workflows/reusable-release-build.yml
     permissions:
       actions: read
@@ -128,8 +135,8 @@ jobs:
 
   dispatch-promotion:
     name: dispatch release promotion
-    needs: [validate, observation-acceptance, plan-preview-acceptance, durability-qualification, enospc-qualification, build]
-    if: ${{ needs.validate.result == 'success' && needs.observation-acceptance.result == 'success' && needs.plan-preview-acceptance.result == 'success' && needs.durability-qualification.result == 'success' && needs.enospc-qualification.result == 'success' && needs.build.result == 'success' }}
+    needs: [validate, observation-acceptance, plan-preview-acceptance, durability-qualification, enospc-qualification, executor-verifier-qualification, build]
+    if: ${{ needs.validate.result == 'success' && needs.observation-acceptance.result == 'success' && needs.plan-preview-acceptance.result == 'success' && needs.durability-qualification.result == 'success' && needs.enospc-qualification.result == 'success' && needs.executor-verifier-qualification.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       actions: write

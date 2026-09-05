@@ -1,0 +1,298 @@
+name: v0.5 executor/verifier qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/v05-executor-verifier-vm.yml"
+      - ".github/workflows/trusted-release-proof.yml"
+      - "crates/linura-linux-observation/**"
+      - "crates/linura-observation/**"
+      - "crates/linura-provider-sdk/**"
+      - "executors/linura-executor-systemd/**"
+      - "verifiers/linura-verifier-systemd/**"
+      - "packaging/dbus-1/system.d/org.linura.Executor.Systemd1.conf"
+      - "packaging/polkit-1/actions/org.linura.executor.systemd.policy"
+      - "packaging/systemd/system/linura-executor-systemd.service"
+      - "tests/acceptance/v05/**"
+      - "tools/vm.py"
+      - "tools/codex/versions.env"
+      - "rust-toolchain.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "docs/milestones/v0.5.0.md"
+      - "docs/releases/v0.5.0.md"
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  BASE_IMAGE_URL: https://cloud-images.ubuntu.com/releases/noble/release-20260725/ubuntu-24.04-server-cloudimg-amd64.img
+  BASE_IMAGE_SHA256: d1940f7d69d343355e183dff1e08a59852d32e7309baa7a4bad8365b11b005ac
+  VM_ACCELERATION: tcg
+  QUALIFICATION_UNIT: linura-v05-qualification-restart.service
+  SSH_PORT: "2222"
+
+jobs:
+  qualification:
+    name: exact-source isolated executor and independent verifier qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Initialize exact-source evidence paths
+        run: |
+          set -euo pipefail
+          artifact_dir="$RUNNER_TEMP/linura-v05-executor-artifacts"
+          mkdir -p "$artifact_dir"
+          printf 'ARTIFACT_DIR=%s\n' "$artifact_dir" >> "$GITHUB_ENV"
+
+      - name: Assert exact source and load toolchain contract
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          : "${RUST_VERSION:?}"
+          repo_rust_version="$(python3 - <<'PY'
+          import pathlib
+          import re
+          text = pathlib.Path('rust-toolchain.toml').read_text(encoding='utf-8')
+          match = re.search(r'^channel\s*=\s*"([^"]+)"\s*$', text, re.MULTILINE)
+          if match is None:
+              raise SystemExit('rust-toolchain.toml does not declare a channel')
+          print(match.group(1))
+          PY
+          )"
+          test "$repo_rust_version" = "$RUST_VERSION"
+          printf 'RUST_VERSION=%s\n' "$RUST_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Run component and verifier contracts
+        run: >-
+          cargo test --locked
+          -p linura-provider-sdk
+          -p linura-executor-systemd
+          -p linura-linux-observation
+          -p linura-verifier-systemd
+
+      - name: Build exact-source qualification binaries
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p linurad -p linuractl -p linura-executor-systemd
+          cargo build --release --locked -p linura-executor-systemd --example v05_binding
+          cargo build --release --locked -p linura-verifier-systemd --example v05_verify
+
+      - name: Install disposable VM dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cloud-image-utils openssh-client qemu-system-x86 qemu-utils
+
+      - name: Download and verify pinned Ubuntu image
+        run: |
+          set -euo pipefail
+          case "$BASE_IMAGE_URL" in
+            https://cloud-images.ubuntu.com/*) ;;
+            *) echo "base image must come from the pinned Ubuntu cloud-image origin" >&2; exit 2 ;;
+          esac
+          [[ "$BASE_IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          base_image="$RUNNER_TEMP/ubuntu-noble-base.qcow2"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$base_image" "$BASE_IMAGE_URL"
+          printf '%s  %s\n' "$BASE_IMAGE_SHA256" "$base_image" | sha256sum --check --strict
+          qemu-img info "$base_image"
+          printf 'BASE_IMAGE=%s\n' "$base_image" >> "$GITHUB_ENV"
+
+      - name: Create disposable guest identity
+        run: |
+          set -euo pipefail
+          vm_image="$RUNNER_TEMP/linura-v05-executor.qcow2"
+          seed_image="$RUNNER_TEMP/linura-v05-executor-seed.img"
+          ssh_key="$RUNNER_TEMP/linura-v05-executor-key"
+          vm_log="$RUNNER_TEMP/linura-v05-executor-qemu.log"
+          user_data="$RUNNER_TEMP/v05-user-data"
+          meta_data="$RUNNER_TEMP/v05-meta-data"
+          network_config="$RUNNER_TEMP/v05-network-config"
+
+          cp --reflink=auto "$BASE_IMAGE" "$vm_image"
+          ssh-keygen -q -t ed25519 -N '' -f "$ssh_key"
+          public_key="$(cat "$ssh_key.pub")"
+          cat > "$user_data" <<EOF
+          #cloud-config
+          users:
+            - default
+            - name: linura
+              groups: [adm, sudo]
+              shell: /bin/bash
+              sudo:
+                - ALL=(ALL) NOPASSWD:ALL
+              ssh_authorized_keys:
+                - $public_key
+          ssh_pwauth: false
+          disable_root: true
+          package_update: false
+          EOF
+          cat > "$meta_data" <<EOF
+          instance-id: linura-v05-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}
+          local-hostname: linura-v05-executor
+          EOF
+          cat > "$network_config" <<'EOF'
+          version: 2
+          ethernets:
+            primary:
+              match:
+                name: "en*"
+              dhcp4: true
+          EOF
+          cloud-localds --network-config="$network_config" "$seed_image" "$user_data" "$meta_data"
+          {
+            printf 'VM_IMAGE=%s\n' "$vm_image"
+            printf 'SEED_IMAGE=%s\n' "$seed_image"
+            printf 'SSH_KEY=%s\n' "$ssh_key"
+            printf 'VM_LOG=%s\n' "$vm_log"
+          } >> "$GITHUB_ENV"
+
+      - name: Start disposable snapshot guest
+        run: |
+          set -euo pipefail
+          python3 tools/vm.py start --image "$VM_IMAGE" --seed "$SEED_IMAGE" --ssh-port "$SSH_PORT" --accel "$VM_ACCELERATION" >"$VM_LOG" 2>&1 &
+          printf 'VM_PID=%s\n' "$!" >> "$GITHUB_ENV"
+
+      - name: Qualify executor and independent verifier
+        run: bash tests/acceptance/v05/qualify-host.sh
+
+      - name: Collect executor hardening evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact_dir="${ARTIFACT_DIR:-$RUNNER_TEMP/linura-v05-executor-artifacts}"
+          mkdir -p "$artifact_dir"
+          output="$artifact_dir/executor-systemd-properties.txt"
+          if [[ -z "${SSH_KEY:-}" || ! -f "${SSH_KEY:-/nonexistent}" ]]; then
+            printf '%s\n' 'guest was not provisioned; hardening evidence unavailable because an earlier qualification phase failed' > "$output"
+            exit 0
+          fi
+          ssh_common=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=3)
+          if ! ssh "${ssh_common[@]}" -p "$SSH_PORT" linura@127.0.0.1 \
+            'sudo -n systemctl show linura-executor-systemd.service -p User -p Group -p NoNewPrivileges -p ProtectSystem -p ProtectHome -p PrivateDevices -p PrivateTmp -p RestrictAddressFamilies -p RestrictNamespaces -p CapabilityBoundingSet -p AmbientCapabilities -p SystemCallArchitectures -p SystemCallFilter' \
+            > "$output"; then
+            printf '%s\n' 'guest became unreachable before hardening evidence collection' > "$output"
+          fi
+          ssh "${ssh_common[@]}" -p "$SSH_PORT" linura@127.0.0.1 \
+            'systemctl --version; uname -a; /usr/bin/pkcheck --version || true' \
+            > "$artifact_dir/guest-platform.txt" 2>&1 || true
+
+      - name: Record exact-source qualification evidence
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path.cwd()
+          artifact_dir = pathlib.Path(os.environ["ARTIFACT_DIR"])
+          files = {
+              "executor": root / "target/release/linura-executor-systemd",
+              "linurad": root / "target/release/linurad",
+              "linuractl": root / "target/release/linuractl",
+              "binding_helper": root / "target/release/examples/v05_binding",
+              "verifier_helper": root / "target/release/examples/v05_verify",
+              "dbus_policy": root / "packaging/dbus-1/system.d/org.linura.Executor.Systemd1.conf",
+              "polkit_policy": root / "packaging/polkit-1/actions/org.linura.executor.systemd.policy",
+              "systemd_unit": root / "packaging/systemd/system/linura-executor-systemd.service",
+              "fixture": root / "tests/acceptance/v05/linura-v05-qualification-restart.service",
+              "qualification_rule": root / "tests/acceptance/v05/49-linura-v05-qualification.rules",
+              "host_protocol": root / "tests/acceptance/v05/qualify-host.sh",
+              "guest_protocol": root / "tests/acceptance/v05/qualify-guest.sh",
+          }
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          evidence = {
+              "schema_version": 1,
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "result": "passed",
+              "claim": "isolated qualification-only systemd executor and independent verifier",
+              "managed_mutation_support": "none",
+              "complete_lifecycle": False,
+              "qualified_fixture": os.environ["QUALIFICATION_UNIT"],
+              "negative_evidence": [
+                  "ordinary caller denied by Polkit",
+                  "wrong namespace rejected before dispatch",
+                  "malformed binding rejected before dispatch",
+                  "effect substitution rejected before dispatch",
+                  "missing fixture classified indeterminate",
+                  "unchanged activation timestamp not satisfied",
+                  "stale observation inconclusive",
+              ],
+              "positive_evidence": [
+                  "native systemd D-Bus RestartUnit acknowledgement",
+                  "canonical linura-linux-observation post-state",
+                  "advanced ActiveEnterTimestampMonotonic",
+                  "independent verifier satisfied without executor receipt",
+              ],
+              "base_image": {"url": os.environ["BASE_IMAGE_URL"], "sha256": os.environ["BASE_IMAGE_SHA256"]},
+              "virtualization": {"acceleration": os.environ["VM_ACCELERATION"]},
+              "artifacts": {
+                  name: {"path": path.relative_to(root).as_posix(), "sha256": digest(path), "size": path.stat().st_size}
+                  for name, path in files.items()
+              },
+              "toolchain": {
+                  "rustc": subprocess.check_output(["rustc", "-Vv"], text=True).strip(),
+                  "qemu": subprocess.check_output(["qemu-system-x86_64", "--version"], text=True).splitlines()[0],
+              },
+              "workflow": {
+                  "path": ".github/workflows/v05-executor-verifier-vm.yml",
+                  "run_id": int(os.environ["GITHUB_RUN_ID"]),
+                  "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "event": os.environ["GITHUB_EVENT_NAME"],
+              },
+          }
+          output = artifact_dir / "V05-EXECUTOR-VERIFIER-EVIDENCE.json"
+          output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          print(f"wrote {output}")
+          PY
+
+      - name: Stop disposable guest
+        if: always()
+        run: |
+          set +e
+          if [[ -n "${VM_PID:-}" ]]; then
+            kill "$VM_PID" 2>/dev/null || true
+            wait "$VM_PID" 2>/dev/null || true
+          fi
+
+      - name: Collect QEMU diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          artifact_dir="${ARTIFACT_DIR:-$RUNNER_TEMP/linura-v05-executor-artifacts}"
+          mkdir -p "$artifact_dir"
+          if [[ -n "${VM_LOG:-}" && -f "$VM_LOG" ]]; then
+            cp "$VM_LOG" "$artifact_dir/qemu.log"
+          fi
+
+      - name: Upload qualification evidence and diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linura-v05-executor-verifier-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/linura-v05-executor-artifacts/
+          if-no-files-found: warn
+          retention-days: 30

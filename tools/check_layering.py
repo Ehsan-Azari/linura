@@ -37,6 +37,7 @@ EXPECTED_RULE_PACKAGES = {
     "linura-linux-observation",
     "linura-dbus",
     "linura-executor-systemd",
+    "linura-verifier-systemd",
 }
 POLICY_ORCHESTRATOR = "linura-control"
 POLICY_PACKAGE = "linura-policy"

@@ -10,6 +10,7 @@ repository.workspace = true
 linura-core = { path = "../linura-core" }
 linura-observation = { path = "../linura-observation" }
 linura-protocol = { path = "../linura-protocol" }
+sha2 = "0.10.9"
 
 [lints]
 workspace = true

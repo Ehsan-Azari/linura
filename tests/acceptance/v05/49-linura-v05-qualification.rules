@@ -1,0 +1,7 @@
+// Disposable VM qualification rule only. This is test infrastructure, not product policy.
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.linura.executor.systemd.qualify-restart" &&
+        subject.user === "linura-v05-qualifier") {
+        return polkit.Result.YES;
+    }
+});
