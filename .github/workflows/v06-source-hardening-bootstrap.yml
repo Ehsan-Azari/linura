@@ -176,7 +176,7 @@ jobs:
               args = [line.strip().removesuffix(',') for line in lines[1:-1]]
               if len(args) != 8:
                   raise SystemExit(f'receipt call had {len(args)} arguments: {block!r}')
-              body = [f'Ok(receipt(ReceiptContext {{']
+              body = ['Ok(receipt(ReceiptContext {']
               body.extend(f'{indent}    {field}: {arg},' for field, arg in zip(fields, args))
               body.append(f'{indent}}}))')
               replacement = '\n'.join(body)
@@ -189,41 +189,31 @@ jobs:
 
           durable = Path('crates/linura-control/src/durable_authority.rs')
           text = durable.read_text(encoding='utf-8')
-          marker = textwrap.dedent('''\
-              pub fn snapshot(
-                  &self,
-                  transaction_id: &TransactionId,
-              ) -> Result<TransactionSnapshot, DurableAuthorityError> {
-                  self.transactions
-                      .snapshot(transaction_id)
-                      .map_err(Into::into)
-              }
-          ''')
-          addition = marker + textwrap.dedent('''\
-
-              /// Prove that a stable request namespace still carries the exact
-              /// canonical request material sealed into durable authority.
-              pub fn assert_request_matches(
-                  &self,
-                  principal: &AuthenticatedPrincipal,
-                  request: &PlanDesiredStateRequest,
-              ) -> Result<(), DurableAuthorityError> {
-                  let principal_id = PrincipalId::new(principal.as_str().to_owned())
-                      .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
-                  let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
-                  let anchor = self.transactions.recovery_anchor(&transaction_id)?;
-                  if anchor.snapshot.principal != principal_id
-                      || anchor.snapshot.request_id != request.request_id
-                      || anchor.request_digest != digest_request(request)?
-                  {
-                      return Err(DurableAuthorityError::RecoveryRequestMismatch);
-                  }
-                  Ok(())
-              }
-          ''')
-          if text.count(marker) != 1:
-              raise SystemExit(f'durable snapshot marker count={text.count(marker)}')
-          text = text.replace(marker, addition, 1)
+          needle = '\n    pub fn integrity_check(&self) -> Result<(), DurableAuthorityError> {'
+          method = '''
+    /// Prove that a stable request namespace still carries the exact
+    /// canonical request material sealed into durable authority.
+    pub fn assert_request_matches(
+        &self,
+        principal: &AuthenticatedPrincipal,
+        request: &PlanDesiredStateRequest,
+    ) -> Result<(), DurableAuthorityError> {
+        let principal_id = PrincipalId::new(principal.as_str().to_owned())
+            .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+        let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
+        let anchor = self.transactions.recovery_anchor(&transaction_id)?;
+        if anchor.snapshot.principal != principal_id
+            || anchor.snapshot.request_id != request.request_id
+            || anchor.request_digest != digest_request(request)?
+        {
+            return Err(DurableAuthorityError::RecoveryRequestMismatch);
+        }
+        Ok(())
+    }
+'''
+          if text.count(needle) != 1:
+              raise SystemExit(f'durable integrity marker count={text.count(needle)}')
+          text = text.replace(needle, method + needle, 1)
           durable.write_text(text, encoding='utf-8')
           PY
 
