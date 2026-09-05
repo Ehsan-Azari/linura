@@ -7,9 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-blocking = "=1.7.0"
 linura-control = { path = "../../crates/linura-control" }
 linura-core = { path = "../../crates/linura-core" }
+linura-dbus = { path = "../../crates/linura-dbus" }
 linura-executor-systemd = { path = "../../executors/linura-executor-systemd" }
 linura-linux-observation = { path = "../../crates/linura-linux-observation" }
 linura-observation-control = { path = "../../crates/linura-observation-control" }
