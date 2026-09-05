@@ -4,7 +4,7 @@
 
 **Linura is an intent-driven, agent-native Linux system that turns human goals into declarative, policy-controlled, verified machine state.**
 
-Status: `v0.4.0` released — Experimental durable reviewed-authority transaction and recovery foundation on top of authoritative observation, deterministic non-executable planning, policy review, and bounded approval semantics. The protected proof-first/tag-last release lifecycle and independent release verification are complete. Linura is not yet production-ready and v0.4.0 declares no supported distribution, machine class, hardware profile, executor, or managed-mutation capability; durable transaction state, policy allow, approval evidence, and reviewed-plan state do not authorize execution.
+Status: `v0.5.0` release candidate — Experimental isolated privileged systemd executor and independent verifier qualification on top of the v0.4 durable authority foundation. Publication is pending the protected proof-first/tag-last release lifecycle and independent release verification. Linura is not yet production-ready and v0.5.0 declares no supported distribution, machine class, hardware profile, public mutation surface, or Linura-managed external effect; the qualified executor/verifier remains isolated test-scoped infrastructure until v0.6 integrates the complete lifecycle.
 
 ## The product idea
 
