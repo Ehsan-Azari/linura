@@ -1,0 +1,641 @@
+name: v0.6 authority architecture materialization
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v06-architecture-materialize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-land:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'tmp/v06-managed-lifecycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: tmp/v06-managed-lifecycle
+          fetch-depth: 0
+
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          source tools/codex/versions.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+          rustup default "$RUST_VERSION"
+
+      - name: Extend linura-dbus with Authority1 contract
+        run: |
+          set -euo pipefail
+          cat > interfaces/dbus/org.linura.Authority1.xml <<'XML'
+          <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "https://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+          <node>
+            <interface name="org.linura.Authority1">
+              <annotation name="org.linura.ContractId" value="dbus.org.linura.Authority1"/>
+              <annotation name="org.linura.ContractVersion" value="1"/>
+              <annotation name="org.linura.Stability" value="experimental"/>
+              <method name="ConvergeSystemdActiveState">
+                <arg name="operation_id" type="s" direction="in"/>
+                <arg name="unit" type="s" direction="in"/>
+                <arg name="desired_active_state" type="s" direction="in"/>
+                <arg name="reason" type="s" direction="in"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="s" direction="out"/>
+                <arg type="b" direction="out"/>
+                <arg type="as" direction="out"/>
+              </method>
+            </interface>
+          </node>
+          XML
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lib = Path('crates/linura-dbus/src/lib.rs')
+          text = lib.read_text(encoding='utf-8')
+          if 'mod authority;' not in text:
+              text = text.replace('mod planning;\n', 'mod authority;\nmod planning;\n', 1)
+          export = '''pub use authority::{
+              AUTHORITY_CONTRACT_ID, AUTHORITY_CONTRACT_STABILITY, AUTHORITY_CONTRACT_VERSION,
+              AUTHORITY_INTERFACE_NAME, AUTHORITY_OBJECT_PATH, AUTHORITY_SERVICE_NAME,
+              Authority1Context, Authority1Handler, Authority1ManagedRequest, AuthorityReceiptWire,
+              MANAGE_SYSTEMD_ACTIVE_STATE_ACTION, serve_authority1,
+          };
+          '''
+          if 'pub use authority::' not in text:
+              insert = text.index('\nuse std::collections::HashMap;')
+              text = text[:insert] + '\n' + export + text[insert:]
+
+          old = '''    let unique_bus_name = sender.as_str().to_string();
+              let proxy = zbus::Proxy::new(
+          '''
+          new = '''    let unique_bus_name = sender.as_str().to_string();
+              if !unique_bus_name.starts_with(':') || unique_bus_name.chars().any(char::is_control) {
+                  return Err(fdo_failed("D-Bus sender is not a canonical unique bus name"));
+              }
+              let proxy = zbus::Proxy::new(
+          '''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'D-Bus sender is not a canonical unique bus name' not in text:
+              raise SystemExit('authenticated caller marker not found')
+          lib.write_text(text, encoding='utf-8')
+
+          authority = Path('crates/linura-dbus/src/authority.rs')
+          text = authority.read_text(encoding='utf-8')
+          text = text.replace('.field("principal", &self.principal)', '.field("principal", &self.principal.as_str())')
+          authority.write_text(text, encoding='utf-8')
+
+          stability = Path('contracts/stability.toml')
+          text = stability.read_text(encoding='utf-8')
+          if 'id = "dbus.org.linura.Authority1"' not in text:
+              control = '''[[contract]]
+          id = "dbus.org.linura.Control1"
+          kind = "dbus-interface"
+          path = "interfaces/dbus/org.linura.Control1.xml"
+          version = "1"
+          stability = "experimental"
+          '''
+              if control not in text:
+                  raise SystemExit('Control1 stability entry not found')
+              authority_entry = '''
+          [[contract]]
+          id = "dbus.org.linura.Authority1"
+          kind = "dbus-interface"
+          path = "interfaces/dbus/org.linura.Authority1.xml"
+          version = "1"
+          stability = "experimental"
+          '''
+              text = text.replace(control, control + authority_entry, 1)
+          stability.write_text(text, encoding='utf-8')
+
+          repository = Path('scripts/check_repository.py')
+          text = repository.read_text(encoding='utf-8')
+          if 'interfaces/dbus/org.linura.Authority1.xml' not in text:
+              marker = '"interfaces/dbus/org.linura.Control1.xml", ".cargo/config.toml",'
+              if marker not in text:
+                  raise SystemExit('repository interface marker not found')
+              text = text.replace(
+                  marker,
+                  '"interfaces/dbus/org.linura.Control1.xml", "interfaces/dbus/org.linura.Authority1.xml", ".cargo/config.toml",',
+                  1,
+              )
+          repository.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Split authorityd composition from systemd adapters
+        run: |
+          set -euo pipefail
+          cat > apps/linura-authorityd/src/systemd_adapter.rs <<'RS'
+          use std::fmt::{Debug, Formatter};
+
+          use linura_control::{
+              AuthorizedEffect, AuthorizedEffectExecutor, IndependentManagedVerifier,
+              MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_OPERATION, MANAGED_SYSTEMD_PROVIDER,
+          };
+          use linura_core::CapabilityId;
+          use linura_executor_systemd::{
+              INTERFACE_NAME as EXECUTOR_INTERFACE, ManagedActiveState, ManagedUnitName,
+              OBJECT_PATH as EXECUTOR_OBJECT, SERVICE_NAME as EXECUTOR_SERVICE,
+              managed_active_state_effect,
+          };
+          use linura_linux_observation::SystemdObserver;
+          use linura_provider_sdk::{
+              ComponentDigest, EffectDescriptor, ExecutionDisposition, ExecutionOutcome,
+              IndependentVerifier as _, Observer as _, VerificationOutcome,
+          };
+          use linura_verifier_systemd::{SystemdActiveStateExpectation, SystemdActiveStateVerifier};
+
+          type ExecutorOutcomeWire = (String, String, String);
+
+          pub(crate) struct SystemdExecutorClient {
+              connection: zbus::blocking::Connection,
+          }
+
+          impl Debug for SystemdExecutorClient {
+              fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                  formatter
+                      .debug_struct("SystemdExecutorClient")
+                      .finish_non_exhaustive()
+              }
+          }
+
+          impl SystemdExecutorClient {
+              pub(crate) fn connect() -> Result<Self, String> {
+                  zbus::blocking::Connection::system()
+                      .map(|connection| Self { connection })
+                      .map_err(|error| {
+                          format!("cannot connect to system bus for executor handoff: {error}")
+                      })
+              }
+          }
+
+          impl AuthorizedEffectExecutor for SystemdExecutorClient {
+              fn execute_authorized(
+                  &mut self,
+                  authorization: AuthorizedEffect,
+              ) -> Result<ExecutionOutcome, String> {
+                  let (effect, binding) = authorization.into_executor_request();
+                  let (unit, state) = parse_managed_effect(&effect)?;
+                  let proxy = zbus::blocking::Proxy::new(
+                      &self.connection,
+                      EXECUTOR_SERVICE,
+                      EXECUTOR_OBJECT,
+                      EXECUTOR_INTERFACE,
+                  )
+                  .map_err(|error| format!("cannot bind managed executor proxy: {error}"))?;
+
+                  let wire: ExecutorOutcomeWire = proxy
+                      .call(
+                          "SetManagedActiveState",
+                          &(
+                              unit.as_str(),
+                              state.as_str(),
+                              binding.transaction_id.as_str(),
+                              binding.generation,
+                              binding.state_version,
+                              binding.authority_binding_digest.to_hex(),
+                              binding.authority_use_digest.to_hex(),
+                              binding.effect_digest.to_hex(),
+                              binding.dispatch_digest.to_hex(),
+                          ),
+                      )
+                      .map_err(|error| format!("managed executor transport failed: {error}"))?;
+
+                  let disposition = match wire.0.as_str() {
+                      "rejected-before-dispatch" => ExecutionDisposition::RejectedBeforeDispatch,
+                      "dispatched" => ExecutionDisposition::Dispatched,
+                      "indeterminate" => ExecutionDisposition::Indeterminate,
+                      value => return Err(format!("executor returned unknown disposition {value:?}")),
+                  };
+                  let dispatch_digest = if wire.1.is_empty()
+                      && disposition == ExecutionDisposition::RejectedBeforeDispatch
+                  {
+                      binding.dispatch_digest
+                  } else {
+                      ComponentDigest::parse_hex(&wire.1).map_err(|error| {
+                          format!("executor returned malformed dispatch digest: {error}")
+                      })?
+                  };
+                  if dispatch_digest != binding.dispatch_digest {
+                      return Err(
+                          "executor response substituted the authorized dispatch digest".into(),
+                      );
+                  }
+                  ExecutionOutcome::new(disposition, dispatch_digest, wire.2)
+                      .map_err(|error| format!("executor returned invalid outcome: {error}"))
+              }
+          }
+
+          pub(crate) struct FreshSystemdVerifier {
+              observer: SystemdObserver,
+              verifier: SystemdActiveStateVerifier,
+          }
+
+          impl Debug for FreshSystemdVerifier {
+              fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+                  formatter
+                      .debug_struct("FreshSystemdVerifier")
+                      .finish_non_exhaustive()
+              }
+          }
+
+          impl FreshSystemdVerifier {
+              pub(crate) fn connect() -> Result<Self, String> {
+                  Ok(Self {
+                      observer: SystemdObserver::connect().map_err(|error| {
+                          format!("cannot connect independent systemd observer: {error}")
+                      })?,
+                      verifier: SystemdActiveStateVerifier,
+                  })
+              }
+          }
+
+          impl IndependentManagedVerifier for FreshSystemdVerifier {
+              fn verify_effect(
+                  &mut self,
+                  effect: &EffectDescriptor,
+              ) -> Result<VerificationOutcome, String> {
+                  let (unit, state) = parse_managed_effect(effect)?;
+                  let expectation =
+                      SystemdActiveStateExpectation::new(unit.as_str(), state.as_str())
+                          .map_err(|error| error.to_string())?;
+                  let capability = CapabilityId::new(MANAGED_SYSTEMD_CAPABILITY)
+                      .map_err(|error| error.to_string())?;
+                  let observation = self
+                      .observer
+                      .observe_authoritative(&effect.resource, &capability)
+                      .map_err(|error| format!("independent systemd observation failed: {error}"))?;
+                  Ok(self.verifier.verify(&expectation, &observation))
+              }
+          }
+
+          pub(crate) fn parse_managed_effect(
+              effect: &EffectDescriptor,
+          ) -> Result<(ManagedUnitName, ManagedActiveState), String> {
+              if effect.provider.as_str() != MANAGED_SYSTEMD_PROVIDER
+                  || effect.operation != MANAGED_SYSTEMD_OPERATION
+              {
+                  return Err("effect is outside the v0.6 managed systemd contract".into());
+              }
+              let payload = std::str::from_utf8(&effect.canonical_payload)
+                  .map_err(|_| "managed effect payload is not UTF-8".to_owned())?;
+              let mut lines = payload.lines();
+              let unit = lines
+                  .next()
+                  .and_then(|line| line.strip_prefix("unit="))
+                  .ok_or_else(|| "managed effect is missing canonical unit".to_owned())?;
+              let state = lines
+                  .next()
+                  .and_then(|line| line.strip_prefix("active_state="))
+                  .ok_or_else(|| "managed effect is missing canonical active state".to_owned())?;
+              if lines.next().is_some() || !payload.ends_with('\n') {
+                  return Err("managed effect payload has trailing or non-canonical material".into());
+              }
+              let unit = ManagedUnitName::parse(unit).map_err(|error| error.to_string())?;
+              let state = ManagedActiveState::parse(state).map_err(str::to_owned)?;
+              let canonical =
+                  managed_active_state_effect(&unit, state).map_err(|error| error.to_string())?;
+              if canonical != *effect {
+                  return Err("managed effect differs from the executor canonical encoding".into());
+              }
+              Ok((unit, state))
+          }
+          RS
+
+          cat > apps/linura-authorityd/src/runtime.rs <<'RS'
+          use std::collections::BTreeMap;
+          use std::env;
+          use std::fs::{self, File, OpenOptions};
+          use std::io::{Read, Write};
+          use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+          use std::path::{Path, PathBuf};
+
+          use linura_control::{
+              MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_INTENT_ORIGIN, MANAGED_SYSTEMD_PROVIDER,
+              ManagedLifecycleControl, PlanPreviewControl, managed_request_id,
+          };
+          use linura_core::{CapabilityId, IntentId, ProviderId, RequestId, SemanticReason};
+          use linura_dbus::{Authority1Context, Authority1Handler, Authority1ManagedRequest};
+          use linura_executor_systemd::{ManagedActiveState, ManagedUnitName};
+          use linura_linux_observation::SystemdObserver;
+          use linura_observation_control::ObservationCoordinator;
+          use linura_persistence_sqlite::{SqliteIntegrityKey, SqliteTransactionStore};
+          use linura_protocol::PlanDesiredStateRequest;
+          use linura_transaction::TransactionAuthorityKey;
+
+          use crate::systemd_adapter::{FreshSystemdVerifier, SystemdExecutorClient};
+
+          const DEFAULT_STATE_DIR: &str = "/var/lib/linura-authority";
+          const STATE_DIR_ENV: &str = "LINURA_AUTHORITY_STATE_DIR";
+          const AUTHORITY_KEY_FILE: &str = "transaction-authority.key";
+          const INTEGRITY_KEY_FILE: &str = "sqlite-integrity.key";
+          const DATABASE_FILE: &str = "authority.sqlite3";
+          const SECRET_BYTES: usize = 32;
+          const MAX_REASON_BYTES: usize = 1024;
+
+          #[derive(Debug)]
+          pub(crate) struct ManagedRuntime {
+              control: ManagedLifecycleControl<SqliteTransactionStore>,
+              executor: SystemdExecutorClient,
+              verifier: FreshSystemdVerifier,
+          }
+
+          impl ManagedRuntime {
+              pub(crate) fn open(state_dir: &Path) -> Result<Self, String> {
+                  prepare_state_dir(state_dir)?;
+                  let authority_bytes = load_or_create_secret(&state_dir.join(AUTHORITY_KEY_FILE))?;
+                  let integrity_bytes = load_or_create_secret(&state_dir.join(INTEGRITY_KEY_FILE))?;
+
+                  let authority_key = TransactionAuthorityKey::new(authority_bytes)
+                      .map_err(|error| format!("invalid transaction authority key: {error}"))?;
+                  let (authority_signer, authority_verifier) = authority_key.split();
+                  let integrity_key = SqliteIntegrityKey::new(integrity_bytes)
+                      .map_err(|error| format!("invalid SQLite integrity key: {error}"))?;
+                  let store = SqliteTransactionStore::open(
+                      state_dir.join(DATABASE_FILE),
+                      authority_verifier,
+                      integrity_key,
+                  )
+                  .map_err(|error| format!("cannot open durable authority store: {error}"))?;
+
+                  let control_observer = SystemdObserver::connect().map_err(|error| {
+                      format!("cannot connect authoritative systemd observer: {error}")
+                  })?;
+                  let mut coordinator = ObservationCoordinator::new();
+                  coordinator
+                      .register_observer(Box::new(control_observer))
+                      .map_err(|error| {
+                          format!("cannot register authoritative systemd observer: {error}")
+                      })?;
+                  let previews = PlanPreviewControl::new(coordinator);
+                  let control = ManagedLifecycleControl::new(previews, store, authority_signer)
+                      .map_err(|error| error.to_string())?;
+
+                  Ok(Self {
+                      control,
+                      executor: SystemdExecutorClient::connect()?,
+                      verifier: FreshSystemdVerifier::connect()?,
+                  })
+              }
+          }
+
+          impl Authority1Handler for ManagedRuntime {
+              fn converge_systemd_active_state(
+                  &mut self,
+                  context: Authority1Context,
+                  request: Authority1ManagedRequest,
+              ) -> Result<linura_control::ManagedMutationReceipt, String> {
+                  let request = managed_request(&request)?;
+                  let Self {
+                      control,
+                      executor,
+                      verifier,
+                  } = self;
+                  control
+                      .converge_systemd_active_state(
+                          context.principal,
+                          context.actor,
+                          request,
+                          &context.approval,
+                          executor,
+                          verifier,
+                      )
+                      .map_err(|error| error.to_string())
+              }
+          }
+
+          fn managed_request(wire: &Authority1ManagedRequest) -> Result<PlanDesiredStateRequest, String> {
+              if wire.reason.is_empty()
+                  || wire.reason.len() > MAX_REASON_BYTES
+                  || wire.reason.chars().any(char::is_control)
+              {
+                  return Err("reason must be 1..1024 bytes without control characters".into());
+              }
+              let unit = ManagedUnitName::parse(&wire.unit).map_err(|error| error.to_string())?;
+              let state =
+                  ManagedActiveState::parse(&wire.desired_active_state).map_err(str::to_owned)?;
+              let resource = unit.resource_id().map_err(|error| error.to_string())?;
+              let mut request = PlanDesiredStateRequest {
+                  request_id: RequestId::new("request:v06:pending")
+                      .map_err(|error| error.to_string())?,
+                  provider: ProviderId::new(MANAGED_SYSTEMD_PROVIDER)
+                      .map_err(|error| error.to_string())?,
+                  resource,
+                  observation_capability: CapabilityId::new(MANAGED_SYSTEMD_CAPABILITY)
+                      .map_err(|error| error.to_string())?,
+                  reason: SemanticReason {
+                      summary: wire.reason.clone(),
+                      intent_ids: vec![
+                          IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN)
+                              .map_err(|error| error.to_string())?,
+                      ],
+                      requirement_ids: vec![],
+                      capability_ids: vec![],
+                  },
+                  desired_state: BTreeMap::from([(
+                      "active_state".to_owned(),
+                      state.as_str().to_owned(),
+                  )]),
+              };
+              request.request_id = managed_request_id(&wire.operation_id, &request)
+                  .map_err(|error| error.to_string())?;
+              Ok(request)
+          }
+
+          fn prepare_state_dir(path: &Path) -> Result<(), String> {
+              fs::create_dir_all(path)
+                  .map_err(|error| format!("cannot create authority state dir: {error}"))?;
+              let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+              if !metadata.is_dir() {
+                  return Err("authority state path is not a directory".into());
+              }
+              let mode = metadata.permissions().mode() & 0o777;
+              if mode & 0o077 != 0 {
+                  fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+                      .map_err(|error| {
+                          format!("cannot harden authority state directory: {error}")
+                      })?;
+              }
+              Ok(())
+          }
+
+          fn load_or_create_secret(path: &Path) -> Result<Vec<u8>, String> {
+              match fs::read(path) {
+                  Ok(bytes) => {
+                      validate_secret_file(path, &bytes)?;
+                      Ok(bytes)
+                  }
+                  Err(error) if error.kind() == std::io::ErrorKind::NotFound => create_secret(path),
+                  Err(error) => Err(format!("cannot read {}: {error}", path.display())),
+              }
+          }
+
+          fn validate_secret_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+              if bytes.len() != SECRET_BYTES || bytes.iter().all(|byte| *byte == 0) {
+                  return Err(format!("{} is not a non-zero 256-bit secret", path.display()));
+              }
+              let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
+              if metadata.permissions().mode() & 0o077 != 0 {
+                  return Err(format!("{} permissions are broader than 0600", path.display()));
+              }
+              Ok(())
+          }
+
+          fn create_secret(path: &Path) -> Result<Vec<u8>, String> {
+              let mut random = File::open("/dev/urandom")
+                  .map_err(|error| format!("cannot open kernel random source: {error}"))?;
+              let mut bytes = vec![0_u8; SECRET_BYTES];
+              random
+                  .read_exact(&mut bytes)
+                  .map_err(|error| format!("cannot read kernel random source: {error}"))?;
+              if bytes.iter().all(|byte| *byte == 0) {
+                  return Err("kernel random source returned an invalid all-zero secret".into());
+              }
+              let mut file = OpenOptions::new()
+                  .write(true)
+                  .create_new(true)
+                  .mode(0o600)
+                  .open(path)
+                  .map_err(|error| format!("cannot create {}: {error}", path.display()))?;
+              file.write_all(&bytes)
+                  .and_then(|()| file.sync_all())
+                  .map_err(|error| {
+                      format!("cannot durably provision {}: {error}", path.display())
+                  })?;
+              validate_secret_file(path, &bytes)?;
+              Ok(bytes)
+          }
+
+          pub(crate) fn state_dir() -> PathBuf {
+              env::var_os(STATE_DIR_ENV)
+                  .map(PathBuf::from)
+                  .unwrap_or_else(|| PathBuf::from(DEFAULT_STATE_DIR))
+          }
+          RS
+
+          cat > apps/linura-authorityd/src/main.rs <<'RS'
+          #![forbid(unsafe_code)]
+
+          mod runtime;
+          mod systemd_adapter;
+
+          use std::error::Error;
+
+          fn serve() -> Result<(), Box<dyn Error>> {
+              let runtime = runtime::ManagedRuntime::open(&runtime::state_dir())
+                  .map_err(std::io::Error::other)?;
+              linura_dbus::serve_authority1(runtime)?;
+              Ok(())
+          }
+
+          fn main() {
+              if let Err(error) = serve() {
+                  eprintln!("linura-authorityd failed closed: {error}");
+                  std::process::exit(1);
+              }
+          }
+          RS
+
+          python3 - <<'PY'
+          from pathlib import Path
+          cargo = Path('apps/linura-authorityd/Cargo.toml')
+          text = cargo.read_text(encoding='utf-8')
+          text = text.replace('blocking = "=1.7.0"\n', '')
+          if 'linura-dbus = { path = "../../crates/linura-dbus" }' not in text:
+              marker = 'linura-core = { path = "../../crates/linura-core" }\n'
+              if marker not in text:
+                  raise SystemExit('authorityd core dependency marker not found')
+              text = text.replace(marker, marker + 'linura-dbus = { path = "../../crates/linura-dbus" }\n', 1)
+          cargo.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Align release artifact contract and remove stale policy
+        run: |
+          set -euo pipefail
+          git rm -f polkit/org.linura.executor.systemd.policy
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path('.github/workflows/reusable-release-build.yml')
+          text = build.read_text(encoding='utf-8')
+          install = '          install -m 0755 "$binary_root/linura-executor-systemd" "$PAYLOAD_DIR/linura-executor-systemd"\n'
+          authority_install = '          install -m 0755 "$binary_root/linura-authorityd" "$PAYLOAD_DIR/linura-authorityd"\n'
+          if authority_install not in text:
+              if text.count(install) != 1:
+                  raise SystemExit('release install marker not found')
+              text = text.replace(install, install + authority_install, 1)
+
+          marker = '            "$PAYLOAD_DIR/linura-executor-systemd" \\\n            --version "$RELEASE_TAG" \\\n'
+          if '"$PAYLOAD_DIR/linura-authorityd" \\\n            --version "$RELEASE_TAG"' not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit('SBOM marker not found')
+              text = text.replace(marker, '            "$PAYLOAD_DIR/linura-executor-systemd" \\\n            "$PAYLOAD_DIR/linura-authorityd" \\\n            --version "$RELEASE_TAG" \\\n', 1)
+
+          marker = '            --artifact "$PAYLOAD_DIR/linura-executor-systemd" \\\n            --artifact "$PAYLOAD_DIR/linura.spdx.json" \\\n'
+          if '--artifact "$PAYLOAD_DIR/linura-authorityd"' not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit('release evidence marker not found')
+              text = text.replace(marker, '            --artifact "$PAYLOAD_DIR/linura-executor-systemd" \\\n            --artifact "$PAYLOAD_DIR/linura-authorityd" \\\n            --artifact "$PAYLOAD_DIR/linura.spdx.json" \\\n', 1)
+
+          marker = '            "$PAYLOAD_DIR/linura-executor-systemd" \\\n            "$PAYLOAD_DIR/linura.spdx.json" \\\n'
+          if '"$PAYLOAD_DIR/linura-authorityd" \\\n            "$PAYLOAD_DIR/linura.spdx.json"' not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit('checksum marker not found')
+              text = text.replace(marker, '            "$PAYLOAD_DIR/linura-executor-systemd" \\\n            "$PAYLOAD_DIR/linura-authorityd" \\\n            "$PAYLOAD_DIR/linura.spdx.json" \\\n', 1)
+
+          marker = '''            linura-update-guard \\
+              linura-executor-systemd; do
+          '''
+          if '            linura-authorityd; do' not in text:
+              if text.count(marker) != 1:
+                  raise SystemExit('reproduction marker not found')
+              text = text.replace(marker, '''            linura-update-guard \\
+              linura-executor-systemd \\
+              linura-authorityd; do
+          ''', 1)
+          build.write_text(text, encoding='utf-8')
+
+          verification = Path('.github/workflows/release-verification.yml')
+          text = verification.read_text(encoding='utf-8')
+          if 'test -x published/linura-authorityd' not in text:
+              marker = '          test "$(cat published/RELEASE_TAG)" = "$RELEASE_TAG"\n'
+              if marker not in text:
+                  raise SystemExit('release verification tag marker not found')
+              text = text.replace(marker, marker + '          test -f published/linura-authorityd\n          test -x published/linura-authorityd\n', 1)
+          verification.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Refresh lock and validate real source
+        run: |
+          set -euo pipefail
+          cargo check --workspace
+          cargo fmt --all
+          cargo test --locked -p linura-control v06_qualification::
+          cargo test --locked -p linura-dbus
+          cargo test --locked -p linura-authorityd
+          cargo clippy --locked -p linura-control -p linura-dbus -p linura-authorityd --all-targets -- -D warnings
+          python3 tools/check_layering.py
+          python3 tools/check_contract_stability.py
+          cargo xtask check
+          git diff --check
+
+      - name: Commit validated architecture and retire temporary workflow
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/v06-lock-bootstrap.yml .github/workflows/v06-architecture-materialize.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(v0.6): align authority transport and release boundary"
+          git push origin HEAD:tmp/v06-managed-lifecycle
