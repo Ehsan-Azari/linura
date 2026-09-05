@@ -21,6 +21,8 @@ mod plan_preview;
 mod policy_review;
 mod review_projection;
 mod risk_classification;
+#[cfg(test)]
+mod v06_qualification;
 
 pub use approval::{
     ApprovalEvidence, ApprovalIssueError, ApprovalRequirement, ApprovalRevocation,
