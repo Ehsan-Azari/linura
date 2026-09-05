@@ -38,8 +38,7 @@ jobs:
           addition = marker + 'pub const MANAGED_SYSTEMD_INTENT_ORIGIN: &str = "intent:v06:managed-systemd-active-state";\n'
           if text.count(marker) != 1:
               raise SystemExit(f'managed intent marker count={text.count(marker)}')
-          text = text.replace(marker, addition, 1)
-          managed.write_text(text, encoding='utf-8')
+          managed.write_text(text.replace(marker, addition, 1), encoding='utf-8')
 
           lib = Path('crates/linura-control/src/lib.rs')
           text = lib.read_text(encoding='utf-8')
@@ -61,15 +60,8 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'authority core import marker count={text.count(old)}')
           text = text.replace(old, new, 1)
-          old = '''            intent_ids: vec![],
-            requirement_ids: vec![],
-            capability_ids: vec![],
-'''
-          new = '''            intent_ids: vec![IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN)
-                .map_err(|error| error.to_string())?],
-            requirement_ids: vec![],
-            capability_ids: vec![],
-'''
+          old = '            intent_ids: vec![],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n'
+          new = '            intent_ids: vec![IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN)\n                .map_err(|error| error.to_string())?],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n'
           if text.count(old) != 1:
               raise SystemExit(f'authority semantic origin marker count={text.count(old)}')
           authority.write_text(text.replace(old, new, 1), encoding='utf-8')
@@ -86,14 +78,8 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'qualification control import marker count={text.count(old)}')
           text = text.replace(old, new, 1)
-          old = '''            intent_ids: vec![],
-            requirement_ids: vec![],
-            capability_ids: vec![],
-'''
-          new = '''            intent_ids: vec![value(IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN))],
-            requirement_ids: vec![],
-            capability_ids: vec![],
-'''
+          old = '            intent_ids: vec![],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n'
+          new = '            intent_ids: vec![value(IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN))],\n            requirement_ids: vec![],\n            capability_ids: vec![],\n'
           if text.count(old) != 1:
               raise SystemExit(f'qualification semantic origin marker count={text.count(old)}')
           qualification.write_text(text.replace(old, new, 1), encoding='utf-8')
