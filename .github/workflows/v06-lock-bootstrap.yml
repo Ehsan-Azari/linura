@@ -26,7 +26,7 @@ jobs:
           rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
           rustup default "$RUST_VERSION"
 
-      - name: Repair explicit v0.6 semantic origin
+      - name: Repair explicit v0.6 semantic origin and recovery approval binding
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -38,7 +38,13 @@ jobs:
           addition = marker + 'pub const MANAGED_SYSTEMD_INTENT_ORIGIN: &str = "intent:v06:managed-systemd-active-state";\n'
           if text.count(marker) != 1:
               raise SystemExit(f'managed intent marker count={text.count(marker)}')
-          managed.write_text(text.replace(marker, addition, 1), encoding='utf-8')
+          text = text.replace(marker, addition, 1)
+
+          old = '        let approval_evidence_id =\n            if verification.disposition == VerificationDisposition::NotSatisfied {\n                let candidate = self.authority.candidate(\n                    &mut self.previews,\n                    principal.clone(),\n                    actor.clone(),\n                    request.clone(),\n                )?;\n                let canonical_effect = effect_from_candidate(&candidate)?;\n                if canonical_effect != effect {\n                    return Err(ManagedLifecycleError::Contract(\n                        "recovery candidate substituted the originally bound effect".into(),\n                    ));\n                }\n                self.authorize_candidate(&candidate, approval)?\n            } else {\n                None\n            };\n\n        let recovery = self.authority.recover_indeterminate(\n            &mut self.previews,\n            principal.clone(),\n            actor.clone(),\n            request.clone(),\n            approval_evidence_id,\n        )?;\n'
+          new = '        let recovery = if verification.disposition == VerificationDisposition::NotSatisfied {\n            let approver = PolicyAuthenticatedApprover::new(\n                approval.principal().clone(),\n                ActorKind::Human,\n                BTreeSet::from([ApprovalClass::Administrator]),\n            );\n            let approval_request = ApprovalRequestId::new(format!(\n                "approval:v06:recovery:{}",\n                request.request_id.as_str()\n            ))\n            .map_err(|error| ManagedLifecycleError::Contract(error.to_string()))?;\n            let expires_at = now_unix_seconds()?\n                .checked_add(MANAGED_APPROVAL_TTL_SECONDS)\n                .ok_or_else(|| ManagedLifecycleError::Contract("approval clock overflow".into()))?;\n            self.authority.recover_indeterminate_with_approver(\n                &mut self.previews,\n                principal.clone(),\n                actor.clone(),\n                request.clone(),\n                approval_request,\n                approver,\n                expires_at,\n            )?\n        } else {\n            self.authority.recover_indeterminate(\n                &mut self.previews,\n                principal.clone(),\n                actor.clone(),\n                request.clone(),\n                None,\n            )?\n        };\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'managed recovery marker count={text.count(old)}')
+          managed.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           lib = Path('crates/linura-control/src/lib.rs')
           text = lib.read_text(encoding='utf-8')
@@ -65,6 +71,26 @@ jobs:
           if text.count(old) != 1:
               raise SystemExit(f'authority semantic origin marker count={text.count(old)}')
           authority.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          durable = Path('crates/linura-control/src/durable_authority.rs')
+          text = durable.read_text(encoding='utf-8')
+          marker = 'pub enum DurableRecoveryOutcome {\n    Verified(VerifiedDurableAuthority),\n    Reprepared(Box<PreparedDurableAuthority>),\n    Blocked(TransactionSnapshot),\n    StillIndeterminate(TransactionSnapshot),\n}\n'
+          addition = marker + '\nenum RecoveryApproval {\n    Existing(Option<ApprovalEvidenceId>),\n    OnDemand {\n        request_id: ApprovalRequestId,\n        approver: PolicyAuthenticatedApprover,\n        expires_at_unix_seconds: u64,\n    },\n}\n'
+          if text.count(marker) != 1:
+              raise SystemExit(f'recovery approval enum marker count={text.count(marker)}')
+          text = text.replace(marker, addition, 1)
+
+          old = '    pub fn recover_indeterminate(\n        &mut self,\n        previews: &mut PlanPreviewControl,\n        principal: AuthenticatedPrincipal,\n        actor: Actor,\n        request: PlanDesiredStateRequest,\n        approval_evidence_id: Option<ApprovalEvidenceId>,\n    ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {\n'
+          new = '    pub fn recover_indeterminate(\n        &mut self,\n        previews: &mut PlanPreviewControl,\n        principal: AuthenticatedPrincipal,\n        actor: Actor,\n        request: PlanDesiredStateRequest,\n        approval_evidence_id: Option<ApprovalEvidenceId>,\n    ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {\n        self.recover_indeterminate_inner(\n            previews,\n            principal,\n            actor,\n            request,\n            RecoveryApproval::Existing(approval_evidence_id),\n        )\n    }\n\n    /// Recover using approval authority bound to the exact fresh recovery\n    /// candidate. This avoids approving one observation and repreparing from a\n    /// different observation.\n    pub fn recover_indeterminate_with_approver(\n        &mut self,\n        previews: &mut PlanPreviewControl,\n        principal: AuthenticatedPrincipal,\n        actor: Actor,\n        request: PlanDesiredStateRequest,\n        approval_request_id: ApprovalRequestId,\n        approver: PolicyAuthenticatedApprover,\n        expires_at_unix_seconds: u64,\n    ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {\n        self.recover_indeterminate_inner(\n            previews,\n            principal,\n            actor,\n            request,\n            RecoveryApproval::OnDemand {\n                request_id: approval_request_id,\n                approver,\n                expires_at_unix_seconds,\n            },\n        )\n    }\n\n    fn recover_indeterminate_inner(\n        &mut self,\n        previews: &mut PlanPreviewControl,\n        principal: AuthenticatedPrincipal,\n        actor: Actor,\n        request: PlanDesiredStateRequest,\n        approval: RecoveryApproval,\n    ) -> Result<DurableRecoveryOutcome, DurableAuthorityError> {\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'recovery function marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          old = '                let now_unix_ms = self.authority_now_unix_ms()?;\n                let next_binding = self.revalidate_and_bind(\n                    &candidate,\n                    approval_evidence_id.as_ref(),\n                    now_unix_ms,\n                )?;\n'
+          new = '                let approval_evidence_id = match &approval {\n                    RecoveryApproval::Existing(existing) => existing.clone(),\n                    RecoveryApproval::OnDemand {\n                        request_id,\n                        approver,\n                        expires_at_unix_seconds,\n                    } => match candidate.review.decision() {\n                        PolicyDecision::Allow => None,\n                        PolicyDecision::RequireApproval { .. } => Some(\n                            self.issue_approval(\n                                request_id.clone(),\n                                &candidate,\n                                approver,\n                                *expires_at_unix_seconds,\n                            )?\n                            .id()\n                            .clone(),\n                        ),\n                        PolicyDecision::Deny { .. } | PolicyDecision::Blocked { .. } => {\n                            return Err(DurableAuthorityError::CandidateBlocked);\n                        }\n                    },\n                };\n                let now_unix_ms = self.authority_now_unix_ms()?;\n                let next_binding = self.revalidate_and_bind(\n                    &candidate,\n                    approval_evidence_id.as_ref(),\n                    now_unix_ms,\n                )?;\n'
+          if text.count(old) != 1:
+              raise SystemExit(f'recovery binding marker count={text.count(old)}')
+          durable.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           qualification = Path('crates/linura-control/src/v06_qualification.rs')
           text = qualification.read_text(encoding='utf-8')
@@ -101,7 +127,7 @@ jobs:
           git rm .github/workflows/v06-lock-bootstrap.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.lock apps/linura-authorityd/src/main.rs crates/linura-control/Cargo.toml crates/linura-control/src/lib.rs crates/linura-control/src/managed_lifecycle.rs crates/linura-control/src/v06_qualification.rs
+          git add Cargo.lock apps/linura-authorityd/src/main.rs crates/linura-control/Cargo.toml crates/linura-control/src/durable_authority.rs crates/linura-control/src/lib.rs crates/linura-control/src/managed_lifecycle.rs crates/linura-control/src/v06_qualification.rs
           git diff --cached --check
           git commit -m "test(v0.6): qualify durable managed lifecycle failures"
           git push origin HEAD:tmp/v06-managed-lifecycle
