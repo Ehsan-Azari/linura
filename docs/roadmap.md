@@ -122,8 +122,8 @@ This milestone does not introduce managed external mutation merely because durab
 
 ## v0.5.0 — first narrow privileged executor and independent verifier
 
-**Status:** planned  
-**Target claim class:** Experimental
+**Status:** released
+**Claim class:** Experimental
 
 Implement and qualify the first narrow privileged executor and independent verifier components **without yet supporting a Linura-managed external mutation as a product capability**.
 
