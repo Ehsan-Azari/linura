@@ -188,7 +188,9 @@ impl SystemdActiveStateVerifier {
             Some(state) if state == expectation.desired_active_state => satisfied(
                 "fresh native systemd state proves the exact managed active-state postcondition",
             ),
-            Some(_) => not_satisfied("managed systemd unit has not reached the intended active state"),
+            Some(_) => {
+                not_satisfied("managed systemd unit has not reached the intended active state")
+            }
             None => inconclusive("native observation is missing active state"),
         }
     }
@@ -223,7 +225,9 @@ fn validate_native_observation(
         ));
     }
     if observation.authority != ObservationAuthority::NativeApi {
-        return Some(inconclusive("verification requires native systemd authority"));
+        return Some(inconclusive(
+            "verification requires native systemd authority",
+        ));
     }
     if observation.freshness_at(now_unix_ms) != FreshnessState::Current {
         return Some(inconclusive(
@@ -343,7 +347,10 @@ mod tests {
         let mut attributes = BTreeMap::from([
             ("id".into(), ObservedValue::Text(unit.into())),
             ("load_state".into(), ObservedValue::Text("loaded".into())),
-            ("active_state".into(), ObservedValue::Text(active_state.into())),
+            (
+                "active_state".into(),
+                ObservedValue::Text(active_state.into()),
+            ),
             ("sub_state".into(), ObservedValue::Text("running".into())),
         ]);
         if let Some(timestamp) = timestamp {
@@ -370,7 +377,13 @@ mod tests {
         let expectation = id(SystemdRestartExpectation::new(unit, 100));
         let result = SystemdRestartVerifier.verify_at(
             &expectation,
-            &observation(unit, "active", 1_000, ObservationAuthority::NativeApi, Some(101)),
+            &observation(
+                unit,
+                "active",
+                1_000,
+                ObservationAuthority::NativeApi,
+                Some(101),
+            ),
             1_500,
         );
         assert_eq!(result.disposition, VerificationDisposition::Satisfied);
@@ -385,7 +398,13 @@ mod tests {
             verifier
                 .verify_at(
                     &expectation,
-                    &observation(unit, "active", 1_000, ObservationAuthority::NativeApi, Some(100)),
+                    &observation(
+                        unit,
+                        "active",
+                        1_000,
+                        ObservationAuthority::NativeApi,
+                        Some(100)
+                    ),
                     1_500,
                 )
                 .disposition,
@@ -395,7 +414,13 @@ mod tests {
             verifier
                 .verify_at(
                     &expectation,
-                    &observation(unit, "inactive", 1_000, ObservationAuthority::NativeApi, Some(101)),
+                    &observation(
+                        unit,
+                        "inactive",
+                        1_000,
+                        ObservationAuthority::NativeApi,
+                        Some(101)
+                    ),
                     1_500,
                 )
                 .disposition,
@@ -411,7 +436,13 @@ mod tests {
             let expectation = id(SystemdActiveStateExpectation::new(unit, state));
             let outcome = verifier.verify_at(
                 &expectation,
-                &observation(unit, state, 1_000, ObservationAuthority::NativeApi, Some(101)),
+                &observation(
+                    unit,
+                    state,
+                    1_000,
+                    ObservationAuthority::NativeApi,
+                    Some(101),
+                ),
                 1_500,
             );
             assert_eq!(outcome.disposition, VerificationDisposition::Satisfied);
@@ -424,7 +455,13 @@ mod tests {
         let expectation = id(SystemdActiveStateExpectation::new(unit, "active"));
         let outcome = SystemdActiveStateVerifier.verify_at(
             &expectation,
-            &observation(unit, "inactive", 1_000, ObservationAuthority::NativeApi, None),
+            &observation(
+                unit,
+                "inactive",
+                1_000,
+                ObservationAuthority::NativeApi,
+                None,
+            ),
             1_500,
         );
         assert_eq!(outcome.disposition, VerificationDisposition::NotSatisfied);
@@ -447,9 +484,27 @@ mod tests {
         let expectation = id(SystemdRestartExpectation::new(unit, 100));
         let verifier = SystemdRestartVerifier;
         let cases = [
-            observation(unit, "active", 1_000, ObservationAuthority::NativeApi, Some(101)),
-            observation(unit, "active", 5_000, ObservationAuthority::NativeApi, Some(101)),
-            observation(unit, "active", 1_000, ObservationAuthority::SyntheticTest, Some(101)),
+            observation(
+                unit,
+                "active",
+                1_000,
+                ObservationAuthority::NativeApi,
+                Some(101),
+            ),
+            observation(
+                unit,
+                "active",
+                5_000,
+                ObservationAuthority::NativeApi,
+                Some(101),
+            ),
+            observation(
+                unit,
+                "active",
+                1_000,
+                ObservationAuthority::SyntheticTest,
+                Some(101),
+            ),
             observation(unit, "active", 1_000, ObservationAuthority::NativeApi, None),
         ];
         let now = [4_000, 1_500, 1_500, 1_500];
@@ -468,7 +523,13 @@ mod tests {
         let verifier = SystemdActiveStateVerifier;
         for candidate in [
             observation(unit, "active", 1_000, ObservationAuthority::NativeApi, None),
-            observation(unit, "active", 1_000, ObservationAuthority::SyntheticTest, None),
+            observation(
+                unit,
+                "active",
+                1_000,
+                ObservationAuthority::SyntheticTest,
+                None,
+            ),
         ] {
             let now = if candidate.authority == ObservationAuthority::NativeApi {
                 4_000
@@ -476,7 +537,9 @@ mod tests {
                 1_500
             };
             assert_eq!(
-                verifier.verify_at(&expectation, &candidate, now).disposition,
+                verifier
+                    .verify_at(&expectation, &candidate, now)
+                    .disposition,
                 VerificationDisposition::Inconclusive
             );
         }

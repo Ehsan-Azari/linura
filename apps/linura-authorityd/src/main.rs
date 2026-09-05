@@ -232,8 +232,8 @@ impl IndependentManagedVerifier for FreshSystemdVerifier {
         let (unit, state) = parse_managed_effect(effect)?;
         let expectation = SystemdActiveStateExpectation::new(unit.as_str(), state.as_str())
             .map_err(|error| error.to_string())?;
-        let capability = CapabilityId::new(MANAGED_SYSTEMD_CAPABILITY)
-            .map_err(|error| error.to_string())?;
+        let capability =
+            CapabilityId::new(MANAGED_SYSTEMD_CAPABILITY).map_err(|error| error.to_string())?;
         let observation = self
             .observer
             .observe_authoritative(&effect.resource, &capability)
@@ -357,7 +357,9 @@ async fn authenticated_caller(
         .ok_or_else(|| fdo_failed("authority request has no authenticated D-Bus sender"))?;
     let unique_bus_name = sender.as_str().to_owned();
     if !unique_bus_name.starts_with(':') || unique_bus_name.chars().any(char::is_control) {
-        return Err(fdo_failed("authority request sender is not a canonical unique bus name"));
+        return Err(fdo_failed(
+            "authority request sender is not a canonical unique bus name",
+        ));
     }
     let proxy = zbus::Proxy::new(
         connection,
@@ -406,7 +408,8 @@ fn managed_request(
     desired_active_state: &str,
     reason: &str,
 ) -> Result<PlanDesiredStateRequest, String> {
-    if reason.is_empty() || reason.len() > MAX_REASON_BYTES || reason.chars().any(char::is_control) {
+    if reason.is_empty() || reason.len() > MAX_REASON_BYTES || reason.chars().any(char::is_control)
+    {
         return Err("reason must be 1..1024 bytes without control characters".into());
     }
     let unit = ManagedUnitName::parse(unit).map_err(|error| error.to_string())?;
@@ -424,12 +427,10 @@ fn managed_request(
             requirement_ids: vec![],
             capability_ids: vec![],
         },
-        desired_state: BTreeMap::from([(
-            "active_state".to_owned(),
-            state.as_str().to_owned(),
-        )]),
+        desired_state: BTreeMap::from([("active_state".to_owned(), state.as_str().to_owned())]),
     };
-    request.request_id = managed_request_id(operation_id, &request).map_err(|error| error.to_string())?;
+    request.request_id =
+        managed_request_id(operation_id, &request).map_err(|error| error.to_string())?;
     Ok(request)
 }
 
@@ -450,7 +451,8 @@ fn receipt_wire(receipt: ManagedMutationReceipt) -> ReceiptWire {
 }
 
 fn prepare_state_dir(path: &Path) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|error| format!("cannot create authority state dir: {error}"))?;
+    fs::create_dir_all(path)
+        .map_err(|error| format!("cannot create authority state dir: {error}"))?;
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if !metadata.is_dir() {
         return Err("authority state path is not a directory".into());
@@ -476,11 +478,17 @@ fn load_or_create_secret(path: &Path) -> Result<Vec<u8>, String> {
 
 fn validate_secret_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() != SECRET_BYTES || bytes.iter().all(|byte| *byte == 0) {
-        return Err(format!("{} is not a non-zero 256-bit secret", path.display()));
+        return Err(format!(
+            "{} is not a non-zero 256-bit secret",
+            path.display()
+        ));
     }
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(format!("{} permissions are broader than 0600", path.display()));
+        return Err(format!(
+            "{} permissions are broader than 0600",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -551,17 +559,25 @@ mod tests {
         )
         .unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(request.provider.as_str(), MANAGED_SYSTEMD_PROVIDER);
-        assert_eq!(request.observation_capability.as_str(), MANAGED_SYSTEMD_CAPABILITY);
+        assert_eq!(
+            request.observation_capability.as_str(),
+            MANAGED_SYSTEMD_CAPABILITY
+        );
         assert_eq!(
             request.resource.as_str(),
             "systemd:unit:linura-managed-example.service"
         );
         assert_eq!(
-            request.desired_state.get("active_state").map(String::as_str),
+            request
+                .desired_state
+                .get("active_state")
+                .map(String::as_str),
             Some("active")
         );
         assert!(managed_request("bad", "sshd.service", "active", "test").is_err());
-        assert!(managed_request("bad", "linura-managed-example.service", "failed", "test").is_err());
+        assert!(
+            managed_request("bad", "linura-managed-example.service", "failed", "test").is_err()
+        );
     }
 
     #[test]
@@ -570,8 +586,7 @@ mod tests {
             .unwrap_or_else(|error| unreachable!("{error}"));
         let effect = managed_active_state_effect(&unit, ManagedActiveState::Active)
             .unwrap_or_else(|error| unreachable!("{error}"));
-        let parsed = parse_managed_effect(&effect)
-            .unwrap_or_else(|error| unreachable!("{error}"));
+        let parsed = parse_managed_effect(&effect).unwrap_or_else(|error| unreachable!("{error}"));
         assert_eq!(parsed.0, unit);
         assert_eq!(parsed.1, ManagedActiveState::Active);
     }

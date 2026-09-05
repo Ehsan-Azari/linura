@@ -121,18 +121,41 @@ pub enum ManagedLifecycleError {
 impl Display for ManagedLifecycleError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnsupportedEffect(detail) => write!(formatter, "unsupported v0.6 effect: {detail}"),
-            Self::InvalidRequestIdentity(detail) => write!(formatter, "invalid v0.6 request identity: {detail}"),
-            Self::ApprovalBoundary(detail) => write!(formatter, "trusted approval boundary failed: {detail}"),
+            Self::UnsupportedEffect(detail) => {
+                write!(formatter, "unsupported v0.6 effect: {detail}")
+            }
+            Self::InvalidRequestIdentity(detail) => {
+                write!(formatter, "invalid v0.6 request identity: {detail}")
+            }
+            Self::ApprovalBoundary(detail) => {
+                write!(formatter, "trusted approval boundary failed: {detail}")
+            }
             Self::Authority(detail) => write!(formatter, "durable authority failed: {detail}"),
             Self::Executor(detail) => write!(formatter, "privileged executor failed: {detail}"),
-            Self::ExecutionRejected(detail) => write!(formatter, "effect was rejected before dispatch: {detail}"),
-            Self::Verification(detail) => write!(formatter, "independent verification failed: {detail}"),
-            Self::VerificationNotSatisfied(detail) => write!(formatter, "independent verification did not prove intended state: {detail}"),
-            Self::Indeterminate(detail) => write!(formatter, "managed mutation remains indeterminate: {detail}"),
-            Self::TerminalState(detail) => write!(formatter, "durable transaction is terminal and cannot be replayed: {detail}"),
-            Self::Reconciliation(detail) => write!(formatter, "post-commit reconciliation failed: {detail}"),
-            Self::Contract(detail) => write!(formatter, "managed lifecycle contract failed: {detail}"),
+            Self::ExecutionRejected(detail) => {
+                write!(formatter, "effect was rejected before dispatch: {detail}")
+            }
+            Self::Verification(detail) => {
+                write!(formatter, "independent verification failed: {detail}")
+            }
+            Self::VerificationNotSatisfied(detail) => write!(
+                formatter,
+                "independent verification did not prove intended state: {detail}"
+            ),
+            Self::Indeterminate(detail) => write!(
+                formatter,
+                "managed mutation remains indeterminate: {detail}"
+            ),
+            Self::TerminalState(detail) => write!(
+                formatter,
+                "durable transaction is terminal and cannot be replayed: {detail}"
+            ),
+            Self::Reconciliation(detail) => {
+                write!(formatter, "post-commit reconciliation failed: {detail}")
+            }
+            Self::Contract(detail) => {
+                write!(formatter, "managed lifecycle contract failed: {detail}")
+            }
         }
     }
 }
@@ -285,7 +308,9 @@ where
         match verification.disposition {
             VerificationDisposition::Satisfied => advance(&mut progress, MutationStage::Verify)?,
             VerificationDisposition::NotSatisfied => {
-                return Err(ManagedLifecycleError::VerificationNotSatisfied(verification.detail));
+                return Err(ManagedLifecycleError::VerificationNotSatisfied(
+                    verification.detail,
+                ));
             }
             VerificationDisposition::Inconclusive => {
                 return Err(ManagedLifecycleError::Indeterminate(verification.detail));
@@ -378,7 +403,9 @@ where
                         verification.detail
                     )));
                 }
-                let verified = self.authority.resume_verified(&principal, &transaction_id)?;
+                let verified = self
+                    .authority
+                    .resume_verified(&principal, &transaction_id)?;
                 let committed = self.authority.commit_verified(&principal, verified)?;
                 let mut progress = progress_through(MutationStage::Commit)?;
                 self.authority.integrity_check()?;
@@ -455,24 +482,24 @@ where
             return Err(ManagedLifecycleError::Indeterminate(verification.detail));
         }
 
-        let approval_evidence_id = if verification.disposition == VerificationDisposition::NotSatisfied
-        {
-            let candidate = self.authority.candidate(
-                &mut self.previews,
-                principal.clone(),
-                actor.clone(),
-                request.clone(),
-            )?;
-            let canonical_effect = effect_from_candidate(&candidate)?;
-            if canonical_effect != effect {
-                return Err(ManagedLifecycleError::Contract(
-                    "recovery candidate substituted the originally bound effect".into(),
-                ));
-            }
-            self.authorize_candidate(&candidate, approval)?
-        } else {
-            None
-        };
+        let approval_evidence_id =
+            if verification.disposition == VerificationDisposition::NotSatisfied {
+                let candidate = self.authority.candidate(
+                    &mut self.previews,
+                    principal.clone(),
+                    actor.clone(),
+                    request.clone(),
+                )?;
+                let canonical_effect = effect_from_candidate(&candidate)?;
+                if canonical_effect != effect {
+                    return Err(ManagedLifecycleError::Contract(
+                        "recovery candidate substituted the originally bound effect".into(),
+                    ));
+                }
+                self.authorize_candidate(&candidate, approval)?
+            } else {
+                None
+            };
 
         let recovery = self.authority.recover_indeterminate(
             &mut self.previews,
@@ -551,7 +578,9 @@ where
                 .map_err(|error| ManagedLifecycleError::Contract(error.to_string()))?;
                 let expires_at = now_unix_seconds()?
                     .checked_add(MANAGED_APPROVAL_TTL_SECONDS)
-                    .ok_or_else(|| ManagedLifecycleError::Contract("approval clock overflow".into()))?;
+                    .ok_or_else(|| {
+                        ManagedLifecycleError::Contract("approval clock overflow".into())
+                    })?;
                 let evidence = self.authority.issue_approval(
                     approval_request,
                     candidate,
@@ -652,15 +681,15 @@ fn effect_from_parts(
     resource: ResourceId,
     desired_state: &BTreeMap<String, String>,
 ) -> Result<EffectDescriptor, ManagedLifecycleError> {
-    let unit = managed_unit_from_resource(resource.as_str())?;
+    let unit = managed_unit_from_resource(resource.as_str())?.to_owned();
     if desired_state.len() != 1 {
         return Err(ManagedLifecycleError::UnsupportedEffect(
             "v0.6 accepts exactly one desired-state attribute".into(),
         ));
     }
-    let desired = desired_state
-        .get("active_state")
-        .ok_or_else(|| ManagedLifecycleError::UnsupportedEffect("active_state is required".into()))?;
+    let desired = desired_state.get("active_state").ok_or_else(|| {
+        ManagedLifecycleError::UnsupportedEffect("active_state is required".into())
+    })?;
     if !matches!(desired.as_str(), "active" | "inactive") {
         return Err(ManagedLifecycleError::UnsupportedEffect(
             "active_state must be exactly active or inactive".into(),
@@ -676,9 +705,9 @@ fn effect_from_parts(
 }
 
 fn managed_unit_from_resource(resource: &str) -> Result<&str, ManagedLifecycleError> {
-    let unit = resource
-        .strip_prefix("systemd:unit:")
-        .ok_or_else(|| ManagedLifecycleError::UnsupportedEffect("resource is not a systemd unit".into()))?;
+    let unit = resource.strip_prefix("systemd:unit:").ok_or_else(|| {
+        ManagedLifecycleError::UnsupportedEffect("resource is not a systemd unit".into())
+    })?;
     if unit.is_empty() || unit.len() > 255 || !unit.ends_with(".service") || !unit.is_ascii() {
         return Err(ManagedLifecycleError::UnsupportedEffect(
             "unit must be a bounded ASCII .service name".into(),
@@ -686,9 +715,11 @@ fn managed_unit_from_resource(resource: &str) -> Result<&str, ManagedLifecycleEr
     }
     let suffix = unit
         .strip_prefix(MANAGED_SYSTEMD_UNIT_PREFIX)
-        .ok_or_else(|| ManagedLifecycleError::UnsupportedEffect(
-            "unit is outside the linura-managed- namespace".into(),
-        ))?;
+        .ok_or_else(|| {
+            ManagedLifecycleError::UnsupportedEffect(
+                "unit is outside the linura-managed- namespace".into(),
+            )
+        })?;
     let slug = suffix.strip_suffix(".service").ok_or_else(|| {
         ManagedLifecycleError::UnsupportedEffect("managed unit suffix is not canonical".into())
     })?;
@@ -748,7 +779,9 @@ fn validate_operation_id(operation_id: &str) -> Result<(), ManagedLifecycleError
     Ok(())
 }
 
-fn validate_request_identity(request: &PlanDesiredStateRequest) -> Result<(), ManagedLifecycleError> {
+fn validate_request_identity(
+    request: &PlanDesiredStateRequest,
+) -> Result<(), ManagedLifecycleError> {
     let value = request.request_id.as_str();
     let rest = value.strip_prefix(MANAGED_REQUEST_PREFIX).ok_or_else(|| {
         ManagedLifecycleError::InvalidRequestIdentity(format!(
@@ -762,9 +795,10 @@ fn validate_request_identity(request: &PlanDesiredStateRequest) -> Result<(), Ma
     })?;
     validate_operation_id(operation_id)?;
     if supplied_digest.len() != MANAGED_REQUEST_DIGEST_HEX_BYTES
-        || !supplied_digest.as_bytes().iter().all(|byte| {
-            byte.is_ascii_digit() || matches!(byte, b'a'..=b'f')
-        })
+        || !supplied_digest
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
     {
         return Err(ManagedLifecycleError::InvalidRequestIdentity(
             "request body digest must be 64 lowercase hexadecimal digits".into(),
@@ -827,9 +861,9 @@ fn advance(
     progress: &mut MutationProgress,
     stage: MutationStage,
 ) -> Result<(), ManagedLifecycleError> {
-    progress
-        .advance(stage)
-        .map_err(|error| ManagedLifecycleError::Contract(format!("invalid lifecycle transition: {error:?}")))
+    progress.advance(stage).map_err(|error| {
+        ManagedLifecycleError::Contract(format!("invalid lifecycle transition: {error:?}"))
+    })
 }
 
 fn progress_through(last: MutationStage) -> Result<MutationProgress, ManagedLifecycleError> {
@@ -903,10 +937,8 @@ mod tests {
         let mut request = PlanDesiredStateRequest {
             request_id: RequestId::new("request:v06:placeholder")
                 .unwrap_or_else(|error| unreachable!("{error}")),
-            provider: ProviderId::new("systemd")
-                .unwrap_or_else(|error| unreachable!("{error}")),
-            resource: ResourceId::new(resource)
-                .unwrap_or_else(|error| unreachable!("{error}")),
+            provider: ProviderId::new("systemd").unwrap_or_else(|error| unreachable!("{error}")),
+            resource: ResourceId::new(resource).unwrap_or_else(|error| unreachable!("{error}")),
             observation_capability: CapabilityId::new("systemd.unit.observe")
                 .unwrap_or_else(|error| unreachable!("{error}")),
             reason: SemanticReason {
@@ -935,19 +967,18 @@ mod tests {
             b"unit=linura-managed-example.service\nactive_state=active\n"
         );
         assert!(effect_from_request(&request("systemd:unit:sshd.service", "active")).is_err());
-        assert!(effect_from_request(&request(
-            "systemd:unit:linura-managed-example.service",
-            "failed",
-        ))
-        .is_err());
+        assert!(
+            effect_from_request(&request(
+                "systemd:unit:linura-managed-example.service",
+                "failed",
+            ))
+            .is_err()
+        );
     }
 
     #[test]
     fn request_id_binds_operation_and_exact_body() {
-        let request = request(
-            "systemd:unit:linura-managed-example.service",
-            "active",
-        );
+        let request = request("systemd:unit:linura-managed-example.service", "active");
         assert!(validate_request_identity(&request).is_ok());
 
         let mut substituted = request.clone();
@@ -967,6 +998,9 @@ mod tests {
         let progress = progress_through(MutationStage::Reconcile)
             .unwrap_or_else(|error| unreachable!("{error}"));
         assert!(progress.is_complete());
-        assert_eq!(progress.completed(), linura_lifecycle::MUTATION_STAGES.as_slice());
+        assert_eq!(
+            progress.completed(),
+            linura_lifecycle::MUTATION_STAGES.as_slice()
+        );
     }
 }

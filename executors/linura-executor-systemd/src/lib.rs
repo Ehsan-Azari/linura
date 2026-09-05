@@ -28,8 +28,13 @@ pub type QualificationOutcomeWire = ExecutionOutcomeWire;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SystemdOperation {
-    SetUnitEnabled { unit: UnitName, enabled: bool },
-    RestartUnit { unit: UnitName },
+    SetUnitEnabled {
+        unit: UnitName,
+        enabled: bool,
+    },
+    RestartUnit {
+        unit: UnitName,
+    },
     SetManagedActiveState {
         unit: ManagedUnitName,
         state: ManagedActiveState,
@@ -239,7 +244,11 @@ impl SystemdExecutorService {
         #[zbus(header)] header: Header<'_>,
     ) -> zbus::fdo::Result<QualificationOutcomeWire> {
         let sender = authenticated_sender(&header)?;
-        authorize_caller(&sender, QUALIFICATION_ACTION_ID, "v0.5 executor qualification")?;
+        authorize_caller(
+            &sender,
+            QUALIFICATION_ACTION_ID,
+            "v0.5 executor qualification",
+        )?;
 
         let unit = match QualificationUnitName::parse(unit) {
             Ok(unit) => unit,
@@ -271,7 +280,10 @@ impl SystemdExecutorService {
                 return Ok(outcome_wire(bounded_outcome(
                     ExecutionDisposition::RejectedBeforeDispatch,
                     binding.dispatch_digest,
-                    &format!("systemd proxy unavailable: {}", bounded_text(&error.to_string())),
+                    &format!(
+                        "systemd proxy unavailable: {}",
+                        bounded_text(&error.to_string())
+                    ),
                 )?));
             }
         };
@@ -344,7 +356,10 @@ impl SystemdExecutorService {
                 return Ok(outcome_wire(bounded_outcome(
                     ExecutionDisposition::RejectedBeforeDispatch,
                     binding.dispatch_digest,
-                    &format!("systemd proxy unavailable: {}", bounded_text(&error.to_string())),
+                    &format!(
+                        "systemd proxy unavailable: {}",
+                        bounded_text(&error.to_string())
+                    ),
                 )?));
             }
         };
@@ -401,12 +416,7 @@ pub fn managed_active_state_effect(
         provider,
         resource,
         MANAGED_OPERATION,
-        format!(
-            "unit={}\nactive_state={}\n",
-            unit.as_str(),
-            state.as_str()
-        )
-        .into_bytes(),
+        format!("unit={}\nactive_state={}\n", unit.as_str(), state.as_str()).into_bytes(),
     )
     .map_err(|error| ExecutorError::Contract(error.to_string()))
 }
@@ -495,7 +505,9 @@ fn authorize_caller(sender: &str, action_id: &str, purpose: &str) -> zbus::fdo::
         .args(["--action-id", action_id, "--system-bus-name", sender])
         .status()
         .map_err(|_| {
-            zbus::fdo::Error::AccessDenied(format!("{purpose} authorization service is unavailable"))
+            zbus::fdo::Error::AccessDenied(format!(
+                "{purpose} authorization service is unavailable"
+            ))
         })?;
     if status.success() {
         Ok(())
@@ -621,7 +633,10 @@ mod tests {
             "bad\nname.service",
             "bad\\name.service",
         ] {
-            assert!(UnitName::parse(value).is_err(), "accepted hostile unit: {value}");
+            assert!(
+                UnitName::parse(value).is_err(),
+                "accepted hostile unit: {value}"
+            );
         }
     }
 
@@ -635,7 +650,10 @@ mod tests {
             "linura-v05-qualification-Bad.service",
             "linura-v05-qualification-bad--slug.service",
         ] {
-            assert!(QualificationUnitName::parse(value).is_err(), "accepted fixture: {value}");
+            assert!(
+                QualificationUnitName::parse(value).is_err(),
+                "accepted fixture: {value}"
+            );
         }
     }
 
@@ -649,15 +667,24 @@ mod tests {
             "linura-managed-Bad.service",
             "linura-managed-bad--slug.service",
         ] {
-            assert!(ManagedUnitName::parse(value).is_err(), "accepted managed unit: {value}");
+            assert!(
+                ManagedUnitName::parse(value).is_err(),
+                "accepted managed unit: {value}"
+            );
         }
     }
 
     #[test]
     fn managed_effect_matches_control_canonical_payload() {
         let unit = id(ManagedUnitName::parse("linura-managed-web.service"));
-        let active = id(managed_active_state_effect(&unit, ManagedActiveState::Active));
-        let inactive = id(managed_active_state_effect(&unit, ManagedActiveState::Inactive));
+        let active = id(managed_active_state_effect(
+            &unit,
+            ManagedActiveState::Active,
+        ));
+        let inactive = id(managed_active_state_effect(
+            &unit,
+            ManagedActiveState::Inactive,
+        ));
         assert_eq!(active.operation, MANAGED_OPERATION);
         assert_eq!(
             active.canonical_payload,
@@ -696,9 +723,18 @@ mod tests {
     fn managed_binding_rejects_state_and_unit_substitution() {
         let first = id(ManagedUnitName::parse("linura-managed-first.service"));
         let second = id(ManagedUnitName::parse("linura-managed-second.service"));
-        let expected = id(managed_active_state_effect(&first, ManagedActiveState::Active));
-        let changed_state = id(managed_active_state_effect(&first, ManagedActiveState::Inactive));
-        let changed_unit = id(managed_active_state_effect(&second, ManagedActiveState::Active));
+        let expected = id(managed_active_state_effect(
+            &first,
+            ManagedActiveState::Active,
+        ));
+        let changed_state = id(managed_active_state_effect(
+            &first,
+            ManagedActiveState::Inactive,
+        ));
+        let changed_unit = id(managed_active_state_effect(
+            &second,
+            ManagedActiveState::Active,
+        ));
         let binding = id(ExecutionBinding::new(
             "transaction:v1:test",
             0,
