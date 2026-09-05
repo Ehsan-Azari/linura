@@ -28,101 +28,26 @@ jobs:
           text = text.replace('use sha2::{Digest, Sha256};\n', '')
           text = text.replace('const MANAGED_REQUEST_DIGEST_HEX_BYTES: usize = 64;\n', '')
 
-          old = '''pub fn managed_request_id(
-              operation_id: &str,
-              request: &PlanDesiredStateRequest,
-          ) -> Result<RequestId, ManagedLifecycleError> {
-              validate_operation_id(operation_id)?;
-              let digest = managed_request_digest(operation_id, request);
-              RequestId::new(format!("{MANAGED_REQUEST_PREFIX}{operation_id}:{digest}"))
-                  .map_err(|error| ManagedLifecycleError::InvalidRequestIdentity(error.to_string()))
-          }'''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines())
-          new = '''pub fn managed_request_id(
+          text, count = re.subn(
+              r'pub fn managed_request_id\(.*?\n\}\n\n(?=#\[derive\(Debug\)\])',
+              '''pub fn managed_request_id(
               operation_id: &str,
               _request: &PlanDesiredStateRequest,
           ) -> Result<RequestId, ManagedLifecycleError> {
               validate_operation_id(operation_id)?;
               RequestId::new(format!("{MANAGED_REQUEST_PREFIX}{operation_id}"))
                   .map_err(|error| ManagedLifecycleError::InvalidRequestIdentity(error.to_string()))
-          }'''
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines())
-          if old not in text:
-              raise SystemExit('managed_request_id marker missing')
-          text = text.replace(old, new, 1)
-
-          old = '''fn validate_request_identity(
-              request: &PlanDesiredStateRequest,
-          ) -> Result<(), ManagedLifecycleError> {
-              let value = request.request_id.as_str();
-              let rest = value.strip_prefix(MANAGED_REQUEST_PREFIX).ok_or_else(|| {
-                  ManagedLifecycleError::InvalidRequestIdentity(format!(
-                      "request id must begin with {MANAGED_REQUEST_PREFIX}"
-                  ))
-              })?;
-              let (operation_id, supplied_digest) = rest.rsplit_once(':').ok_or_else(|| {
-                  ManagedLifecycleError::InvalidRequestIdentity(
-                      "request id must contain an operation id and body digest".into(),
-                  )
-              })?;
-              validate_operation_id(operation_id)?;
-              if supplied_digest.len() != MANAGED_REQUEST_DIGEST_HEX_BYTES
-                  || !supplied_digest
-                      .as_bytes()
-                      .iter()
-                      .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-              {
-                  return Err(ManagedLifecycleError::InvalidRequestIdentity(
-                      "request body digest must be 64 lowercase hexadecimal digits".into(),
-                  ));
-              }
-              let expected = managed_request_digest(operation_id, request);
-              if supplied_digest != expected {
-                  return Err(ManagedLifecycleError::InvalidRequestIdentity(
-                      "request id does not bind the exact provider/resource/capability/reason/desired-state body"
-                          .into(),
-                  ));
-              }
-              Ok(())
           }
 
-          fn managed_request_digest(operation_id: &str, request: &PlanDesiredStateRequest) -> String {
-              let mut hasher = Sha256::new();
-              put_digest_field(&mut hasher, b"linura.managed-request.v0.6.v1");
-              put_digest_field(&mut hasher, operation_id.as_bytes());
-              put_digest_field(&mut hasher, request.provider.as_str().as_bytes());
-              put_digest_field(&mut hasher, request.resource.as_str().as_bytes());
-              put_digest_field(
-                  &mut hasher,
-                  request.observation_capability.as_str().as_bytes(),
-              );
-              put_digest_field(&mut hasher, request.reason.summary.as_bytes());
-              for id in &request.reason.intent_ids {
-                  put_digest_field(&mut hasher, b"intent");
-                  put_digest_field(&mut hasher, id.as_str().as_bytes());
-              }
-              for id in &request.reason.requirement_ids {
-                  put_digest_field(&mut hasher, b"requirement");
-                  put_digest_field(&mut hasher, id.as_str().as_bytes());
-              }
-              for id in &request.reason.capability_ids {
-                  put_digest_field(&mut hasher, b"capability");
-                  put_digest_field(&mut hasher, id.as_str().as_bytes());
-              }
-              for (key, value) in &request.desired_state {
-                  put_digest_field(&mut hasher, key.as_bytes());
-                  put_digest_field(&mut hasher, value.as_bytes());
-              }
-              format!("{:x}", hasher.finalize())
-          }
+          '''.replace('          ', '', 1),
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'managed_request_id replacement count={count}')
 
-          fn put_digest_field(hasher: &mut Sha256, value: &[u8]) {
-              let len = u64::try_from(value.len()).unwrap_or(u64::MAX);
-              hasher.update(len.to_be_bytes());
-              hasher.update(value);
-          }'''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines())
-          new = '''fn validate_request_identity(
+          replacement = '''fn validate_request_identity(
               request: &PlanDesiredStateRequest,
           ) -> Result<(), ManagedLifecycleError> {
               let operation_id = request
@@ -135,66 +60,57 @@ jobs:
                       ))
                   })?;
               validate_operation_id(operation_id)
-          }'''
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines())
-          if old not in text:
-              raise SystemExit('request identity implementation marker missing')
-          text = text.replace(old, new, 1)
+          }
 
-          old = '''        let snapshot = self.authority.snapshot(&transaction_id)?;
-              match snapshot.state {'''
-          old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines())
-          new = '''        self.authority.assert_request_matches(&principal, &request)?;
-              let snapshot = self.authority.snapshot(&transaction_id)?;
-              match snapshot.state {'''
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines())
-          if old not in text:
-              raise SystemExit('resume request validation marker missing')
-          text = text.replace(old, new, 1)
-
-          old = '''    fn request_id_binds_operation_and_exact_body() {
-                  let request = request("systemd:unit:linura-managed-example.service", "active");
-                  assert!(validate_request_identity(&request).is_ok());
-
-                  let mut substituted = request.clone();
-                  substituted
-                      .desired_state
-                      .insert("active_state".into(), "inactive".into());
-                  assert!(validate_request_identity(&substituted).is_err());
-
-                  let mut other_operation = request.clone();
-                  other_operation.request_id = managed_request_id("other-operation", &other_operation)
-                      .unwrap_or_else(|error| unreachable!("{error}"));
-                  assert_ne!(request.request_id, other_operation.request_id);
-              }'''
-          old = '\n'.join(line[4:] if line.startswith('    ') else line for line in old.splitlines())
-          # Match the actual indented function with a regex to avoid formatter-specific wrapping.
-          pattern = re.compile(r'''    \#\[test\]\n    fn request_id_binds_operation_and_exact_body\(\) \{.*?\n    \}\n''', re.S)
-          replacement = '''    #[test]
-              fn request_id_is_stable_operation_namespace() {
-                  let request = request("systemd:unit:linura-managed-example.service", "active");
-                  assert!(validate_request_identity(&request).is_ok());
-
-                  let mut substituted = request.clone();
-                  substituted
-                      .desired_state
-                      .insert("active_state".into(), "inactive".into());
-                  assert_eq!(
-                      request.request_id,
-                      managed_request_id("test-operation", &substituted)
-                          .unwrap_or_else(|error| unreachable!("{error}"))
-                  );
-
-                  let mut other_operation = request.clone();
-                  other_operation.request_id = managed_request_id("other-operation", &other_operation)
-                      .unwrap_or_else(|error| unreachable!("{error}"));
-                  assert_ne!(request.request_id, other_operation.request_id);
-              }
           '''
-          replacement = '\n'.join(line[4:] if line.startswith('    ') else line for line in replacement.splitlines())
-          if not pattern.search(text):
-              raise SystemExit('request identity test marker missing')
-          text = pattern.sub(replacement, text, count=1)
+          replacement = '\n'.join(line[10:] if line.startswith('          ') else line for line in replacement.splitlines())
+          text, count = re.subn(
+              r'fn validate_request_identity\(.*?\n\}\n\nfn managed_request_digest\(.*?\n\}\n\nfn put_digest_field\(.*?\n\}\n\n(?=fn now_unix_seconds)',
+              replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'request identity implementation replacement count={count}')
+
+          old = '        let snapshot = self.authority.snapshot(&transaction_id)?;\n        match snapshot.state {'
+          new = '        self.authority.assert_request_matches(&principal, &request)?;\n        let snapshot = self.authority.snapshot(&transaction_id)?;\n        match snapshot.state {'
+          if text.count(old) != 1:
+              raise SystemExit(f'resume snapshot marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          test_replacement = '''    #[test]
+          fn request_id_is_stable_operation_namespace() {
+              let request = request("systemd:unit:linura-managed-example.service", "active");
+              assert!(validate_request_identity(&request).is_ok());
+
+              let mut substituted = request.clone();
+              substituted
+                  .desired_state
+                  .insert("active_state".into(), "inactive".into());
+              assert_eq!(
+                  request.request_id,
+                  managed_request_id("test-operation", &substituted)
+                      .unwrap_or_else(|error| unreachable!("{error}"))
+              );
+
+              let mut other_operation = request.clone();
+              other_operation.request_id = managed_request_id("other-operation", &other_operation)
+                  .unwrap_or_else(|error| unreachable!("{error}"));
+              assert_ne!(request.request_id, other_operation.request_id);
+          }
+          '''
+          test_replacement = '\n'.join(line[4:] if line.startswith('    ') else line for line in test_replacement.splitlines())
+          text, count = re.subn(
+              r'    #\[test\]\n    fn request_id_binds_operation_and_exact_body\(\) \{.*?\n    \}\n',
+              test_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'request identity test replacement count={count}')
           managed.write_text(text, encoding='utf-8')
 
           durable = Path('crates/linura-control/src/durable_authority.rs')
@@ -208,33 +124,32 @@ jobs:
                   .map_err(Into::into)
           }
           '''
-          marker = '\n'.join(line[10:] if line.startswith('          ') else line for line in marker.splitlines())
+          marker = '\n'.join(line[4:] if line.startswith('    ') else line for line in marker.splitlines())
           addition = marker + '''
 
-          /// Prove that a stable request namespace is still carrying the exact
-          /// canonical request material originally sealed into durable authority.
-          /// This check applies to every resumable state, not only indeterminate
-          /// recovery, so a reused operation id can never substitute new intent.
-          pub fn assert_request_matches(
-              &self,
-              principal: &AuthenticatedPrincipal,
-              request: &PlanDesiredStateRequest,
-          ) -> Result<(), DurableAuthorityError> {
-              let principal_id = PrincipalId::new(principal.as_str().to_owned())
-                  .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
-              let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
-              let anchor = self.transactions.recovery_anchor(&transaction_id)?;
-              if anchor.snapshot.principal != principal_id
-                  || anchor.snapshot.request_id != request.request_id
-                  || anchor.request_digest != digest_request(request)?
-              {
-                  return Err(DurableAuthorityError::RecoveryRequestMismatch);
+              /// Prove that a stable request namespace still carries the exact
+              /// canonical request material sealed into durable authority.
+              pub fn assert_request_matches(
+                  &self,
+                  principal: &AuthenticatedPrincipal,
+                  request: &PlanDesiredStateRequest,
+              ) -> Result<(), DurableAuthorityError> {
+                  let principal_id = PrincipalId::new(principal.as_str().to_owned())
+                      .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                  let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
+                  let anchor = self.transactions.recovery_anchor(&transaction_id)?;
+                  if anchor.snapshot.principal != principal_id
+                      || anchor.snapshot.request_id != request.request_id
+                      || anchor.request_digest != digest_request(request)?
+                  {
+                      return Err(DurableAuthorityError::RecoveryRequestMismatch);
+                  }
+                  Ok(())
               }
-              Ok(())
-          }'''
-          addition = '\n'.join(line[10:] if line.startswith('          ') else line for line in addition.splitlines())
-          if marker not in text:
-              raise SystemExit('durable snapshot marker missing')
+          '''
+          addition = '\n'.join(line[4:] if line.startswith('    ') else line for line in addition.splitlines())
+          if text.count(marker) != 1:
+              raise SystemExit(f'durable snapshot marker count={text.count(marker)}')
           text = text.replace(marker, addition, 1)
           durable.write_text(text, encoding='utf-8')
           PY
