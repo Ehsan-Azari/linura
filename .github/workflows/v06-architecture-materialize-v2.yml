@@ -1,0 +1,189 @@
+name: v0.6 authority architecture materialization v2
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v06-architecture-materialize-v2.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-land:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'tmp/v06-managed-lifecycle'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: tmp/v06-managed-lifecycle
+          fetch-depth: 0
+
+      - name: Install repository toolchain
+        run: |
+          set -euo pipefail
+          source tools/codex/versions.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+          rustup default "$RUST_VERSION"
+
+      - name: Wire Authority1 into shared D-Bus transport and contracts
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          lib = Path('crates/linura-dbus/src/lib.rs')
+          text = lib.read_text(encoding='utf-8')
+          if 'mod authority;' not in text:
+              marker = 'mod planning;\n'
+              if marker not in text:
+                  raise SystemExit('linura-dbus module marker missing')
+              text = text.replace(marker, 'mod authority;\nmod planning;\n', 1)
+          if 'pub use authority::' not in text:
+              marker = 'mod planning;\n\n'
+              export = '''mod planning;
+
+          pub use authority::{
+              AUTHORITY_CONTRACT_ID, AUTHORITY_CONTRACT_STABILITY, AUTHORITY_CONTRACT_VERSION,
+              AUTHORITY_INTERFACE_NAME, AUTHORITY_OBJECT_PATH, AUTHORITY_SERVICE_NAME,
+              Authority1Context, Authority1Handler, Authority1ManagedRequest, AuthorityReceiptWire,
+              MANAGE_SYSTEMD_ACTIVE_STATE_ACTION, serve_authority1,
+          };
+
+          '''
+              if marker not in text:
+                  raise SystemExit('linura-dbus export marker missing')
+              text = text.replace(marker, export, 1)
+
+          unique = '    let unique_bus_name = sender.as_str().to_string();\n'
+          guard = '''    let unique_bus_name = sender.as_str().to_string();
+              if !unique_bus_name.starts_with(':') || unique_bus_name.chars().any(char::is_control) {
+                  return Err(fdo_failed("D-Bus sender is not a canonical unique bus name"));
+              }
+          '''
+          if 'D-Bus sender is not a canonical unique bus name' not in text:
+              if text.count(unique) != 1:
+                  raise SystemExit('authenticated sender marker missing')
+              text = text.replace(unique, guard, 1)
+          lib.write_text(text, encoding='utf-8')
+
+          authority = Path('crates/linura-dbus/src/authority.rs')
+          text = authority.read_text(encoding='utf-8')
+          text = text.replace('.field("principal", &self.principal)', '.field("principal", &self.principal.as_str())')
+          authority.write_text(text, encoding='utf-8')
+
+          stability = Path('contracts/stability.toml')
+          text = stability.read_text(encoding='utf-8')
+          if 'id = "dbus.org.linura.Authority1"' not in text:
+              text += '''
+
+          [[contract]]
+          id = "dbus.org.linura.Authority1"
+          kind = "dbus-interface"
+          path = "interfaces/dbus/org.linura.Authority1.xml"
+          version = "1"
+          stability = "experimental"
+          '''
+          stability.write_text(text, encoding='utf-8')
+
+          repository = Path('scripts/check_repository.py')
+          text = repository.read_text(encoding='utf-8')
+          if 'interfaces/dbus/org.linura.Authority1.xml' not in text:
+              marker = '"interfaces/dbus/org.linura.Control1.xml", ".cargo/config.toml",'
+              if marker not in text:
+                  raise SystemExit('repository required-interface marker missing')
+              text = text.replace(
+                  marker,
+                  '"interfaces/dbus/org.linura.Control1.xml", "interfaces/dbus/org.linura.Authority1.xml", ".cargo/config.toml",',
+                  1,
+              )
+          repository.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Align release payload and published verification
+        run: |
+          set -euo pipefail
+          git rm -f polkit/org.linura.executor.systemd.policy
+          python3 - <<'PY'
+          from pathlib import Path
+
+          build = Path('.github/workflows/reusable-release-build.yml')
+          lines = build.read_text(encoding='utf-8').splitlines()
+          result = []
+          installed = False
+          payload_mentions = 0
+          evidence = False
+          reproduced = False
+          for line in lines:
+              if line.strip() == 'linura-executor-systemd; do':
+                  result.append(line.replace('linura-executor-systemd; do', 'linura-executor-systemd \\'))
+                  result.append(line[:len(line) - len(line.lstrip())] + 'linura-authorityd; do')
+                  reproduced = True
+                  continue
+              result.append(line)
+              if 'install -m 0755 "$binary_root/linura-executor-systemd"' in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  result.append(indent + 'install -m 0755 "$binary_root/linura-authorityd" "$PAYLOAD_DIR/linura-authorityd"')
+                  installed = True
+              elif line.strip() == '"$PAYLOAD_DIR/linura-executor-systemd" \\':
+                  indent = line[:len(line) - len(line.lstrip())]
+                  result.append(indent + '"$PAYLOAD_DIR/linura-authorityd" \\')
+                  payload_mentions += 1
+              elif line.strip() == '--artifact "$PAYLOAD_DIR/linura-executor-systemd" \\':
+                  indent = line[:len(line) - len(line.lstrip())]
+                  result.append(indent + '--artifact "$PAYLOAD_DIR/linura-authorityd" \\')
+                  evidence = True
+          if not installed:
+              raise SystemExit('release payload install anchor missing')
+          if payload_mentions < 2:
+              raise SystemExit(f'expected SBOM/checksum payload anchors, saw {payload_mentions}')
+          if not evidence:
+              raise SystemExit('release evidence anchor missing')
+          if not reproduced:
+              raise SystemExit('independent reproduction loop anchor missing')
+          build.write_text('\n'.join(result) + '\n', encoding='utf-8')
+
+          verification = Path('.github/workflows/release-verification.yml')
+          lines = verification.read_text(encoding='utf-8').splitlines()
+          if not any('test -x published/linura-authorityd' in line for line in lines):
+              result = []
+              inserted = False
+              for line in lines:
+                  result.append(line)
+                  if 'test "$(cat published/RELEASE_TAG)" = "$RELEASE_TAG"' in line:
+                      indent = line[:len(line) - len(line.lstrip())]
+                      result.append(indent + 'test -f published/linura-authorityd')
+                      result.append(indent + 'test -x published/linura-authorityd')
+                      inserted = True
+              if not inserted:
+                  raise SystemExit('release verification identity anchor missing')
+              verification.write_text('\n'.join(result) + '\n', encoding='utf-8')
+          PY
+
+      - name: Refresh lock and validate corrected source
+        run: |
+          set -euo pipefail
+          cargo check --workspace
+          cargo fmt --all
+          cargo test --locked -p linura-control v06_qualification::
+          cargo test --locked -p linura-dbus
+          cargo test --locked -p linura-authorityd
+          cargo clippy --locked -p linura-control -p linura-dbus -p linura-authorityd --all-targets -- -D warnings
+          python3 tools/check_layering.py
+          python3 tools/check_contract_stability.py
+          cargo xtask check
+          git diff --check
+
+      - name: Commit validated architecture and retire temporary workflows
+        run: |
+          set -euo pipefail
+          git rm -f \
+            .github/workflows/v06-lock-bootstrap.yml \
+            .github/workflows/v06-architecture-materialize.yml \
+            .github/workflows/v06-architecture-materialize-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix(v0.6): align authority transport and release boundary"
+          git push origin HEAD:tmp/v06-managed-lifecycle
