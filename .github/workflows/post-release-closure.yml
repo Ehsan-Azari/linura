@@ -1,0 +1,352 @@
+name: Post Release Closure
+
+run-name: Post Release Closure — ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.tag }}
+
+on:
+  workflow_run:
+    workflows: ["Verify published release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Independently verified release tag to close
+        required: true
+        type: string
+      verification_run_id:
+        description: Successful Release Verification run ID; omit to resolve the latest exact-tag success
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: post-release-closure-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  close:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Resolve and verify terminal release evidence
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.workflow_run.head_branch }}
+          EVENT_VERIFICATION_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_VERIFICATION_RUN_ID: ${{ inputs.verification_run_id }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            tag="$EVENT_TAG"
+            verification_run_id="$EVENT_VERIFICATION_RUN_ID"
+          else
+            tag="$INPUT_TAG"
+            verification_run_id="$INPUT_VERIFICATION_RUN_ID"
+          fi
+          [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+
+          source_sha="$(git rev-list -n1 "$tag")"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+
+          if [[ -z "$verification_run_id" ]]; then
+            verification_runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/release-verification.yml/runs?event=workflow_dispatch&per_page=100")"
+            verification_run_id="$(
+              jq -r --arg tag "$tag" --arg sha "$source_sha" \
+                '[.workflow_runs[] | select(.head_branch == $tag and .head_sha == $sha and .status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty' \
+                <<<"$verification_runs"
+            )"
+          fi
+          [[ "$verification_run_id" =~ ^[0-9]+$ ]]
+
+          verification="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$verification_run_id")"
+          test "$(jq -r .path <<<"$verification")" = ".github/workflows/release-verification.yml"
+          test "$(jq -r .status <<<"$verification")" = "completed"
+          test "$(jq -r .conclusion <<<"$verification")" = "success"
+          test "$(jq -r .head_sha <<<"$verification")" = "$source_sha"
+          test "$(jq -r .head_branch <<<"$verification")" = "$tag"
+
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag")"
+          test "$(jq -r .tag_name <<<"$release")" = "$tag"
+          test "$(jq -r .draft <<<"$release")" = "false"
+          test "$(jq -r .immutable <<<"$release")" = "true"
+          test "$(jq -r .target_commitish <<<"$release")" = "$source_sha"
+          release_id="$(jq -r .id <<<"$release")"
+          published_at="$(jq -r .published_at <<<"$release")"
+
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$source_sha&event=workflow_dispatch&per_page=100")"
+          select_run() {
+            local path="$1"
+            jq -r --arg path "$path" \
+              '[.workflow_runs[] | select(.path == $path and .status == "completed" and .conclusion == "success")] | sort_by(.created_at) | last | .id // empty' \
+              <<<"$runs"
+          }
+          proof_run_id="$(select_run .github/workflows/trusted-release-proof.yml)"
+          promotion_run_id="$(select_run .github/workflows/release-promotion.yml)"
+          release_run_id="$(select_run .github/workflows/release.yml)"
+          for value in "$proof_run_id" "$promotion_run_id" "$release_run_id"; do
+            [[ "$value" =~ ^[0-9]+$ ]]
+          done
+
+          current_main="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$(git rev-parse HEAD)" = "$current_main"
+
+          {
+            printf 'tag=%s\n' "$tag"
+            printf 'source_sha=%s\n' "$source_sha"
+            printf 'verification_run_id=%s\n' "$verification_run_id"
+            printf 'proof_run_id=%s\n' "$proof_run_id"
+            printf 'promotion_run_id=%s\n' "$promotion_run_id"
+            printf 'release_run_id=%s\n' "$release_run_id"
+            printf 'release_id=%s\n' "$release_id"
+            printf 'published_at=%s\n' "$published_at"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Detect already-closed release
+        id: state
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          state="$(python3 - "$RELEASE_TAG" <<'PY'
+          import pathlib
+          import sys
+          import tomllib
+
+          tag = sys.argv[1]
+          contract = tomllib.loads(pathlib.Path("contracts/roadmap.toml").read_text(encoding="utf-8"))
+          milestones = {item["version"]: item for item in contract["milestone"]}
+          milestone = milestones.get(tag)
+          if milestone is None:
+              raise SystemExit(f"release is absent from roadmap: {tag}")
+          if contract.get("current_release") == tag and milestone.get("status") == "released":
+              print("closed")
+          elif contract.get("next_release") == tag and milestone.get("status") == "planned":
+              print("pending")
+          else:
+              raise SystemExit(
+                  f"unsafe post-release state for {tag}: "
+                  f"current={contract.get('current_release')} next={contract.get('next_release')} status={milestone.get('status')}"
+              )
+          PY
+          )"
+          printf 'state=%s\n' "$state" >> "$GITHUB_OUTPUT"
+
+      - name: Generate deterministic closure tree
+        if: steps.state.outputs.state == 'pending'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          PROOF_RUN_ID: ${{ steps.release.outputs.proof_run_id }}
+          PROMOTION_RUN_ID: ${{ steps.release.outputs.promotion_run_id }}
+          RELEASE_RUN_ID: ${{ steps.release.outputs.release_run_id }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          VERIFICATION_RUN_ID: ${{ steps.release.outputs.verification_run_id }}
+          PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+        run: |
+          set -euo pipefail
+          python3 tools/post_release_close.py \
+            --tag "$RELEASE_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --proof-run-id "$PROOF_RUN_ID" \
+            --promotion-run-id "$PROMOTION_RUN_ID" \
+            --release-run-id "$RELEASE_RUN_ID" \
+            --release-id "$RELEASE_ID" \
+            --verification-run-id "$VERIFICATION_RUN_ID" \
+            --published-at "$PUBLISHED_AT"
+          python3 tools/check_roadmap.py .
+          python3 tools/check_machine_classes.py .
+          git diff --check
+          test -z "$(git diff --name-only -- docs/releases/)"
+
+      - name: Commit and push one closure commit
+        if: steps.state.outputs.state == 'pending'
+        id: commit
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          VERIFICATION_RUN_ID: ${{ steps.release.outputs.verification_run_id }}
+        run: |
+          set -euo pipefail
+          branch="automation/post-release-${RELEASE_TAG}-${VERIFICATION_RUN_ID}"
+          git switch -c "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          test -n "$(git diff --cached --name-only)"
+          git commit -m "chore: close $RELEASE_TAG release state"
+          head_sha="$(git rev-parse HEAD)"
+          git push --set-upstream origin "$branch"
+          printf 'branch=%s\n' "$branch" >> "$GITHUB_OUTPUT"
+          printf 'head_sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Open protected closure PR
+        if: steps.state.outputs.state == 'pending'
+        id: pr
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          VERIFICATION_RUN_ID: ${{ steps.release.outputs.verification_run_id }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/body.md" <<EOF
+          Automatic terminal bookkeeping for independently verified $RELEASE_TAG.
+
+          - generated only after successful Release Verification run \`$VERIFICATION_RUN_ID\`;
+          - advances current/next roadmap state and marks the released milestone;
+          - records immutable publication evidence;
+          - leaves the frozen release contract and immutable release assets untouched;
+          - merges only through the normal protected-main PR ruleset after exact-head canonical checks pass.
+          EOF
+          url="$(gh pr create --base main --head "$BRANCH" --title "chore: close $RELEASE_TAG release state" --body-file "$RUNNER_TEMP/body.md")"
+          number="${url##*/}"
+          [[ "$number" =~ ^[0-9]+$ ]]
+          printf 'number=%s\n' "$number" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch canonical PR checks on exact closure SHA
+        if: steps.state.outputs.state == 'pending'
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: |
+          set -euo pipefail
+          for workflow in ci.yml security.yml codeql.yml; do
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+          done
+
+      - name: Require exact closure SHA checks
+        if: steps.state.outputs.state == 'pending'
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          HEAD_SHA: ${{ steps.commit.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          wait_for() {
+            local workflow="$1"
+            local expected_name="$2"
+            for _ in $(seq 1 180); do
+              payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=workflow_dispatch&branch=$BRANCH&per_page=20")"
+              state="$(jq -r --arg sha "$HEAD_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last | if . == null then "missing" elif .status != "completed" then .status else .conclusion end' <<<"$payload")"
+              case "$state" in
+                success) echo "$expected_name: success"; return 0 ;;
+                failure|cancelled|timed_out|action_required|startup_failure|stale)
+                  echo "$expected_name failed for exact closure SHA $HEAD_SHA: $state" >&2
+                  return 1
+                  ;;
+                *) sleep 10 ;;
+              esac
+            done
+            echo "$expected_name did not complete for exact closure SHA $HEAD_SHA" >&2
+            return 1
+          }
+          wait_for ci.yml canonical-check
+          wait_for security.yml dependency-audit
+          wait_for codeql.yml analyze
+
+      - name: Merge through protected main
+        if: steps.state.outputs.state == 'pending'
+        id: merge
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          EXPECTED_HEAD: ${{ steps.commit.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          actual_head="$(gh pr view "$PR_NUMBER" --json headRefOid --jq .headRefOid)"
+          test "$actual_head" = "$EXPECTED_HEAD"
+          gh pr merge "$PR_NUMBER" --squash --delete-branch
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          [[ "$main_sha" =~ ^[0-9a-f]{40}$ ]]
+          printf 'main_sha=%s\n' "$main_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch fresh-main canonical checks
+        if: steps.state.outputs.state == 'pending'
+        run: |
+          set -euo pipefail
+          for workflow in ci.yml security.yml codeql.yml; do
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref main
+          done
+
+      - name: Require exact fresh-main checks
+        if: steps.state.outputs.state == 'pending'
+        env:
+          MAIN_SHA: ${{ steps.merge.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          wait_for() {
+            local workflow="$1"
+            local expected_name="$2"
+            for _ in $(seq 1 180); do
+              payload="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=workflow_dispatch&branch=main&per_page=20")"
+              state="$(jq -r --arg sha "$MAIN_SHA" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last | if . == null then "missing" elif .status != "completed" then .status else .conclusion end' <<<"$payload")"
+              case "$state" in
+                success) echo "$expected_name: success"; return 0 ;;
+                failure|cancelled|timed_out|action_required|startup_failure|stale)
+                  echo "$expected_name failed for exact main SHA $MAIN_SHA: $state" >&2
+                  return 1
+                  ;;
+                *) sleep 10 ;;
+              esac
+            done
+            echo "$expected_name did not complete for exact main SHA $MAIN_SHA" >&2
+            return 1
+          }
+          wait_for ci.yml canonical-check
+          wait_for security.yml dependency-audit
+          wait_for codeql.yml analyze
+
+      - name: Delete obsolete release-scoped branches
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          open_heads="$(gh pr list --state open --limit 100 --json headRefName --jq '.[].headRefName')"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/branches?per_page=100" --jq '.[].name' > "$RUNNER_TEMP/branches.txt"
+          python3 - "$RELEASE_TAG" "$RUNNER_TEMP/branches.txt" "$RUNNER_TEMP/candidates.txt" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          tag, branches_path, output = sys.argv[1:]
+          match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag)
+          if match is None:
+              raise SystemExit("invalid release tag")
+          major, minor, _patch = match.groups()
+          tokens = (f"v{major}.{minor}", f"v{major}-{minor}", f"v{major}_{minor}", f"v{major}{minor}")
+          prefixes = ("tmp/", "work/", "chore/", "automation/")
+          selected = []
+          for raw in pathlib.Path(branches_path).read_text(encoding="utf-8").splitlines():
+              branch = raw.strip()
+              if not branch.startswith(prefixes):
+                  continue
+              lower = branch.lower()
+              if any(re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![0-9])", lower) for token in tokens):
+                  selected.append(branch)
+          with open(output, "w", encoding="utf-8") as handle:
+              for branch in sorted(set(selected)):
+                  handle.write(branch + "\n")
+          PY
+
+          while IFS= read -r branch; do
+            [[ -n "$branch" ]] || continue
+            if grep -Fxq "$branch" <<<"$open_heads"; then
+              echo "preserving branch used by an open PR: $branch"
+              continue
+            fi
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch"
+              echo "deleted obsolete release branch: $branch"
+            fi
+          done < "$RUNNER_TEMP/candidates.txt"

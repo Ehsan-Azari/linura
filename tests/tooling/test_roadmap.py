@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,29 +31,38 @@ class RoadmapContractTests(unittest.TestCase):
         )
 
     def _copy_fixture(self, destination: Path) -> None:
-        paths = (
+        contract = tomllib.loads((ROOT / "contracts/roadmap.toml").read_text(encoding="utf-8"))
+        paths = {
             "contracts/roadmap.toml",
             "docs/roadmap.md",
             "docs/system-domains.md",
             "docs/development-plan.md",
             "docs/versioning-and-release-policy.md",
             "docs/machine-profiles.md",
-            "docs/releases/v0.0.0.md",
-            "docs/releases/v0.1.0.md",
-            "docs/releases/v0.2.0.md",
-            "docs/releases/v0.3.0.md",
-            "docs/releases/v0.4.0.md",
-            "docs/qualification/v0.1.0.md",
-            "docs/qualification/v0.2.0.md",
-            "docs/qualification/v0.3.0.md",
-            "docs/qualification/v0.4.0.md",
             "hardware/support-matrix.json",
-        )
-        for rel in paths:
+        }
+        for milestone in contract.get("milestone", []):
+            for key in ("release_contract", "qualification"):
+                value = milestone.get(key)
+                if isinstance(value, str):
+                    paths.add(value)
+        for rel in sorted(paths):
             source = ROOT / rel
             target = destination / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+
+    def _mutate_milestone_field(self, text: str, version: str, old: str, new: str) -> str:
+        pattern = re.compile(
+            rf'(?ms)^\[\[milestone\]\]\nversion = "{re.escape(version)}"\n.*?(?=^\[\[milestone\]\]|\Z)'
+        )
+        match = pattern.search(text)
+        self.assertIsNotNone(match, f"missing roadmap milestone {version}")
+        assert match is not None
+        block = match.group(0)
+        self.assertEqual(block.count(old), 1, f"{version}: expected exactly one {old!r}")
+        replacement = block.replace(old, new, 1)
+        return text[: match.start()] + replacement + text[match.end() :]
 
     def test_repository_roadmap_contract_is_valid(self) -> None:
         result = self._run_checker(ROOT)
@@ -66,9 +77,16 @@ class RoadmapContractTests(unittest.TestCase):
             root = Path(temp_dir)
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
-            text = contract.read_text(encoding="utf-8").replace(
-                'current_release = "v0.4.0"',
-                'current_release = "v0.3.0"',
+            text = contract.read_text(encoding="utf-8")
+            data = tomllib.loads(text)
+            released = [item["version"] for item in data["milestone"] if item["status"] == "released"]
+            current = data["current_release"]
+            self.assertEqual(current, released[-1])
+            self.assertGreaterEqual(len(released), 2)
+            previous = released[-2]
+            text = text.replace(
+                f'current_release = "{current}"',
+                f'current_release = "{previous}"',
                 1,
             )
             contract.write_text(text, encoding="utf-8")
@@ -99,23 +117,13 @@ class RoadmapContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8")
-            old = (
-                'version = "v0.3.0"\n'
-                'title = "policy, authorization, approval, and plan review"\n'
-                'status = "released"\n'
-                'claim_class = "Experimental"\n'
-                'depends_on = ["v0.2.0"]\n'
-                'durable_recovery = false\n'
-                'executor_state = "none"\n'
-                'complete_lifecycle = false\n'
-                'managed_mutation_support = "none"'
-            )
-            new = old.replace(
+            text = self._mutate_milestone_field(
+                text,
+                "v0.3.0",
                 'managed_mutation_support = "none"',
                 'managed_mutation_support = "narrow-experimental"',
             )
-            self.assertIn(old, text)
-            contract.write_text(text.replace(old, new, 1), encoding="utf-8")
+            contract.write_text(text, encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
@@ -128,23 +136,13 @@ class RoadmapContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8")
-            old = (
-                'version = "v0.5.0"\n'
-                'title = "first narrow privileged executor and independent verifier"\n'
-                'status = "planned"\n'
-                'claim_class = "Experimental"\n'
-                'depends_on = ["v0.4.0"]\n'
-                'durable_recovery = true\n'
-                'executor_state = "isolated-qualified"\n'
-                'complete_lifecycle = false\n'
-                'managed_mutation_support = "none"'
-            )
-            new = old.replace(
+            text = self._mutate_milestone_field(
+                text,
+                "v0.5.0",
                 'managed_mutation_support = "none"',
                 'managed_mutation_support = "narrow-experimental"',
             )
-            self.assertIn(old, text)
-            contract.write_text(text.replace(old, new, 1), encoding="utf-8")
+            contract.write_text(text, encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
@@ -237,15 +235,13 @@ class RoadmapContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8")
-            marker = (
-                'version = "v0.10.0"\n'
-                'title = "meaningful end-user Experimental Linura"\n'
-                'status = "planned"\n'
-                'claim_class = "Experimental"'
+            text = self._mutate_milestone_field(
+                text,
+                "v0.10.0",
+                'claim_class = "Experimental"',
+                'claim_class = "Stable"',
             )
-            replacement = marker.replace('claim_class = "Experimental"', 'claim_class = "Stable"')
-            self.assertIn(marker, text)
-            contract.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+            contract.write_text(text, encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
@@ -257,15 +253,13 @@ class RoadmapContractTests(unittest.TestCase):
             self._copy_fixture(root)
             contract = root / "contracts/roadmap.toml"
             text = contract.read_text(encoding="utf-8")
-            marker = (
-                'version = "v1.0.0"\n'
-                'title = "first Stable supported end-user Linura"\n'
-                'status = "planned"\n'
-                'claim_class = "Stable"'
+            text = self._mutate_milestone_field(
+                text,
+                "v1.0.0",
+                'claim_class = "Stable"',
+                'claim_class = "Experimental"',
             )
-            replacement = marker.replace('claim_class = "Stable"', 'claim_class = "Experimental"')
-            self.assertIn(marker, text)
-            contract.write_text(text.replace(marker, replacement, 1), encoding="utf-8")
+            contract.write_text(text, encoding="utf-8")
 
             result = self._run_checker(root)
             self.assertNotEqual(result.returncode, 0)
