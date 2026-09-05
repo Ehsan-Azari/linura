@@ -4,6 +4,25 @@ All notable changes to Linura will be documented here. Version entries stay conc
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-05
+
+Experimental isolated privileged systemd executor and independent verifier qualification. Full release contract: [`docs/releases/v0.5.0.md`](docs/releases/v0.5.0.md).
+
+### Added
+- Bounded executor/verifier component contracts with deterministic exact effect/dispatch correlation that remains non-authoritative metadata.
+- A qualification-only root systemd executor on the system bus with authenticated D-Bus sender identity, fixed Polkit action, strict `linura-v05-qualification-*.service` namespace, native `RestartUnit`, hardened systemd service isolation, and no shell/arbitrary-command surface.
+- Canonical systemd observation of `ActiveEnterTimestampMonotonic` plus a pure independent restart verifier that requires fresh native authoritative evidence and never trusts executor self-report.
+- Exact-source disposable Ubuntu 24.04 QEMU qualification covering authorization denial, namespace/binding/effect substitution rejection, provider ambiguity, authoritative pre/post observation, verifier satisfied/not-satisfied/inconclusive outcomes, and hardened service evidence.
+
+### Changed
+- Privileged outgoing D-Bus method calls are bounded to five seconds; a timeout after the dispatch attempt is conservatively `Indeterminate` and requires authoritative observation rather than blind retry.
+- Trusted Release Proof now requires the v0.5 executor/verifier VM qualification before sealed build and promotion.
+
+### Boundaries
+- v0.5 remains Experimental with `executor_state = "isolated-qualified"`, `managed_mutation_support = "none"`, and `complete_lifecycle = false`.
+- No public `apply`, `execute`, `mutate`, `restart`, or other managed-mutation surface is released; v0.4's one-shot `DispatchPermit` is not connected to the executor in v0.5.
+- No supported Linux distribution, machine class, hardware profile, virtualization profile, or production-readiness claim is introduced.
+
 ## [0.4.0] - 2026-09-04
 
 Experimental durable reviewed-authority transaction and recovery foundation. Full release contract: [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).
