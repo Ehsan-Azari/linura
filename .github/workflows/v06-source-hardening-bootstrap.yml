@@ -1,0 +1,305 @@
+name: v0.6 source hardening bootstrap
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v06-source-hardening-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'tmp/v06-managed-lifecycle'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: tmp/v06-managed-lifecycle
+          fetch-depth: 0
+
+      - name: Land stable-operation durable-request hardening and clean receipt API
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          managed = Path('crates/linura-control/src/managed_lifecycle.rs')
+          text = managed.read_text(encoding='utf-8')
+          text = text.replace('use sha2::{Digest, Sha256};\n', '')
+          text = text.replace('const MANAGED_REQUEST_DIGEST_HEX_BYTES: usize = 64;\n', '')
+
+          replacement = '''pub fn managed_request_id(
+              operation_id: &str,
+              _request: &PlanDesiredStateRequest,
+          ) -> Result<RequestId, ManagedLifecycleError> {
+              validate_operation_id(operation_id)?;
+              RequestId::new(format!("{MANAGED_REQUEST_PREFIX}{operation_id}"))
+                  .map_err(|error| ManagedLifecycleError::InvalidRequestIdentity(error.to_string()))
+          }
+
+          '''
+          replacement = '\n'.join(line[10:] if line.startswith('          ') else line for line in replacement.splitlines())
+          text, count = re.subn(
+              r'pub fn managed_request_id\(.*?\n\}\n\n(?=#\[derive\(Debug\)\])',
+              replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'managed_request_id replacement count={count}')
+
+          replacement = '''fn validate_request_identity(
+              request: &PlanDesiredStateRequest,
+          ) -> Result<(), ManagedLifecycleError> {
+              let operation_id = request
+                  .request_id
+                  .as_str()
+                  .strip_prefix(MANAGED_REQUEST_PREFIX)
+                  .ok_or_else(|| {
+                      ManagedLifecycleError::InvalidRequestIdentity(format!(
+                          "request id must begin with {MANAGED_REQUEST_PREFIX}"
+                      ))
+                  })?;
+              validate_operation_id(operation_id)
+          }
+
+          '''
+          replacement = '\n'.join(line[10:] if line.startswith('          ') else line for line in replacement.splitlines())
+          text, count = re.subn(
+              r'fn validate_request_identity\(.*?\n\}\n\nfn managed_request_digest\(.*?\n\}\n\nfn put_digest_field\(.*?\n\}\n\n(?=fn now_unix_seconds)',
+              replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'request identity implementation replacement count={count}')
+
+          old = '        let snapshot = self.authority.snapshot(&transaction_id)?;\n        match snapshot.state {'
+          new = '        self.authority.assert_request_matches(&principal, &request)?;\n        let snapshot = self.authority.snapshot(&transaction_id)?;\n        match snapshot.state {'
+          if text.count(old) != 1:
+              raise SystemExit(f'resume snapshot marker count={text.count(old)}')
+          text = text.replace(old, new, 1)
+
+          test_replacement = '''    #[test]
+              fn request_id_is_stable_operation_namespace() {
+                  let request = request("systemd:unit:linura-managed-example.service", "active");
+                  assert!(validate_request_identity(&request).is_ok());
+
+                  let mut substituted = request.clone();
+                  substituted
+                      .desired_state
+                      .insert("active_state".into(), "inactive".into());
+                  assert_eq!(
+                      request.request_id,
+                      managed_request_id("test-operation", &substituted)
+                          .unwrap_or_else(|error| unreachable!("{error}"))
+                  );
+
+                  let mut other_operation = request.clone();
+                  other_operation.request_id = managed_request_id("other-operation", &other_operation)
+                      .unwrap_or_else(|error| unreachable!("{error}"));
+                  assert_ne!(request.request_id, other_operation.request_id);
+              }
+          '''
+          test_replacement = '\n'.join(line[4:] if line.startswith('    ') else line for line in test_replacement.splitlines())
+          text, count = re.subn(
+              r'    #\[test\]\n    fn request_id_binds_operation_and_exact_body\(\) \{.*?\n    \}\n',
+              test_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'request identity test replacement count={count}')
+
+          old_signature = '''fn receipt(
+              transaction_id: &TransactionId,
+              plan_id: &str,
+              effect: &EffectDescriptor,
+              execution: Option<&ExecutionOutcome>,
+              verification: &VerificationOutcome,
+              final_state: &TransactionState,
+              recovered: bool,
+              progress: &MutationProgress,
+          ) -> ManagedMutationReceipt {
+          '''
+          old_signature = '\n'.join(line[10:] if line.startswith('          ') else line for line in old_signature.splitlines())
+          new_signature = '''struct ReceiptContext<'a> {
+              transaction_id: &'a TransactionId,
+              plan_id: &'a str,
+              effect: &'a EffectDescriptor,
+              execution: Option<&'a ExecutionOutcome>,
+              verification: &'a VerificationOutcome,
+              final_state: &'a TransactionState,
+              recovered: bool,
+              progress: &'a MutationProgress,
+          }
+
+          fn receipt(context: ReceiptContext<'_>) -> ManagedMutationReceipt {
+              let ReceiptContext {
+                  transaction_id,
+                  plan_id,
+                  effect,
+                  execution,
+                  verification,
+                  final_state,
+                  recovered,
+                  progress,
+              } = context;
+          '''
+          new_signature = '\n'.join(line[10:] if line.startswith('          ') else line for line in new_signature.splitlines())
+          if text.count(old_signature) != 1:
+              raise SystemExit(f'receipt signature marker count={text.count(old_signature)}')
+          text = text.replace(old_signature, new_signature, 1)
+
+          calls = [
+              ('''        Ok(receipt(
+                  &transaction_id,
+                  &plan_id,
+                  &effect,
+                  Some(&execution),
+                  &verification,
+                  &committed.state,
+                  false,
+                  &progress,
+              ))''', '''        Ok(receipt(ReceiptContext {
+                  transaction_id: &transaction_id,
+                  plan_id: &plan_id,
+                  effect: &effect,
+                  execution: Some(&execution),
+                  verification: &verification,
+                  final_state: &committed.state,
+                  recovered: false,
+                  progress: &progress,
+              }))'''),
+              ('''                Ok(receipt(
+                      &transaction_id,
+                      snapshot.binding_digest.as_str(),
+                      &effect,
+                      None,
+                      &verification,
+                      &committed.state,
+                      true,
+                      &progress,
+                  ))''', '''                Ok(receipt(ReceiptContext {
+                      transaction_id: &transaction_id,
+                      plan_id: snapshot.binding_digest.as_str(),
+                      effect: &effect,
+                      execution: None,
+                      verification: &verification,
+                      final_state: &committed.state,
+                      recovered: true,
+                      progress: &progress,
+                  }))'''),
+              ('''                Ok(receipt(
+                      &transaction_id,
+                      snapshot.binding_digest.as_str(),
+                      &effect,
+                      None,
+                      &verification,
+                      &snapshot.state,
+                      true,
+                      &progress,
+                  ))''', '''                Ok(receipt(ReceiptContext {
+                      transaction_id: &transaction_id,
+                      plan_id: snapshot.binding_digest.as_str(),
+                      effect: &effect,
+                      execution: None,
+                      verification: &verification,
+                      final_state: &snapshot.state,
+                      recovered: true,
+                      progress: &progress,
+                  }))'''),
+              ('''                Ok(receipt(
+                      &transaction_id,
+                      &plan_id,
+                      &effect,
+                      None,
+                      &verification,
+                      &committed.state,
+                      true,
+                      &progress,
+                  ))''', '''                Ok(receipt(ReceiptContext {
+                      transaction_id: &transaction_id,
+                      plan_id: &plan_id,
+                      effect: &effect,
+                      execution: None,
+                      verification: &verification,
+                      final_state: &committed.state,
+                      recovered: true,
+                      progress: &progress,
+                  }))'''),
+          ]
+          for old, new in calls:
+              old = '\n'.join(line[10:] if line.startswith('          ') else line for line in old.splitlines())
+              new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.splitlines())
+              if text.count(old) != 1:
+                  raise SystemExit(f'receipt call marker count={text.count(old)} for {old[:48]!r}')
+              text = text.replace(old, new, 1)
+          managed.write_text(text, encoding='utf-8')
+
+          durable = Path('crates/linura-control/src/durable_authority.rs')
+          text = durable.read_text(encoding='utf-8')
+          marker = '''    pub fn snapshot(
+              &self,
+              transaction_id: &TransactionId,
+          ) -> Result<TransactionSnapshot, DurableAuthorityError> {
+              self.transactions
+                  .snapshot(transaction_id)
+                  .map_err(Into::into)
+          }
+          '''
+          marker = '\n'.join(line[4:] if line.startswith('    ') else line for line in marker.splitlines())
+          addition = marker + '''
+
+              /// Prove that a stable request namespace still carries the exact
+              /// canonical request material sealed into durable authority.
+              pub fn assert_request_matches(
+                  &self,
+                  principal: &AuthenticatedPrincipal,
+                  request: &PlanDesiredStateRequest,
+              ) -> Result<(), DurableAuthorityError> {
+                  let principal_id = PrincipalId::new(principal.as_str().to_owned())
+                      .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+                  let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
+                  let anchor = self.transactions.recovery_anchor(&transaction_id)?;
+                  if anchor.snapshot.principal != principal_id
+                      || anchor.snapshot.request_id != request.request_id
+                      || anchor.request_digest != digest_request(request)?
+                  {
+                      return Err(DurableAuthorityError::RecoveryRequestMismatch);
+                  }
+                  Ok(())
+              }
+          '''
+          addition = '\n'.join(line[4:] if line.startswith('    ') else line for line in addition.splitlines())
+          if text.count(marker) != 1:
+              raise SystemExit(f'durable snapshot marker count={text.count(marker)}')
+          text = text.replace(marker, addition, 1)
+          durable.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Prove source hardening
+        run: |
+          set -euo pipefail
+          cargo fmt --all
+          cargo test -p linura-control --locked
+          cargo test -p linura-authorityd --locked
+          cargo check --workspace --locked
+          python3 tools/check_layering.py
+          git diff --check
+
+      - name: Commit validated source changes and retire bootstrap
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/v06-source-hardening-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add crates/linura-control/
+          git diff --cached --check
+          git commit -m "fix(v0.6): bind stable operations to durable requests"
+          git push origin HEAD:tmp/v06-managed-lifecycle
