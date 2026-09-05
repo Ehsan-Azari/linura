@@ -18,7 +18,7 @@ linura-policy = { path = "../linura-policy" }
 linura-protocol = { path = "../linura-protocol" }
 linura-provider-sdk = { path = "../linura-provider-sdk" }
 linura-transaction = { path = "../linura-transaction" }
-sha2 = "0.10"
+sha2 = "0.11"
 
 [lints]
 workspace = true
