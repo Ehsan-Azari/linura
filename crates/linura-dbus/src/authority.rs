@@ -52,7 +52,7 @@ impl Debug for Authority1Context {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Authority1Context")
-            .field("principal", &self.principal)
+            .field("principal", &self.principal.as_str())
             .field("actor", &self.actor)
             .finish_non_exhaustive()
     }
@@ -269,7 +269,8 @@ mod tests {
             assert!(canonical.contains(&marker), "canonical {argument}");
             assert!(live.contains(&marker), "live {argument}");
         }
-        assert_eq!(canonical.matches("direction=\"out\"").count(), 11);
-        assert_eq!(live.matches("direction=\"out\"").count(), 11);
+        let receipt = "type=\"(sssssssssbas)\" direction=\"out\"";
+        assert_eq!(canonical.matches(receipt).count(), 1, "canonical receipt");
+        assert_eq!(live.matches(receipt).count(), 1, "live receipt");
     }
 }
