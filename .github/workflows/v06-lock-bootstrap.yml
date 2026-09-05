@@ -1,0 +1,47 @@
+name: v0.6 qualification lock bootstrap
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/v06-lock-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-lock:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'tmp/v06-managed-lifecycle'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: tmp/v06-managed-lifecycle
+          fetch-depth: 0
+
+      - name: Load pinned Rust toolchain
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools/codex/versions.env
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
+          rustup default "$RUST_VERSION"
+
+      - name: Refresh lock and validate v0.6 qualification
+        run: |
+          set -euo pipefail
+          cargo check -p linura-control --tests
+          cargo fmt --all
+          cargo test --locked -p linura-control v06_qualification::
+          cargo clippy --locked -p linura-control --tests -- -D warnings
+          git diff --check
+
+      - name: Commit validated lock and formatting and retire bootstrap
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/v06-lock-bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock crates/linura-control/Cargo.toml crates/linura-control/src/lib.rs crates/linura-control/src/v06_qualification.rs
+          git diff --cached --check
+          git commit -m "test(v0.6): qualify durable managed lifecycle failures"
+          git push origin HEAD:tmp/v06-managed-lifecycle
