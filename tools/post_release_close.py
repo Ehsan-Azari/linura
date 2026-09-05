@@ -197,6 +197,7 @@ def close_release(args: argparse.Namespace) -> list[str]:
 
     def update_roadmap_body(body: str) -> str:
         body = replace_once(body, "**Status:** planned", "**Status:** released", f"{args.tag} roadmap status")
+        body = re.sub(r"(?m)^(\*\*Status:\*\* released)[ \t]+$", r"\1", body)
         target_claim = f'**Target claim class:** {target.get("claim_class")}'
         claim = f'**Claim class:** {target.get("claim_class")}'
         if target_claim in body:
