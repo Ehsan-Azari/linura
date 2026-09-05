@@ -41,7 +41,7 @@ pub use managed_lifecycle::{
     AuthorizedEffect, AuthorizedEffectExecutor, IndependentManagedVerifier,
     MANAGED_SYSTEMD_CAPABILITY, MANAGED_SYSTEMD_OPERATION, MANAGED_SYSTEMD_PROVIDER,
     MANAGED_SYSTEMD_UNIT_PREFIX, ManagedLifecycleControl, ManagedLifecycleError,
-    ManagedMutationReceipt, TrustedHumanApproval,
+    ManagedMutationReceipt, TrustedHumanApproval, managed_request_id,
 };
 pub use plan_preview::{
     AuthenticatedPrincipal, MAX_DESIRED_ATTRIBUTES, MAX_ORIGINS_PER_KIND, MAX_PREVIEW_ENTRIES,
