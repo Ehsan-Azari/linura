@@ -13,7 +13,6 @@ use linura_provider_sdk::{
     VerificationDisposition, VerificationOutcome,
 };
 use linura_transaction::{TransactionId, TransactionState, TransactionStore};
-use sha2::{Digest, Sha256};
 
 use crate::approval_review::PolicyAuthenticatedApprover;
 use crate::{
@@ -27,7 +26,6 @@ pub const MANAGED_SYSTEMD_PROVIDER: &str = "systemd";
 pub const MANAGED_SYSTEMD_CAPABILITY: &str = "systemd.unit.observe";
 const MANAGED_APPROVAL_TTL_SECONDS: u64 = 300;
 const MANAGED_REQUEST_PREFIX: &str = "request:v06:";
-const MANAGED_REQUEST_DIGEST_HEX_BYTES: usize = 64;
 const MAX_OPERATION_ID_BYTES: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -170,11 +168,10 @@ impl From<DurableAuthorityError> for ManagedLifecycleError {
 
 pub fn managed_request_id(
     operation_id: &str,
-    request: &PlanDesiredStateRequest,
+    _request: &PlanDesiredStateRequest,
 ) -> Result<RequestId, ManagedLifecycleError> {
     validate_operation_id(operation_id)?;
-    let digest = managed_request_digest(operation_id, request);
-    RequestId::new(format!("{MANAGED_REQUEST_PREFIX}{operation_id}:{digest}"))
+    RequestId::new(format!("{MANAGED_REQUEST_PREFIX}{operation_id}"))
         .map_err(|error| ManagedLifecycleError::InvalidRequestIdentity(error.to_string()))
 }
 
@@ -351,16 +348,16 @@ where
         self.reconcile(&principal, &actor, &request, &effect, verifier)?;
         advance(&mut progress, MutationStage::Reconcile)?;
 
-        Ok(receipt(
-            &transaction_id,
-            &plan_id,
-            &effect,
-            Some(&execution),
-            &verification,
-            &committed.state,
-            false,
-            &progress,
-        ))
+        Ok(receipt(ReceiptContext {
+            transaction_id: &transaction_id,
+            plan_id: &plan_id,
+            effect: &effect,
+            execution: Some(&execution),
+            verification: &verification,
+            final_state: &committed.state,
+            recovered: false,
+            progress: &progress,
+        }))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -377,6 +374,8 @@ where
     where
         V: IndependentManagedVerifier,
     {
+        self.authority
+            .assert_request_matches(&principal, &request)?;
         let snapshot = self.authority.snapshot(&transaction_id)?;
         match snapshot.state {
             TransactionState::Prepared => Err(ManagedLifecycleError::Indeterminate(format!(
@@ -412,16 +411,16 @@ where
                 advance(&mut progress, MutationStage::Audit)?;
                 self.reconcile(&principal, &actor, &request, &effect, verifier)?;
                 advance(&mut progress, MutationStage::Reconcile)?;
-                Ok(receipt(
-                    &transaction_id,
-                    snapshot.binding_digest.as_str(),
-                    &effect,
-                    None,
-                    &verification,
-                    &committed.state,
-                    true,
-                    &progress,
-                ))
+                Ok(receipt(ReceiptContext {
+                    transaction_id: &transaction_id,
+                    plan_id: snapshot.binding_digest.as_str(),
+                    effect: &effect,
+                    execution: None,
+                    verification: &verification,
+                    final_state: &committed.state,
+                    recovered: true,
+                    progress: &progress,
+                }))
             }
             TransactionState::Committed => {
                 let verification = verifier
@@ -438,16 +437,16 @@ where
                 advance(&mut progress, MutationStage::Audit)?;
                 self.reconcile(&principal, &actor, &request, &effect, verifier)?;
                 advance(&mut progress, MutationStage::Reconcile)?;
-                Ok(receipt(
-                    &transaction_id,
-                    snapshot.binding_digest.as_str(),
-                    &effect,
-                    None,
-                    &verification,
-                    &snapshot.state,
-                    true,
-                    &progress,
-                ))
+                Ok(receipt(ReceiptContext {
+                    transaction_id: &transaction_id,
+                    plan_id: snapshot.binding_digest.as_str(),
+                    effect: &effect,
+                    execution: None,
+                    verification: &verification,
+                    final_state: &snapshot.state,
+                    recovered: true,
+                    progress: &progress,
+                }))
             }
             TransactionState::Aborted | TransactionState::RecoveryBlocked => {
                 Err(ManagedLifecycleError::TerminalState(format!(
@@ -523,16 +522,16 @@ where
                 advance(&mut progress, MutationStage::Audit)?;
                 self.reconcile(&principal, &actor, &request, &effect, verifier)?;
                 advance(&mut progress, MutationStage::Reconcile)?;
-                Ok(receipt(
-                    &transaction_id,
-                    &plan_id,
-                    &effect,
-                    None,
-                    &verification,
-                    &committed.state,
-                    true,
-                    &progress,
-                ))
+                Ok(receipt(ReceiptContext {
+                    transaction_id: &transaction_id,
+                    plan_id: &plan_id,
+                    effect: &effect,
+                    execution: None,
+                    verification: &verification,
+                    final_state: &committed.state,
+                    recovered: true,
+                    progress: &progress,
+                }))
             }
             DurableRecoveryOutcome::Reprepared(_) => Err(ManagedLifecycleError::Indeterminate(
                 "independent verification proves the intended effect absent; durable authority is safely reprepared but execution requires a new explicit invocation"
@@ -782,72 +781,16 @@ fn validate_operation_id(operation_id: &str) -> Result<(), ManagedLifecycleError
 fn validate_request_identity(
     request: &PlanDesiredStateRequest,
 ) -> Result<(), ManagedLifecycleError> {
-    let value = request.request_id.as_str();
-    let rest = value.strip_prefix(MANAGED_REQUEST_PREFIX).ok_or_else(|| {
-        ManagedLifecycleError::InvalidRequestIdentity(format!(
-            "request id must begin with {MANAGED_REQUEST_PREFIX}"
-        ))
-    })?;
-    let (operation_id, supplied_digest) = rest.rsplit_once(':').ok_or_else(|| {
-        ManagedLifecycleError::InvalidRequestIdentity(
-            "request id must contain an operation id and body digest".into(),
-        )
-    })?;
-    validate_operation_id(operation_id)?;
-    if supplied_digest.len() != MANAGED_REQUEST_DIGEST_HEX_BYTES
-        || !supplied_digest
-            .as_bytes()
-            .iter()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-    {
-        return Err(ManagedLifecycleError::InvalidRequestIdentity(
-            "request body digest must be 64 lowercase hexadecimal digits".into(),
-        ));
-    }
-    let expected = managed_request_digest(operation_id, request);
-    if supplied_digest != expected {
-        return Err(ManagedLifecycleError::InvalidRequestIdentity(
-            "request id does not bind the exact provider/resource/capability/reason/desired-state body"
-                .into(),
-        ));
-    }
-    Ok(())
-}
-
-fn managed_request_digest(operation_id: &str, request: &PlanDesiredStateRequest) -> String {
-    let mut hasher = Sha256::new();
-    put_digest_field(&mut hasher, b"linura.managed-request.v0.6.v1");
-    put_digest_field(&mut hasher, operation_id.as_bytes());
-    put_digest_field(&mut hasher, request.provider.as_str().as_bytes());
-    put_digest_field(&mut hasher, request.resource.as_str().as_bytes());
-    put_digest_field(
-        &mut hasher,
-        request.observation_capability.as_str().as_bytes(),
-    );
-    put_digest_field(&mut hasher, request.reason.summary.as_bytes());
-    for id in &request.reason.intent_ids {
-        put_digest_field(&mut hasher, b"intent");
-        put_digest_field(&mut hasher, id.as_str().as_bytes());
-    }
-    for id in &request.reason.requirement_ids {
-        put_digest_field(&mut hasher, b"requirement");
-        put_digest_field(&mut hasher, id.as_str().as_bytes());
-    }
-    for id in &request.reason.capability_ids {
-        put_digest_field(&mut hasher, b"capability");
-        put_digest_field(&mut hasher, id.as_str().as_bytes());
-    }
-    for (key, value) in &request.desired_state {
-        put_digest_field(&mut hasher, key.as_bytes());
-        put_digest_field(&mut hasher, value.as_bytes());
-    }
-    format!("{:x}", hasher.finalize())
-}
-
-fn put_digest_field(hasher: &mut Sha256, value: &[u8]) {
-    let len = u64::try_from(value.len()).unwrap_or(u64::MAX);
-    hasher.update(len.to_be_bytes());
-    hasher.update(value);
+    let operation_id = request
+        .request_id
+        .as_str()
+        .strip_prefix(MANAGED_REQUEST_PREFIX)
+        .ok_or_else(|| {
+            ManagedLifecycleError::InvalidRequestIdentity(format!(
+                "request id must begin with {MANAGED_REQUEST_PREFIX}"
+            ))
+        })?;
+    validate_operation_id(operation_id)
 }
 
 fn now_unix_seconds() -> Result<u64, ManagedLifecycleError> {
@@ -877,16 +820,28 @@ fn progress_through(last: MutationStage) -> Result<MutationProgress, ManagedLife
     Ok(progress)
 }
 
-fn receipt(
-    transaction_id: &TransactionId,
-    plan_id: &str,
-    effect: &EffectDescriptor,
-    execution: Option<&ExecutionOutcome>,
-    verification: &VerificationOutcome,
-    final_state: &TransactionState,
+struct ReceiptContext<'a> {
+    transaction_id: &'a TransactionId,
+    plan_id: &'a str,
+    effect: &'a EffectDescriptor,
+    execution: Option<&'a ExecutionOutcome>,
+    verification: &'a VerificationOutcome,
+    final_state: &'a TransactionState,
     recovered: bool,
-    progress: &MutationProgress,
-) -> ManagedMutationReceipt {
+    progress: &'a MutationProgress,
+}
+
+fn receipt(context: ReceiptContext<'_>) -> ManagedMutationReceipt {
+    let ReceiptContext {
+        transaction_id,
+        plan_id,
+        effect,
+        execution,
+        verification,
+        final_state,
+        recovered,
+        progress,
+    } = context;
     let desired_active_state = String::from_utf8_lossy(&effect.canonical_payload)
         .lines()
         .find_map(|line| line.strip_prefix("active_state="))
@@ -977,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn request_id_binds_operation_and_exact_body() {
+    fn request_id_is_stable_operation_namespace() {
         let request = request("systemd:unit:linura-managed-example.service", "active");
         assert!(validate_request_identity(&request).is_ok());
 
@@ -985,7 +940,11 @@ mod tests {
         substituted
             .desired_state
             .insert("active_state".into(), "inactive".into());
-        assert!(validate_request_identity(&substituted).is_err());
+        assert_eq!(
+            request.request_id,
+            managed_request_id("test-operation", &substituted)
+                .unwrap_or_else(|error| unreachable!("{error}"))
+        );
 
         let mut other_operation = request.clone();
         other_operation.request_id = managed_request_id("other-operation", &other_operation)

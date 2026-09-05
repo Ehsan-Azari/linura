@@ -687,6 +687,25 @@ where
             .map_err(Into::into)
     }
 
+    /// Prove that a stable request namespace still carries the exact
+    /// canonical request material sealed into durable authority.
+    pub fn assert_request_matches(
+        &self,
+        principal: &AuthenticatedPrincipal,
+        request: &PlanDesiredStateRequest,
+    ) -> Result<(), DurableAuthorityError> {
+        let principal_id = PrincipalId::new(principal.as_str().to_owned())
+            .map_err(|error| DurableAuthorityError::Preview(error.to_string()))?;
+        let transaction_id = TransactionId::for_namespace(&principal_id, &request.request_id);
+        let anchor = self.transactions.recovery_anchor(&transaction_id)?;
+        if anchor.snapshot.principal != principal_id
+            || anchor.snapshot.request_id != request.request_id
+            || anchor.request_digest != digest_request(request)?
+        {
+            return Err(DurableAuthorityError::RecoveryRequestMismatch);
+        }
+        Ok(())
+    }
     pub fn integrity_check(&self) -> Result<(), DurableAuthorityError> {
         self.transactions.integrity_check().map_err(Into::into)
     }
