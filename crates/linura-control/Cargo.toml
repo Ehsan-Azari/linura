@@ -20,5 +20,8 @@ linura-provider-sdk = { path = "../linura-provider-sdk" }
 linura-transaction = { path = "../linura-transaction" }
 sha2 = "0.10"
 
+[dev-dependencies]
+linura-persistence-sqlite = { path = "../linura-persistence-sqlite" }
+
 [lints]
 workspace = true
