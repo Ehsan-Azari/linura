@@ -107,6 +107,7 @@ jobs:
           install -m 0755 "$binary_root/linura-firstboot" "$PAYLOAD_DIR/linura-firstboot"
           install -m 0755 "$binary_root/linura-update-guard" "$PAYLOAD_DIR/linura-update-guard"
           install -m 0755 "$binary_root/linura-executor-systemd" "$PAYLOAD_DIR/linura-executor-systemd"
+          install -m 0755 "$binary_root/linura-authorityd" "$PAYLOAD_DIR/linura-authorityd"
           printf '%s\n' "$SOURCE_SHA" > "$PAYLOAD_DIR/SOURCE_SHA"
           printf '%s\n' "$RELEASE_TAG" > "$PAYLOAD_DIR/RELEASE_TAG"
           cp "docs/releases/${RELEASE_TAG}.md" "$PAYLOAD_DIR/RELEASE_NOTES.md"
@@ -156,6 +157,7 @@ jobs:
             "$PAYLOAD_DIR/linura-firstboot" \
             "$PAYLOAD_DIR/linura-update-guard" \
             "$PAYLOAD_DIR/linura-executor-systemd" \
+            "$PAYLOAD_DIR/linura-authorityd" \
             --version "$RELEASE_TAG" \
             --source-sha "$SOURCE_SHA"
           python3 tools/release_contract.py evidence \
@@ -168,6 +170,7 @@ jobs:
             --artifact "$PAYLOAD_DIR/linura-firstboot" \
             --artifact "$PAYLOAD_DIR/linura-update-guard" \
             --artifact "$PAYLOAD_DIR/linura-executor-systemd" \
+            --artifact "$PAYLOAD_DIR/linura-authorityd" \
             --artifact "$PAYLOAD_DIR/linura.spdx.json" \
             --artifact "$PAYLOAD_DIR/BUILD-ENVIRONMENT.json" \
             --artifact "$PAYLOAD_DIR/SOURCE_SHA" \
@@ -179,6 +182,7 @@ jobs:
             "$PAYLOAD_DIR/linura-firstboot" \
             "$PAYLOAD_DIR/linura-update-guard" \
             "$PAYLOAD_DIR/linura-executor-systemd" \
+            "$PAYLOAD_DIR/linura-authorityd" \
             "$PAYLOAD_DIR/linura.spdx.json" \
             "$PAYLOAD_DIR/BUILD-ENVIRONMENT.json" \
             "$PAYLOAD_DIR/SOURCE_SHA" \
@@ -317,7 +321,8 @@ jobs:
             linuractl \
             linura-firstboot \
             linura-update-guard \
-            linura-executor-systemd; do
+            linura-executor-systemd \
+            linura-authorityd; do
             cmp "$binary_root/$binary" "proven/release-payload/$binary" || {
               sha256sum "$binary_root/$binary" "proven/release-payload/$binary" >&2
               echo "reproducibility mismatch: $binary" >&2

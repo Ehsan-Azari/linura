@@ -34,7 +34,7 @@ REQUIRED = [
     "crates/linura-config/Cargo.toml", "crates/linura-hardware/Cargo.toml", "crates/linura-testkit/Cargo.toml",
     "crates/linura-lifecycle/Cargo.toml", "apps/linura-update-guard/Cargo.toml", "tools/xtask/Cargo.toml",
     "apps/linura-firstboot/Cargo.toml", "apps/linura-control-center/README.md", "apps/linura-agent-ui/README.md", "apps/linura-shell/README.md",
-    "interfaces/dbus/org.linura.Control1.xml", ".cargo/config.toml",
+    "interfaces/dbus/org.linura.Control1.xml", "interfaces/dbus/org.linura.Authority1.xml", ".cargo/config.toml",
     "scripts/validate_assets.py", "tools/acceptance.py", "tools/vm.py", "tools/image.py", "tools/visual.py",
     "hardware/support-matrix.json", "packaging/arch/archiso/profiledef.sh", "packaging/arch/hooks/95-linura-update-guard.hook",
     "schemas/intent.v1.schema.json", "schemas/intent-proposal.v1.schema.json", "schemas/setup.v1.schema.json", "schemas/portable-profile.v1.schema.json",
