@@ -20,5 +20,8 @@ linura-transaction = { path = "../../crates/linura-transaction" }
 linura-verifier-systemd = { path = "../../verifiers/linura-verifier-systemd" }
 zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
 
+[dev-dependencies]
+linura-observation = { path = "../../crates/linura-observation" }
+
 [lints]
 workspace = true

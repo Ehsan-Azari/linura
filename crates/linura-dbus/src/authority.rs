@@ -2,9 +2,7 @@ use std::fmt::{Debug, Formatter};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
-use linura_control::{
-    AuthenticatedPrincipal, ManagedMutationReceipt, TrustedHumanApproval,
-};
+use linura_control::{AuthenticatedPrincipal, ManagedMutationReceipt, TrustedHumanApproval};
 use linura_core::{Actor, ActorId, ActorKind, PrincipalId};
 use zbus::message::Header;
 
@@ -259,12 +257,7 @@ mod tests {
         let method = "<method name=\"ConvergeSystemdActiveState\">";
         assert!(canonical.contains(method));
         assert!(live.contains(method));
-        for argument in [
-            "operation_id",
-            "unit",
-            "desired_active_state",
-            "reason",
-        ] {
+        for argument in ["operation_id", "unit", "desired_active_state", "reason"] {
             let marker = format!("name=\"{argument}\" type=\"s\" direction=\"in\"");
             assert!(canonical.contains(&marker), "canonical {argument}");
             assert!(live.contains(&marker), "live {argument}");

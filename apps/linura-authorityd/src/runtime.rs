@@ -115,16 +115,12 @@ fn managed_request(wire: &Authority1ManagedRequest) -> Result<PlanDesiredStateRe
         reason: SemanticReason {
             summary: wire.reason.clone(),
             intent_ids: vec![
-                IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN)
-                    .map_err(|error| error.to_string())?,
+                IntentId::new(MANAGED_SYSTEMD_INTENT_ORIGIN).map_err(|error| error.to_string())?,
             ],
             requirement_ids: vec![],
             capability_ids: vec![],
         },
-        desired_state: BTreeMap::from([(
-            "active_state".to_owned(),
-            state.as_str().to_owned(),
-        )]),
+        desired_state: BTreeMap::from([("active_state".to_owned(), state.as_str().to_owned())]),
     };
     request.request_id =
         managed_request_id(&wire.operation_id, &request).map_err(|error| error.to_string())?;
@@ -132,7 +128,8 @@ fn managed_request(wire: &Authority1ManagedRequest) -> Result<PlanDesiredStateRe
 }
 
 fn prepare_state_dir(path: &Path) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|error| format!("cannot create authority state dir: {error}"))?;
+    fs::create_dir_all(path)
+        .map_err(|error| format!("cannot create authority state dir: {error}"))?;
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if !metadata.is_dir() {
         return Err("authority state path is not a directory".into());
@@ -158,11 +155,17 @@ fn load_or_create_secret(path: &Path) -> Result<Vec<u8>, String> {
 
 fn validate_secret_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if bytes.len() != SECRET_BYTES || bytes.iter().all(|byte| *byte == 0) {
-        return Err(format!("{} is not a non-zero 256-bit secret", path.display()));
+        return Err(format!(
+            "{} is not a non-zero 256-bit secret",
+            path.display()
+        ));
     }
     let metadata = fs::metadata(path).map_err(|error| error.to_string())?;
     if metadata.permissions().mode() & 0o077 != 0 {
-        return Err(format!("{} permissions are broader than 0600", path.display()));
+        return Err(format!(
+            "{} permissions are broader than 0600",
+            path.display()
+        ));
     }
     Ok(())
 }
@@ -223,7 +226,10 @@ mod tests {
             "systemd:unit:linura-managed-example.service"
         );
         assert_eq!(
-            request.desired_state.get("active_state").map(String::as_str),
+            request
+                .desired_state
+                .get("active_state")
+                .map(String::as_str),
             Some("active")
         );
         assert_eq!(request.reason.intent_ids.len(), 1);

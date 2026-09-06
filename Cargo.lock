@@ -492,11 +492,12 @@ dependencies = [
 name = "linura-authorityd"
 version = "0.5.0"
 dependencies = [
- "blocking",
  "linura-control",
  "linura-core",
+ "linura-dbus",
  "linura-executor-systemd",
  "linura-linux-observation",
+ "linura-observation",
  "linura-observation-control",
  "linura-persistence-sqlite",
  "linura-protocol",
@@ -531,7 +532,6 @@ dependencies = [
  "linura-lifecycle",
  "linura-observation",
  "linura-observation-control",
- "linura-persistence-sqlite",
  "linura-planner",
  "linura-policy",
  "linura-protocol",

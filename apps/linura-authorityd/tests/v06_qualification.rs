@@ -21,7 +21,7 @@ use linura_provider_sdk::{
 };
 use linura_transaction::TransactionAuthorityKey;
 
-use crate::{
+use linura_control::{
     AuthenticatedPrincipal, AuthorizedEffect, AuthorizedEffectExecutor, IndependentManagedVerifier,
     MANAGED_SYSTEMD_INTENT_ORIGIN, ManagedLifecycleControl, ManagedLifecycleError,
     ManagedMutationReceipt, PlanPreviewControl, TrustedHumanApproval, managed_request_id,
